@@ -1,0 +1,26 @@
+# Secrets
+backend/.env
+
+# Python
+backend/.venv/
+backend/.venv-export/
+**/__pycache__/
+.pytest_cache/
+
+# Speech model: 3.6 GB, rebuilt with backend/tools/export_model.py. vocab.json is small and is kept.
+backend/models/*
+!backend/models/vocab.json
+
+# Personal data: sentence library, attempts, voice reference, audio cache
+backend/data/
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/.env*.local
+
+# OS and editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
