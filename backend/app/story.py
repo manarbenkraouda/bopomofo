@@ -447,7 +447,7 @@ def rules_cards(facts: dict, ctx: dict, gate: bool) -> list[dict]:
 
 # ---------- the model calls ----------
 
-STORY_COMMON = """You write for the coach of Zhuyin Studio, a private app for one adult who learns Taiwan Mandarin and Bopomofo (Zhuyin).
+STORY_COMMON = """You write for the coach of bopomofo, a private app for one adult who learns Taiwan Mandarin and Bopomofo (Zhuyin).
 The learner reads your words on animated cards, like Spotify Wrapped, or as the headline of today's plan.
 Voice: warm, playful, kind, reassuring. Short sentences (at most 12 words). Plain everyday words. Speak to the learner ("you").
 A light joke or a playful image is welcome; never mock, never scold. No jargon, no JSON field names, no internal names.

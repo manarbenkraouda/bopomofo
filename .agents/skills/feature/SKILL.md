@@ -1,6 +1,6 @@
 ---
 name: feature
-description: Add or change a feature of Zhuyin Studio (this repo's Mandarin and Bopomofo practice app) end to end, so its answers are tracked in detail, shown in the stats, and used by the coach to build plans. Use for a new practice mode, quiz, content type, or skill area, or a change to what an existing mode asks. Not for a bug fix or a style change that does not change what is practiced.
+description: Add or change a feature of bopomofo (this repo's Mandarin and Bopomofo practice app) end to end, so its answers are tracked in detail, shown in the stats, and used by the coach to build plans. Use for a new practice mode, quiz, content type, or skill area, or a change to what an existing mode asks. Not for a bug fix or a style change that does not change what is practiced.
 ---
 
 # Feature

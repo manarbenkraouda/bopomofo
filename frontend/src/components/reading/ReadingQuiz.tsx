@@ -249,9 +249,9 @@ export function ReadingQuiz() {
         </div>
       </div>
 
-      {health === "down" && <div className="card p-3 text-sm text-bad">The backend is not reachable. Start it with start.cmd.</div>}
+      {health === "down" && <div className="card p-3 text-sm text-bad">Can&apos;t connect right now. Please try again in a moment.</div>}
       {health && health !== "down" && health.speech_model !== "ready" && (
-        <div className="card p-3 text-sm text-rough">{health.speech_model === "loading" ? "The speech model is loading (a few seconds)…" : "Speech model error: " + health.speech_error}</div>
+        <div className="card p-3 text-sm text-rough">{health.speech_model === "loading" ? "The speech check is getting ready (a few seconds)…" : "The speech check is not available right now. Please try again later."}</div>
       )}
 
       {cur && (
@@ -268,7 +268,7 @@ export function ReadingQuiz() {
               <>
                 <div className="text-ok text-lg font-semibold cjk">✓ {name}</div>
                 {last?.lenient && (
-                  <div className="text-sm text-rough max-w-md cjk">Passed, but the speech model heard {last.heard}. It hears {cur.sym} and {last.heard} almost the same, so compare yourself with the recording.</div>
+                  <div className="text-sm text-rough max-w-md cjk">Passed! {cur.sym} and {last.heard} sound almost the same, so compare yourself with the recording.</div>
                 )}
               </>
             ) : revealed && name ? (
@@ -305,7 +305,7 @@ export function ReadingQuiz() {
             )}
             <button className="btn" onClick={reveal}>{revealed ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd></button>
             {canSkip && (
-              <button className="btn text-muted" onClick={skip} title="The speech model may not hear this one well in your voice">Skip <Kbd>N</Kbd></button>
+              <button className="btn text-muted" onClick={skip} title="Skip this symbol for now">Skip <Kbd>N</Kbd></button>
             )}
           </ActionBar>
           {error && <div className="text-bad text-sm">{error}</div>}

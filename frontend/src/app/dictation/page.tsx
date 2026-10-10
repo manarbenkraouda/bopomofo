@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { WritingQuiz } from "@/components/dictation/WritingQuiz";
 
-export const metadata = { title: "Dictation · Zhuyin Studio" };
+export const metadata = { title: "Dictation · bopomofo" };
 
 export default function Page() {
   return (

@@ -54,12 +54,14 @@ def speaking_units(res: dict) -> list[dict]:
     return out
 
 
-def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None):
+def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0):
     mode = mode if mode in ("sentence", "syllable", "custom") else ("syllable" if len(text) == 1 else "sentence")
-    db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": res["score"] >= 80, "score": res["score"],
+    ok = res["score"] >= 80
+    db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": ok, "score": res["score"],
+                  "first_try": ok and not help and try_n == 0, "tries": try_n + 1, "help": help,
                   "details": {"heard": res.get("heard_raw"), "extra": len(res.get("extra") or []),
                               "audio_seconds": (res.get("timing") or {}).get("audio_seconds"), **({"step": step} if step else {})},
-                  "units": speaking_units(res)})
+                  "units": [{**u, "help": help, "try_n": try_n} for u in speaking_units(res)]})
 
 
 # ---------- helpers ----------

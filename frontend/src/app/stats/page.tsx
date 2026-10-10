@@ -1,6 +1,6 @@
 import { Stats } from "@/components/stats/Stats";
 
-export const metadata = { title: "Stats · Zhuyin Studio" };
+export const metadata = { title: "Stats · bopomofo" };
 
 export default function Page() {
   return (

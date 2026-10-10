@@ -158,10 +158,10 @@ function Rail({ path }: { path: string }) {
 type Status = { cls: string; label: string; tip: string; ok: boolean };
 const statusOf = (health: Health | null | "down"): Status =>
   health === null ? { cls: "bg-muted", label: "Connecting…", tip: "", ok: true }
-    : health === "down" ? { cls: "bg-bad", label: "Backend off", tip: "The backend is not reachable. Start it with start.cmd.", ok: false }
-    : health.speech_model === "ready" ? { cls: "bg-ok", label: "Ready", tip: "Speech model ready · Sentences: " + (health.llm_configured ? health.llm_model : "no API key"), ok: true }
-    : health.speech_model === "loading" ? { cls: "bg-rough animate-pulse", label: "Model loading", tip: "The speech model is loading (a few seconds).", ok: false }
-    : { cls: "bg-bad", label: "Model error", tip: "Speech model error: " + (health.speech_error ?? ""), ok: false };
+    : health === "down" ? { cls: "bg-bad", label: "Offline", tip: "Can't connect right now. Please try again in a moment.", ok: false }
+    : health.speech_model === "ready" ? { cls: "bg-ok", label: "Ready", tip: "Everything is ready.", ok: true }
+    : health.speech_model === "loading" ? { cls: "bg-rough animate-pulse", label: "Getting ready…", tip: "The speech check is getting ready (a few seconds).", ok: false }
+    : { cls: "bg-bad", label: "Speech check off", tip: "The speech check is not available right now. The other exercises still work.", ok: false };
 
 function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, onHelp, onPalette }: {
   route: RouteInfo; status: Status; dayStreak: number | null; today: Today; sfxOn: boolean; full: boolean;
@@ -254,7 +254,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
       ) : (
         <div className="flex h-14 items-center gap-2.5 px-4">
           <span className={"cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg " + (route.area === "home" ? "bg-accent text-white" : "bg-accent-soft text-accent")}>{route.area === "home" ? "注" : route.icon}</span>
-          <div className="min-w-0 flex-1 truncate font-semibold">{route.area === "home" ? "Zhuyin Studio" : route.label}</div>
+          <div className="min-w-0 flex-1 truncate font-semibold">{route.area === "home" ? "bopomofo" : route.label}</div>
           <span className="hud !h-8 !px-2.5" title="Days in a row with practice">🔥<b className="tabular-nums">{dayStreak ?? "–"}</b></span>
           <span className="hud !h-8 !px-2.5">{combo}</span>
           <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>{sfxOn ? "🔊" : "🔇"}</button>

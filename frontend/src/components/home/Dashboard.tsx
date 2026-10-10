@@ -227,7 +227,7 @@ function CoachCard({ st }: { st: CoachState }) {
           ) : (
             <div className="mt-3 flex items-center gap-3 text-sm text-muted">
               <span className="cjk grid h-10 w-10 animate-pulse place-items-center rounded-xl bg-accent-soft text-xl text-accent">練</span>
-              The coach is building your plan from your stats: {st.stage || "starting"}…
+              The coach is preparing your plan: {st.stage || "getting started"}…
             </div>
           )}
         </div>

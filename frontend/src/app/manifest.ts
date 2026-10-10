@@ -3,8 +3,8 @@ import type { MetadataRoute } from "next";
 // "Add to Home Screen" on a phone opens the app full screen, without the browser bars.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Zhuyin Studio",
-    short_name: "Zhuyin",
+    name: "bopomofo",
+    short_name: "bopomofo",
     description: "Learn Bopomofo: reading, writing, listening, and speaking with tone feedback.",
     start_url: "/",
     display: "standalone",

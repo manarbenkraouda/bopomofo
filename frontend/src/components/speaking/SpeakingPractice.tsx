@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { api, ttsUrl, type Health, type Sentence, type SpeechResult, type Syl, type TextItem } from "@/lib/api";
 import { playAudio } from "@/lib/audio";
@@ -12,102 +13,168 @@ import { PlayButton } from "@/components/PlayButton";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { PitchChart } from "@/components/PitchChart";
-import { ZhuyinText, type Annot } from "@/components/ZhuyinText";
-import { FxFrame, StatusPill, useCountUp, type FxStatus } from "@/components/quiz/Feedback";
+import { ZhuyinText } from "@/components/ZhuyinText";
+import { Burst, FxFrame, StatusPill, useCountUp, type FxStatus } from "@/components/quiz/Feedback";
 import { Kbd } from "@/components/shell/Kbd";
 
 type Source = "sentence" | "syllable" | "custom";
-type Target = { text: string; items: TextItem[]; english?: string; audio: string; slow?: string };
-const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 ? "close" : "wrong");
+type Card = { text: string; items: TextItem[]; english?: string; audio: string; slow?: string };
 const SOURCES: Source[] = ["sentence", "syllable", "custom"];
-const ANNOTS: Annot[] = ["zhuyin", "pinyin", "none"];
+const SOURCE_LABEL: Record<Source, string> = { sentence: "Sentences", syllable: "Syllables", custom: "My own text" };
+const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 ? "close" : "wrong");
+const verdict = (score: number) => (score >= 85 ? "Excellent! " : score >= 60 ? "Almost: " : "Keep practicing: ") + score;
+const shuffle = <T,>(a: T[]) => a.map((x) => [Math.random(), x] as const).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
 /** For speaking, a tone focus means the tone as said (after tone changes). */
 const sylMatch = (i: Syl, f: Focus) => (!f.tones.length || f.tones.includes(i.surface_tone)) && (!f.syms.length || f.syms.some((x) => (i.initial + i.final).includes(x)));
+/** The Pinyin of a text, with the punctuation kept next to the word before it. */
+const pinyinOf = (items: TextItem[]) => items.map((i) => (i.type === "syllable" ? i.pinyin : i.text)).join(" ").replace(/\s+([，。！？、；：,.!?;:])/g, "$1");
+const sentenceCard = (s: Sentence): Card => ({ text: s.hanzi, items: s.items, english: s.english, audio: ttsUrl(s.hanzi), slow: ttsUrl(s.hanzi, -35) });
 
+/**
+ * Speaking, as a quiz: one card at a time. Read it aloud and record.
+ * The model audio and the Pinyin are the cheat: they unlock with one button (Space), and the recordings after it count as helped.
+ */
 export function SpeakingPractice() {
+  const params = useSearchParams();
   const [health, setHealth] = useState<Health | null>(null);
-  const [source, setSource] = useState<Source>("sentence");
-  const [allSentences, setSentences] = useState<Sentence[]>([]);
+  const [source, setSource] = useState<Source>(() => (params.get("text") ? "custom" : params.get("source") === "syllable" ? "syllable" : params.get("source") === "custom" ? "custom" : "sentence"));
+  const [allSentences, setSentences] = useState<Sentence[] | null>(null);
   const [allSylls, setSylls] = useState<SyllableItem[]>([]);
-  const [target, setTarget] = useState<Target | null>(null);
-  const [annot, setAnnot] = useState<Annot>("zhuyin");
-  const [custom, setCustom] = useState("");
+  const [card, setCard] = useState<Card | null>(null);
+  const [deck, setDeck] = useState<number[]>([]); // sentence ids, in quiz order
+  const [pos, setPos] = useState(0);
+  const [custom, setCustom] = useState(params.get("text") ?? "");
+  const [bopo, setBopo] = useState(true);
+  const [cheated, setCheated] = useState(false);
   const [rec, setRec] = useState<"idle" | "recording" | "analyzing">("idle");
   const [level, setLevel] = useState(0);
   const [result, setResult] = useState<SpeechResult | null>(null);
   const [mine, setMine] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [listOpen, setListOpen] = useState(false); // phone and tablet: the list is a bottom sheet
-  const { w: vw } = useViewport();
   const [fxKey, setFxKey] = useState(0);
-  const [session, setSession] = useState({ streak: 0, best: 0 });
+  const [session, setSession] = useState({ n: 0, sum: 0, streak: 0 });
+  const { w: vw } = useViewport();
   const recorder = useRef<Recorder | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  // The focus from the stats screen (?tones=3 or ?syms=ㄓ) narrows both lists. With no match, the full list stays.
+  const loadId = useRef(0);
+  // The card in progress: the cheat and the number of recordings already checked, for the stats.
+  const meta = useRef({ card: null as Card | null, cheat: false, tries: 0 });
+  const firstSentence = useRef(Number(params.get("sentence")) || 0);
   const focus = useFocus();
-  const sourceParam = useSearchParams().get("source");
-  // Coach sentences (?ids=) come in the coach's order. Other focus filters keep the sentences that contain the tone or sound.
-  const fSent = useMemo(() => (focus.ids.length ? focus.ids.map((id) => allSentences.find((s) => s.id === id)).filter((s): s is Sentence => !!s)
-    : focus.active ? allSentences.filter((s) => s.items.some((i) => i.type === "syllable" && sylMatch(i, focus))) : allSentences), [allSentences, focus]);
+
+  // The focus from the stats or the coach narrows the cards. Coach sentences (?ids=) keep the coach's order. With no match, all cards stay.
+  const fSent = useMemo(() => {
+    const all = allSentences ?? [];
+    if (focus.ids.length) return focus.ids.map((id) => all.find((s) => s.id === id)).filter((s): s is Sentence => !!s);
+    return focus.active ? all.filter((s) => s.items.some((i) => i.type === "syllable" && sylMatch(i, focus))) : all;
+  }, [allSentences, focus]);
   const fSyl = useMemo(() => allSylls.filter((s) => matches(s.zhuyin, focus)), [allSylls, focus]);
-  const sentences = fSent.length ? fSent : allSentences;
+  const sentences = fSent.length ? fSent : allSentences ?? [];
   const sylls = fSyl.length ? fSyl : allSylls;
+  const sentenceKey = sentences.map((s) => s.id).join(",");
+  const syllKey = sylls.map((s) => s.id).join(",");
+
+  const clearRecording = () => { setResult(null); setError(""); setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
+  const show = useCallback((c: Card | null) => {
+    clearRecording();
+    meta.current = { card: c, cheat: false, tries: 0 };
+    setCheated(false);
+    setCard(c);
+  }, []);
+  const showSyllable = useCallback(async (s: SyllableItem) => {
+    const id = ++loadId.current;
+    const r = await api.analyzeText(s.char).catch(() => null);
+    if (id === loadId.current) show({ text: s.char, items: r?.items ?? [], audio: syllableAudio(s.id) });
+  }, [show]);
+  const applyText = async (t: string) => {
+    const text = t.trim();
+    if (!text) return;
+    const id = ++loadId.current;
+    try {
+      const r = await api.analyzeText(text);
+      if (id !== loadId.current) return;
+      show({ text, items: r.items, audio: ttsUrl(text), slow: ttsUrl(text, -35) });
+      api.translate(text).then((tr) => setCard((cur) => (cur && cur.text === text ? { ...cur, english: tr.english } : cur))).catch(() => {});
+    } catch (e) { setError((e as Error).message); }
+  };
 
   useEffect(() => {
     const poll = () => api.health().then((h) => { setHealth(h); if (h.speech_model === "loading") setTimeout(poll, 2000); }).catch(() => setHealth(null));
     poll();
     loadData().then((d) => setSylls(d.syllables));
-    const q = new URLSearchParams(window.location.search);
-    api.sentences().then((r) => {
-      setSentences(r.sentences);
-      if (q.get("source") === "syllable") return;
-      const sid = Number(q.get("sentence"));
-      const s = r.sentences.find((x) => x.id === sid) ?? (q.get("text") ? undefined : r.sentences[0]);
-      if (s) chooseSentence(s);
-    }).catch((e) => setError(String(e.message ?? e)));
-    const t = q.get("text");
-    if (t) { setSource("custom"); setCustom(t); applyText(t); }
+    api.sentences().then((r) => setSentences(r.sentences)).catch((e) => { setSentences([]); setError(String(e.message ?? e)); });
+    if (params.get("text")) applyText(params.get("text") ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // A link with ?source= picks the list, and with a focus it starts on a random matching item.
+  // A link with ?source= picks the card type.
+  const sourceParam = params.get("source");
+  useEffect(() => { if (sourceParam === "sentence" || sourceParam === "syllable") setSource(sourceParam); }, [sourceParam]);
+  // A new set of sentences starts a new deck: shuffled, or in the coach's order. A link with ?sentence= starts on that one.
   useEffect(() => {
-    if (sourceParam !== "sentence" && sourceParam !== "syllable") return;
-    setSource(sourceParam);
-    if (!focus.active || recorder.current) return;
-    if (sourceParam === "syllable" && fSyl.length) chooseSyllable(fSyl[Math.floor(Math.random() * fSyl.length)]);
-    if (sourceParam === "sentence" && fSent.length) chooseSentence(fSent[0]);
+    if (source !== "sentence" || !sentences.length) return;
+    let ids = sentences.map((s) => s.id);
+    if (!focus.ids.length) ids = shuffle(ids);
+    const first = firstSentence.current;
+    if (first && ids.includes(first)) ids = [first, ...ids.filter((x) => x !== first)];
+    firstSentence.current = 0;
+    loadId.current++;
+    setDeck(ids);
+    setPos(0);
+    show(sentenceCard(sentences.find((s) => s.id === ids[0])!));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceParam, focus, allSylls.length > 0, allSentences.length > 0]);
+  }, [source, sentenceKey]);
+  useEffect(() => {
+    if (source === "syllable" && sylls.length) showSyllable(sylls[Math.floor(Math.random() * sylls.length)]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, syllKey]);
+  useEffect(() => { if (source === "custom" && !params.get("text")) { loadId.current++; show(null); } }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
-  const reset = () => { setResult(null); setError(""); if (mine) URL.revokeObjectURL(mine); setMine(null); };
-  const celebrate = (r: SpeechResult) => {
-    const g = grade(r.score);
-    playSfx(g === "right" ? "right" : g === "close" ? "close" : "wrong");
-    setFxKey((k) => k + 1);
-    setSession((s) => ({ streak: g === "right" ? s.streak + 1 : 0, best: Math.max(s.best, r.score) }));
+  const next = () => {
+    if (rec !== "idle") return;
+    if (source === "sentence" && deck.length) {
+      const p = (pos + 1) % deck.length;
+      const s = sentences.find((x) => x.id === deck[p]);
+      setPos(p);
+      if (s) show(sentenceCard(s));
+    } else if (source === "syllable" && sylls.length) {
+      const others = sylls.filter((s) => s.char !== card?.text);
+      const pool = others.length ? others : sylls;
+      showSyllable(pool[Math.floor(Math.random() * pool.length)]);
+    } else if (source === "custom") {
+      loadId.current++;
+      show(null);
+    }
   };
-  const chooseSentence = (s: Sentence) => { reset(); setListOpen(false); setTarget({ text: s.hanzi, items: s.items, english: s.english, audio: ttsUrl(s.hanzi), slow: ttsUrl(s.hanzi, -35) }); };
-  const chooseSyllable = async (s: SyllableItem) => {
-    reset();
-    setListOpen(false);
-    const r = await api.analyzeText(s.char).catch(() => null);
-    setTarget({ text: s.char, items: r?.items ?? [], audio: syllableAudio(s.id) });
-    playAudio(syllableAudio(s.id));
+
+  const cheat = () => {
+    if (!card) return;
+    meta.current.cheat = true;
+    setCheated(true);
+    playAudio(card.audio);
   };
-  async function applyText(t: string) {
-    reset();
-    setListOpen(false);
+  /** Hearing one syllable is also help for the next recording of this card. */
+  const hearSyllable = (char: string) => { meta.current.cheat = true; setCheated(true); playAudio(ttsUrl(char)); };
+
+  const check = async (audio: Blob) => {
+    const m = meta.current;
+    if (!m.card) return;
+    const c = m.card;
     try {
-      const r = await api.analyzeText(t.trim());
-      setTarget({ text: t.trim(), items: r.items, audio: ttsUrl(t.trim()), slow: ttsUrl(t.trim(), -35) });
-      api.translate(t.trim()).then((tr) => setTarget((cur) => (cur && cur.text === t.trim() ? { ...cur, english: tr.english } : cur))).catch(() => {});
+      const r = await api.speech(audio, c.text, source, { help: m.cheat, tryN: m.tries });
+      if (meta.current.card !== c) return;
+      m.tries += 1;
+      setResult(r);
+      const g = grade(r.score);
+      playSfx(g === "right" ? "right" : g === "close" ? "close" : "wrong");
+      setFxKey((k) => k + 1);
+      setSession((s) => ({ n: s.n + 1, sum: s.sum + r.score, streak: g === "right" ? s.streak + 1 : 0 }));
+      api.health().then(setHealth).catch(() => {});
     } catch (e) { setError((e as Error).message); }
-  }
-
+  };
   const start = async () => {
-    reset();
+    clearRecording();
     try {
       recorder.current = new Recorder();
       recorder.current.onLevel = (v) => setLevel(Math.min(1, v * 8));
@@ -115,200 +182,153 @@ export function SpeakingPractice() {
       setRec("recording");
       timer.current = setTimeout(stop, 15000);
     } catch (e) {
+      recorder.current = null;
       setError("Microphone not available: " + (e as Error).message);
       setRec("idle");
     }
   };
-  const stop = async () => {
+  async function stop() {
     if (timer.current) clearTimeout(timer.current);
     const r = recorder.current;
-    if (!r || !target) return;
+    if (!r) return;
     recorder.current = null;
     setRec("analyzing");
     const { wav, seconds } = await r.stop();
     setLevel(0);
     setMine(URL.createObjectURL(wav));
-    if (seconds < 0.4) { setError("The recording is too short. Hold the button and speak."); setRec("idle"); return; }
+    if (seconds < 0.4) { setError("The recording is too short. Speak, then stop."); setRec("idle"); return; }
     playSfx("tick");
-    try {
-      const r = await api.speech(wav, target.text, source);
-      setResult(r);
-      celebrate(r);
-      api.health().then(setHealth).catch(() => {});
-    } catch (e) { setError((e as Error).message); }
+    await check(wav);
     setRec("idle");
-  };
+  }
   const upload = async (f: File) => {
-    if (!target) return;
-    reset();
+    if (!card) return;
+    clearRecording();
     setMine(URL.createObjectURL(f));
     setRec("analyzing");
-    try { const r = await api.speech(f, target.text, source); setResult(r); celebrate(r); api.health().then(setHealth).catch(() => {}); } catch (e) { setError((e as Error).message); }
+    await check(f);
     setRec("idle");
   };
 
   const marks = useMemo(() => result?.syllables.map((s) => (!s.heard ? "#d23f3f" : s.tone_ok && s.initial_ok !== false && s.final_ok !== false ? "#2f9466" : "#d23f3f")), [result]);
-  const sets = useMemo(() => {
-    const m = new Map<string, SyllableItem[]>();
-    for (const s of sylls) { const k = [...s.zhuyin].filter((c) => !"ˊˇˋ˙".includes(c)).join(""); m.set(k, [...(m.get(k) ?? []), s]); }
-    return [...m.entries()].sort((a, b) => b[1].length - a[1].length);
-  }, [sylls]);
+  const ready = health?.speech_model === "ready";
+  const canRecord = ready && !!card && rec !== "analyzing";
+  const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? deck.length > 0 : sylls.length > 0);
+  const recordToggle = () => { if (rec === "idle") start(); else if (rec === "recording") stop(); };
 
-  // Keyboard: move through the list on the left, record, and listen without the mouse.
-  const flatSylls = useMemo(() => sets.flatMap(([, items]) => items), [sets]);
-  const listLen = source === "sentence" ? sentences.length : source === "syllable" ? flatSylls.length : 0;
-  const go = (d: number) => {
-    if (rec !== "idle") return;
-    if (source === "sentence" && sentences.length) {
-      const i = sentences.findIndex((s) => s.hanzi === target?.text);
-      const s = sentences[i < 0 ? 0 : Math.max(0, Math.min(sentences.length - 1, i + d))];
-      chooseSentence(s);
-      playAudio(ttsUrl(s.hanzi));
-    } else if (source === "syllable" && flatSylls.length) {
-      const i = flatSylls.findIndex((s) => s.char === target?.text);
-      chooseSyllable(flatSylls[i < 0 ? 0 : Math.max(0, Math.min(flatSylls.length - 1, i + d))]);
-    }
-  };
-  useEffect(() => { listRef.current?.querySelector('[data-current="true"]')?.scrollIntoView({ block: "nearest" }); }, [target, source]);
-  const canRecord = health?.speech_model === "ready" && !!target && rec !== "analyzing";
   useHotkeys("speaking", [
-    { keys: ["KeyR"], label: rec === "recording" ? "Stop" : "Record", run: () => { if (rec === "idle") start(); else if (rec === "recording") stop(); }, when: canRecord },
-    { keys: ["Space"], label: "Listen", run: () => target && playAudio(target.audio), when: !!target },
-    { keys: ["Shift+Space"], label: "Slow", run: () => target?.slow && playAudio(target.slow), when: !!target?.slow },
-    { keys: ["KeyP"], label: "My recording", run: () => mine && playAudio(mine), when: !!mine },
-    { keys: ["Enter"], label: "Next", run: () => go(1), when: !!result && listLen > 0 && rec === "idle" },
-    { keys: ["ArrowDown", "KeyJ"], label: "Next in the list", run: () => go(1), when: listLen > 0, repeat: true, bar: false },
-    { keys: ["ArrowUp", "KeyK"], label: "Previous in the list", run: () => go(-1), when: listLen > 0, repeat: true, bar: false },
-    { keys: [], label: "List", show: ["↑", "↓"], when: listLen > 0 },
-    { keys: ["KeyZ"], label: "Bopomofo, Pinyin, or none", run: () => setAnnot(ANNOTS[(ANNOTS.indexOf(annot) + 1) % ANNOTS.length]), bar: false },
-    { keys: ["KeyU"], label: "Upload a recording", run: () => fileRef.current?.click(), when: !!target && rec === "idle", bar: false },
-    { keys: ["Ctrl+Enter"], label: "Practice this text", run: () => applyText(custom), when: source === "custom" && !!custom.trim(), input: true, bar: false },
-    ...cycleKeys("Source", SOURCES, source, setSource),
+    { keys: ["KeyR"], label: rec === "recording" ? "Stop" : result ? "Try again" : "Record", run: recordToggle, when: canRecord },
+    { keys: ["Space"], label: cheated ? "Hear it again" : "Cheat: hear it", run: cheat, when: !!card },
+    { keys: ["Shift+Space"], label: "Slow", run: () => card?.slow && playAudio(card.slow), when: cheated && !!card?.slow },
+    { keys: ["KeyP"], label: "My recording", run: () => mine && playAudio(mine), when: !!mine && rec === "idle" },
+    { keys: ["Enter"], label: source === "custom" ? "New text" : "Next", run: next, when: canNext && !!result },
+    { keys: ["KeyN"], label: "Skip", run: next, when: canNext && !result && source !== "custom" },
+    { keys: ["KeyZ"], label: bopo ? "Hide Bopomofo" : "Show Bopomofo", run: () => setBopo((b) => !b), bar: false },
+    { keys: ["KeyU"], label: "Upload a recording", run: () => fileRef.current?.click(), when: !!card && rec === "idle" && ready, bar: false },
+    { keys: ["Ctrl+Enter"], label: "Practice this text", run: () => applyText(custom), when: source === "custom" && !card && !!custom.trim(), input: true, bar: false },
+    ...cycleKeys("Card type", SOURCES, source, setSource),
   ]);
 
-  const single = target ? target.items.filter((x) => x.type === "syllable").length === 1 : false;
-  const position = source === "sentence" ? sentences.findIndex((s) => s.hanzi === target?.text) : source === "syllable" ? flatSylls.findIndex((s) => s.char === target?.text) : -1;
+  const single = card ? card.items.filter((x) => x.type === "syllable").length === 1 : false;
+  const phone = vw < PHONE;
   const fx: FxStatus = rec === "recording" ? "hearing" : rec === "analyzing" ? "checking" : result ? grade(result.score) : "idle";
-  const pillLabel = rec === "recording" ? (vw < PHONE ? "Recording… tap Stop when done" : "Recording… press R to stop") : rec === "analyzing" ? "Analyzing…" : result
-    ? (result.score >= 85 ? "Excellent! " : result.score >= 60 ? "Almost: " : "Keep practicing: ") + result.score
-    : vw < PHONE ? "Tap Record, then speak" : "Press R to record";
+  const pill = rec === "recording" ? (phone ? "Recording… tap Stop when done" : "Recording… press R to stop")
+    : rec === "analyzing" ? "Checking…"
+    : result ? verdict(result.score)
+    : cheated ? "Now say it yourself" : "Read it aloud";
+  const tone = result && rec === "idle" ? (fx === "right" ? "ok" : fx === "close" ? "close" : "bad") : null;
+  const avg = session.n ? Math.round(session.sum / session.n) : 0;
 
   return (
-    <div className="grid lg:grid-cols-[330px_1fr] gap-5 items-start">
-      {listOpen && <div className="m-sheet-backdrop" onClick={() => setListOpen(false)} />}
-      <aside data-open={listOpen} className="m-sheet card p-4 flex flex-col gap-3 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-140px)] overflow-hidden">
-        <div className="m-sheet-head flex items-center justify-between">
-          <span className="font-semibold">Choose what to say</span>
-          <button className="icon-btn !h-9 !w-9 text-lg" onClick={() => setListOpen(false)} aria-label="Close">✕</button>
+    <div className="flex flex-1 flex-col gap-4">
+      <div className="chips flex flex-wrap items-center gap-2">
+        {SOURCES.map((s) => <button key={s} className="chip" data-active={source === s} onClick={() => setSource(s)}>{SOURCE_LABEL[s]}</button>)}
+        <FocusChip focus={focus} empty={focus.active && (source === "sentence" ? !fSent.length : !fSyl.length)} />
+        <button className="chip cjk" data-active={bopo} onClick={() => setBopo((b) => !b)} title="Show or hide the Bopomofo (Z)">注音</button>
+        <div className="ml-auto text-sm text-muted">
+          <b className="text-ink">{session.streak}</b> streak{session.n > 0 && <> · avg <b className="text-ink">{avg}</b> of {session.n}</>}
         </div>
-        <div className="flex gap-1 flex-wrap">
-          {(["sentence", "syllable", "custom"] as Source[]).map((s) => (
-            <button key={s} className="chip" data-active={source === s} onClick={() => setSource(s)}>
-              {s === "sentence" ? "My sentences" : s === "syllable" ? "Syllables" : "My own text"}
-            </button>
-          ))}
-          <FocusChip focus={focus} empty={focus.active && (source === "sentence" ? !fSent.length : !fSyl.length)} />
-        </div>
-        {source === "sentence" && (
-          <div ref={listRef} className="overflow-y-auto flex flex-col gap-1 -mx-1 px-1">
-            {!sentences.length && <div className="text-sm text-muted">No sentences yet. Create some on the Sentences page.</div>}
-            {sentences.map((s) => (
-              <button key={s.id} data-current={target?.text === s.hanzi} onClick={() => chooseSentence(s)} className={"text-left rounded-lg px-3 py-2 border " + (target?.text === s.hanzi ? "bg-accent-soft border-accent/50" : "border-transparent hover:bg-raise")}>
-                <div className="cjk text-lg leading-snug">{s.hanzi}</div>
-                <div className="text-xs text-muted truncate">{s.english}</div>
-              </button>
-            ))}
-          </div>
-        )}
-        {source === "syllable" && (
-          <div ref={listRef} className="overflow-y-auto flex flex-col gap-2">
-            <p className="text-xs text-muted">Tone pairs and sets. For one syllable alone, the tone is judged from your pitch curve (an estimate).</p>
-            {sets.map(([k, items]) => (
-              <div key={k} className="flex flex-wrap gap-1">
-                {items.map((s) => (
-                  <button key={s.id} data-current={target?.text === s.char} onClick={() => chooseSyllable(s)} className={"chip cjk " + (target?.text === s.char ? "!bg-ink !text-bg" : "")}>{s.char} {s.zhuyin}</button>
-                ))}
-              </div>
-            ))}
-          </div>
-        )}
-        {source === "custom" && (
-          <div className="flex flex-col gap-2">
-            <textarea className="input cjk text-lg min-h-28" placeholder="輸入中文，例如：你今天過得怎麼樣？" value={custom} onChange={(e) => setCustom(e.target.value)} />
-            <button className="btn btn-primary justify-center" disabled={!custom.trim()} onClick={() => applyText(custom)}>Practice this text <Kbd>Ctrl</Kbd><Kbd>Enter</Kbd></button>
-            <p className="text-xs text-muted">Type anything your partner says. You get Bopomofo, audio, a translation, and pronunciation feedback.</p>
-          </div>
-        )}
-      </aside>
+      </div>
 
-      <section className="flex flex-col gap-5 min-w-0">
-        {health && health.speech_model !== "ready" && (
-          <div className="card p-3 text-sm text-rough">{health.speech_model === "loading" ? "The speech model is loading (a few seconds)…" : "Speech model error: " + health.speech_error}</div>
-        )}
-        {!health && <div className="card p-3 text-sm text-bad">The backend is not reachable. Start it with start.cmd.</div>}
-        {target ? (
-          <div className={"card border-2 p-4 md:p-6 flex flex-col gap-4 transition-colors duration-300 " + (fx === "right" ? "border-ok bg-ok/5" : fx === "close" ? "border-rough/70" : fx === "wrong" ? "border-bad/60 bg-bad/5" : fx === "checking" ? "border-rough/70" : fx === "hearing" ? "border-accent/50" : "border-line")}>
-            <div className="flex items-center gap-2 lg:hidden">
-              <button className="btn !px-4" onClick={() => go(-1)} disabled={!listLen || rec !== "idle"} aria-label="Previous">‹</button>
-              <button className="btn flex-1 justify-center" onClick={() => setListOpen(true)}>
-                {source === "sentence" ? "My sentences" : source === "syllable" ? "Syllables" : "My own text"}{position >= 0 ? " · " + (position + 1) + "/" + listLen : ""} ▾
-              </button>
-              <button className="btn !px-4" onClick={() => go(1)} disabled={!listLen || rec !== "idle"} aria-label="Next">›</button>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusPill status={fx} label={pillLabel} />
-              <div className="ml-auto flex items-center gap-3 text-sm text-muted">
-                <span><b className="text-ink">{session.streak}</b> streak · best <b className="text-ink">{session.best || "–"}</b></span>
-              </div>
-            </div>
-            <div className="chips flex items-center gap-2 text-sm">
-              {(["zhuyin", "pinyin", "none"] as Annot[]).map((a) => <button key={a} className="chip" data-active={annot === a} onClick={() => setAnnot(a)}>{a === "zhuyin" ? "注音" : a === "pinyin" ? "Pinyin" : "Characters only"}</button>)}
-            </div>
-            <div className="py-2 flex">
-              <FxFrame status={fx} level={level} attempt={fxKey} round={false}>
+      {health && !ready && (
+        <div className="card p-3 text-sm text-rough">{health.speech_model === "loading" ? "The speech check is getting ready (a few seconds)…" : "The speech check is not available right now. Please try again later."}</div>
+      )}
+      {!health && <div className="card p-3 text-sm text-bad">Can&apos;t connect right now. Please try again in a moment.</div>}
+
+      {source === "custom" && !card ? (
+        <div className="card stage border-2 border-line p-5 md:p-8 flex flex-1 flex-col items-center justify-center gap-4">
+          <StatusPill status="writing" label="Type what you want to say" />
+          <textarea className="input cjk text-xl w-full max-w-2xl min-h-32" autoFocus placeholder="輸入中文，例如：你今天過得怎麼樣？" value={custom} onChange={(e) => setCustom(e.target.value)} />
+          <p className="text-sm text-muted text-center max-w-md">Anything your partner says. You get Bopomofo, a translation, and a check of every syllable.</p>
+          <ActionBar>
+            <button className="btn btn-primary ab-primary" disabled={!custom.trim()} onClick={() => applyText(custom)}>Practice this text <Kbd className="max-md:!hidden">Ctrl</Kbd><Kbd className="max-md:!hidden">Enter</Kbd></button>
+          </ActionBar>
+          {error && <div className="text-bad text-sm">{error}</div>}
+        </div>
+      ) : card ? (
+        <div className={"card stage border-2 p-5 md:p-8 flex flex-col items-center justify-center gap-5 transition-colors duration-300 " + (result ? "" : "flex-1 ") +
+          (fx === "right" ? "border-ok bg-ok/5" : fx === "close" ? "border-rough/70" : fx === "wrong" ? "border-bad/60 bg-bad/5" : fx === "checking" ? "border-rough/70" : fx === "hearing" ? "border-accent/50" : "border-line")}>
+          <div className="flex w-full items-center justify-center gap-3">
+            <StatusPill status={fx} label={pill} />
+            {source === "sentence" && deck.length > 1 && <span className="text-sm tabular-nums text-muted">{pos + 1} / {deck.length}</span>}
+          </div>
+
+          <div className="relative flex flex-col items-center gap-3 text-center">
+            {fx === "right" && <Burst key={fxKey} count={14} distance={140} />}
+            <FxFrame status={fx} level={level} attempt={fxKey} round={false}>
               <div className="px-2">
-              <ZhuyinText items={target.items} annot={annot} size={single ? 84 : vw < PHONE ? 40 : 52} marks={marks} onSyllable={(i) => {
-                const s = target.items.filter((x) => x.type === "syllable")[i];
-                if (s && s.type === "syllable") playAudio(ttsUrl(s.char));
-              }} />
+                <ZhuyinText items={card.items} annot={bopo ? "zhuyin" : "none"} size={single ? 96 : phone ? 40 : 56} marks={marks}
+                  onSyllable={cheated ? (i) => { const s = card.items.filter((x) => x.type === "syllable")[i]; if (s && s.type === "syllable") hearSyllable(s.char); } : undefined} />
               </div>
-              </FxFrame>
-            </div>
-            {target.english && <div className="text-muted">{target.english}</div>}
-            {single && health && !health.speaker_hz && (
-              <div className="text-sm text-rough">Tip: record one full sentence first. The app then learns your voice pitch, which makes single-syllable tone 3 checks more accurate.</div>
-            )}
-            <ActionBar tone={result ? (fx === "right" ? "ok" : fx === "close" ? "close" : "bad") : null}
-              title={result && rec === "idle" ? (result.score >= 85 ? "Excellent! " : result.score >= 60 ? "Almost: " : "Keep practicing: ") + result.score : undefined}
-              detail={result && rec === "idle" ? "Tones " + result.syllables.filter((s) => s.tone_ok).length + "/" + result.syllables.length + " correct · details below" : undefined}>
-              <PlayButton src={target.audio} label="Listen" />
-              {target.slow && <PlayButton src={target.slow} label="Slow" />}
-              {mine && <PlayButton src={mine} label={vw < PHONE ? "Mine" : "My recording"} />}
-              {result && rec === "idle" && listLen > 0 && <button className="btn md:!hidden" onClick={() => go(1)}>Next ›</button>}
-              <div className="flex-1 max-md:!hidden" />
-              <label className="btn cursor-pointer" title="Analyze an audio file (wav, mp3, flac, ogg)">
-                Upload <Kbd>U</Kbd>
-                <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) upload(f); }} />
-              </label>
-              {rec === "recording" && <div className="w-24 h-2 rounded bg-line overflow-hidden max-md:!hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(level * 100) + "%" }} /></div>}
-              <button
-                onClick={rec === "idle" ? start : rec === "recording" ? stop : undefined}
-                disabled={rec === "analyzing" || health?.speech_model !== "ready"}
-                className={"btn ab-primary !rounded-full !px-6 !py-3 text-base " + (rec === "recording" ? "btn-accent recording" : "btn-primary")}>
-                {rec === "idle" ? <>● {result && vw < PHONE ? "Try again" : "Record"} <Kbd>R</Kbd></> : rec === "recording" ? <>■ Stop <Kbd>R</Kbd></> : "Analyzing…"}
-              </button>
-            </ActionBar>
-            {error && <div className="text-bad text-sm">{error}</div>}
+            </FxFrame>
+            {cheated && card.items.length > 0 && <div className="text-lg md:text-xl text-accent tracking-wide">{pinyinOf(card.items)}</div>}
+            {card.english && <div className="text-muted">{card.english}</div>}
           </div>
-        ) : (
-          <div className="card p-6 text-muted flex flex-col items-start gap-3">
-            Choose something to say from the list.
-            <button className="btn btn-primary lg:!hidden" onClick={() => setListOpen(true)}>Choose ▾</button>
-          </div>
-        )}
 
-        {result && <ResultView key={fxKey} result={result} />}
-      </section>
+          {single && health && !health.speaker_hz && !result && (
+            <div className="text-sm text-rough text-center max-w-md">Tip: record one full sentence first. The app then learns your voice, which makes single-syllable tone checks more accurate.</div>
+          )}
+          {error && <div className="text-bad text-sm">{error}</div>}
+
+          <div className="w-full max-w-3xl">
+          <ActionBar tone={tone} title={tone ? verdict(result!.score) : undefined}
+            detail={tone ? "Tones " + result!.syllables.filter((s) => s.tone_ok).length + "/" + result!.syllables.length + " correct · details below" : undefined}>
+            <button className="btn" onClick={cheat} title={cheated ? "Hear it again (Space)" : "Hear it and see the Pinyin. The next recording counts as helped. (Space)"}>
+              {cheated ? <>▶ {phone ? "Hear" : "Hear it again"}</> : <>💡 Cheat</>} <Kbd className="max-md:!hidden">Space</Kbd>
+            </button>
+            {cheated && card.slow && <PlayButton src={card.slow} label="Slow" />}
+            {mine && rec === "idle" && <PlayButton src={mine} label={phone ? "Mine" : "My recording"} />}
+            <div className="flex-1 max-md:!hidden" />
+            {canNext && (result
+              ? <button className="btn" onClick={next}>{source === "custom" ? "New text" : "Next"} <Kbd className="max-md:!hidden">Enter</Kbd></button>
+              : source !== "custom" && <button className="btn text-muted" onClick={next}>Skip <Kbd className="max-md:!hidden">N</Kbd></button>)}
+            {rec === "recording" && <div className="w-24 h-2 rounded bg-line overflow-hidden max-md:!hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(level * 100) + "%" }} /></div>}
+            <button onClick={rec === "analyzing" ? undefined : recordToggle} disabled={!canRecord}
+              className={"btn ab-primary !rounded-full !px-6 !py-3 text-base " + (rec === "recording" ? "btn-accent recording" : "btn-primary")}>
+              {rec === "idle" ? <>● {result ? "Try again" : "Record"} <Kbd className="max-md:!hidden">R</Kbd></> : rec === "recording" ? <>■ Stop <Kbd className="max-md:!hidden">R</Kbd></> : "Checking…"}
+            </button>
+          </ActionBar>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-muted max-md:hidden">
+            {source === "custom" && <button className="hover:text-ink" onClick={next}>Change the text</button>}
+            <label className={"hover:text-ink " + (ready && rec === "idle" ? "cursor-pointer" : "opacity-50")} title="Check an audio file (wav, mp3, flac, ogg)">
+              Upload a recording (U)
+              <input ref={fileRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg" className="hidden" disabled={!ready || rec !== "idle"}
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) upload(f); }} />
+            </label>
+          </div>
+        </div>
+      ) : (
+        <div className="card stage border-2 border-line p-8 flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted">
+          {source === "sentence" && allSentences && !allSentences.length
+            ? <>No sentences yet.<Link className="btn btn-primary" href="/sentences">Create some sentences</Link></>
+            : "Loading…"}
+          {error && <div className="text-bad text-sm">{error}</div>}
+        </div>
+      )}
+
+      {result && card && <ResultView key={fxKey} result={result} onHear={hearSyllable} />}
     </div>
   );
 }
@@ -318,53 +338,58 @@ function Badge({ ok, label }: { ok: boolean | null; label: string }) {
   return <span className={"text-[11px] px-1.5 py-0.5 rounded " + (ok ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad")}>{label} {ok ? "✓" : "✗"}</span>;
 }
 
-function ResultView({ result }: { result: SpeechResult }) {
-  const tone = result.syllables.filter((s) => s.tone_ok).length;
+/** What the check heard, syllable by syllable. The pitch chart and the tone guide are folded. */
+function ResultView({ result, onHear }: { result: SpeechResult; onHear: (char: string) => void }) {
+  const sy = result.syllables;
+  const tone = sy.filter((s) => s.tone_ok).length;
+  const sounds = sy.filter((s) => s.heard && s.initial_ok !== false && s.final_ok !== false).length;
   const shown = useCountUp(result.score);
   return (
-    <div className="card p-6 flex flex-col gap-5">
-      <div className="flex items-baseline gap-4 flex-wrap">
-        <div className={"text-5xl font-semibold tabular-nums " + (result.score >= 85 ? "text-ok" : result.score >= 60 ? "text-rough" : "text-bad")}>{shown}</div>
-        <div className="text-muted">
-          score · tones {tone}/{result.syllables.length} correct
-          <span className="text-xs ml-2">(analysis {result.timing.infer_seconds}s for {result.timing.audio_seconds}s of audio)</span>
-        </div>
+    <div className="card p-5 md:p-6 flex flex-col gap-4">
+      <div className="flex items-baseline gap-x-4 gap-y-1 flex-wrap">
+        <div className={"text-4xl font-semibold tabular-nums " + (result.score >= 85 ? "text-ok" : result.score >= 60 ? "text-rough" : "text-bad")}>{shown}</div>
+        <div className="text-muted">tones <b className="text-ink">{tone}/{sy.length}</b> · sounds <b className="text-ink">{sounds}/{sy.length}</b></div>
+        <div className="text-xs text-muted sm:ml-auto">Tap a syllable to hear it</div>
       </div>
-      <div>
-        <div className="text-sm text-muted mb-1">Your pitch (black) against the target tone shapes (colored bands), per syllable</div>
-        <PitchChart result={result} />
-      </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
-        {result.syllables.map((s, i) => {
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
+        {sy.map((s, i) => {
           const ok = s.heard && s.tone_ok && s.initial_ok !== false && s.final_ok !== false;
           return (
-            <button key={i} onClick={() => playAudio(ttsUrl(s.expected.char))} className={"text-left rounded-xl border p-3 hover:shadow-sm " + (ok ? "border-ok/40 bg-ok/5" : "border-bad/40 bg-bad/5")}>
+            <button key={i} onClick={() => onHear(s.expected.char)} className={"text-left rounded-xl border p-3 hover:shadow-sm " + (ok ? "border-ok/40 bg-ok/5" : "border-bad/40 bg-bad/5")}>
               <div className="flex items-center gap-2 cjk">
-                <span className="text-3xl">{s.expected.char}</span>
-                <span className="text-accent text-lg">{s.expected.zhuyin}</span>
+                <span className="text-2xl">{s.expected.char}</span>
+                <span className="text-accent">{s.expected.zhuyin}</span>
+                <span className="ml-auto text-sm">{ok ? <span className="text-ok">✓</span> : <span className="text-bad">✗</span>}</span>
               </div>
               <div className="text-xs text-muted mt-1 cjk">
-                {s.expected.surface_tone !== s.expected.tone ? "said as tone " + s.expected.surface_tone + " here · " : ""}heard: <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
+                {s.expected.surface_tone !== s.expected.tone ? "said as tone " + s.expected.surface_tone + " · " : ""}heard <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
               </div>
-              <div className="flex gap-1 mt-2 flex-wrap">
-                <Badge ok={s.heard ? s.initial_ok : false} label="initial" />
-                <Badge ok={s.heard ? s.final_ok : false} label="final" />
-                <Badge ok={s.tone_ok} label="tone" />
-              </div>
+              {!ok && (
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  <Badge ok={s.heard ? s.initial_ok : false} label="initial" />
+                  <Badge ok={s.heard ? s.final_ok : false} label="final" />
+                  <Badge ok={s.tone_ok} label="tone" />
+                </div>
+              )}
               {s.messages.length > 0 && <ul className="mt-2 text-xs leading-snug list-disc pl-4 cjk">{s.messages.map((m, k) => <li key={k}>{m}</li>)}</ul>}
-              {s.tone_source === "pitch" && <div className="text-[11px] text-muted mt-1">Tone judged from pitch (estimate).</div>}
+              {s.tone_source === "pitch" && <div className="text-[11px] text-muted mt-1">Tone estimated from your voice.</div>}
               {s.tone_source === "model+pitch" && <div className="text-[11px] text-muted mt-1">Low falling tone 3 (Taiwan style), from your pitch range.</div>}
-              {s.uncertain && !s.tone_ok && <div className="text-[11px] text-rough mt-1">Model heard tone {s.model_tone}, pitch suggests tone {s.pitch_tone}.</div>}
+              {s.uncertain && !s.tone_ok && <div className="text-[11px] text-rough mt-1">Hard to hear: it sounded between tone {s.model_tone} and tone {s.pitch_tone}.</div>}
             </button>
           );
         })}
       </div>
       {result.extra.length > 0 && <div className="text-sm text-muted cjk">Extra sounds heard: {result.extra.map((e) => e.zhuyin).join(" ")}</div>}
+      <details className="text-sm">
+        <summary className="cursor-pointer text-muted">Pitch curve</summary>
+        <div className="mt-2 text-xs text-muted mb-1">Your pitch (black) against the target tone shapes (colored bands), per syllable</div>
+        <PitchChart result={result} />
+      </details>
       <details className="text-xs text-muted">
         <summary className="cursor-pointer">Tone guide</summary>
         <ul className="mt-2 grid sm:grid-cols-2 gap-1">{[1, 2, 3, 4, 5].map((t) => <li key={t}>{TONE_NAME[t]}</li>)}</ul>
-        <div className="mt-2 cjk">Raw model output: {result.heard_raw}</div>
       </details>
     </div>
   );
 }
+

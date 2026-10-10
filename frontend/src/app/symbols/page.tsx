@@ -1,6 +1,6 @@
 import { SymbolChart } from "@/components/symbols/SymbolChart";
 
-export const metadata = { title: "Symbols · Zhuyin Studio" };
+export const metadata = { title: "Symbols · bopomofo" };
 
 export default function Page() {
   return (

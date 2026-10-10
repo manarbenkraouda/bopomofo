@@ -52,6 +52,29 @@ def test_speaking_units_keep_what_was_heard():
     assert {"kind": "initial", "expected": "ㄋ", "actual": "ㄌ"}.items() <= next(x for x in u if x["kind"] == "initial").items()
 
 
+def test_speaking_cheat_and_retry_are_saved(tmpdb):
+    """A recording after the cheat (model audio or Pinyin) is helped, and a retry on the same card is not a first try."""
+    db.init()
+    syl = {"char": "好", "zhuyin": "ㄏㄠˇ", "initial": "ㄏ", "final": "ㄠ", "tone": 3, "surface_tone": 3}
+    res = {"score": 95, "syllables": [{"expected": syl, "heard": {"initial": "ㄏ", "final": "ㄠ", "tone": 3, "zhuyin": "ㄏㄠˇ"},
+                                       "initial_ok": True, "final_ok": True, "tone_ok": True}]}
+    stats.log_speaking("好", res, "syllable")
+    stats.log_speaking("好", res, "syllable", help=True, try_n=1)
+    with db.conn() as c:
+        ev = [dict(r) for r in c.execute("SELECT first_try, tries, help FROM events ORDER BY id")]
+        un = [dict(r) for r in c.execute("SELECT event_id, help, try_n FROM units WHERE kind='tone' ORDER BY id")]
+    assert ev == [{"first_try": 1, "tries": 1, "help": 0}, {"first_try": 0, "tries": 2, "help": 1}]
+    assert [(u["help"], u["try_n"]) for u in un] == [(0, 0), (1, 1)]
+
+
+def test_speaking_by_text_counts_recordings_per_sentence(tmpdb):
+    db.init()
+    for score, ts in ((60, 1.0), (92, 2.0), (85, 3.0)):
+        db.add_event({"area": "speaking", "mode": "sentence", "item": "你好。", "ok": score >= 80, "score": score}, ts=ts)
+    db.add_event({"area": "listening", "mode": "tone", "item": "你好。", "ok": True}, ts=4.0)
+    assert db.speaking_by_text() == {"你好。": {"said": 3, "best": 92, "last": 85, "ts": 3.0}}
+
+
 def test_confusion_weak_and_challenges(tmpdb):
     db.init()
     yesterday = time.time() - 86400

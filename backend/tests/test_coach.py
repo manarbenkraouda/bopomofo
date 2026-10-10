@@ -153,7 +153,9 @@ def test_alphabet_comes_first_until_the_symbols_are_known(tmpdb, monkeypatch):
                                                  {"type": "read_symbols", "syms": ["ㄒ"]}]))
     steps = coach.state()["steps"]
     assert [s["type"] for s in steps] == ["read_symbols", "write_symbols", "listen_tones"]
-    assert steps[0]["params"]["syms"] == st["next_group"] and "1 of the 37" in steps[0]["why"]
+    assert steps[0]["params"]["syms"] == st["next_group"] and "say it back" in steps[0]["why"] and not any(ch.isdigit() for ch in steps[0]["why"])
+    assert coach.clean_milestone({"title": "Speaking score: 95 average of the last 20", "area": "speaking", "unit": "score", "min_acc": 95,
+                                  "window": 20})["title"] == "Speaking score: average 95 over the last 20"  # the goal is not written twice
     assert steps[0]["params"]["learn"] and steps[1]["params"]["learn"] and "learn=1" in steps[0]["href"]  # new symbols: repetition first
     assert coach.state()["plan"]["diagnosis"].startswith("Alphabet first: you know 1 of the 37 Bopomofo symbols, so this plan starts with them: repeat ㄆ ㄇ")
     assert len(__import__("json").loads(coach._plan_row(pid)["raw"])["alphabet_rule"]["removed_steps"]) == 2

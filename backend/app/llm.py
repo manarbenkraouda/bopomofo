@@ -44,7 +44,7 @@ async def _chat(messages: list[dict], temperature: float = 0.9, model: str | Non
     if not reasoning:
         body["reasoning"] = {"enabled": False}
     async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.post(URL, json=body, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "X-Title": "Zhuyin Studio"})
+        r = await c.post(URL, json=body, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://bopomofo.app", "X-Title": "bopomofo"})
     if r.status_code != 200:
         raise LLMError(f"OpenRouter error {r.status_code}: {r.text[:300]}")
     data = r.json()

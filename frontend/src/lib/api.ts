@@ -6,7 +6,9 @@ export type Syl = {
   tone: number; surface_tone: number; pinyin: string; alt_tones: number[];
 };
 export type TextItem = Syl | { type: "text"; text: string };
-export type Sentence = { id: number; hanzi: string; english: string; words: { text: string; english: string }[]; topic: string; level: string; created: number; items: TextItem[] };
+/** practice: how often the sentence was said aloud (Speaking), with the best and last score. Null when never said. */
+export type Sentence = { id: number; hanzi: string; english: string; words: { text: string; english: string }[]; topic: string; level: string; created: number; items: TextItem[];
+  practice?: { said: number; best: number; last: number; ts: number } | null };
 export type SpeechSyllable = {
   expected: Syl; heard: { initial: string | null; final: string | null; tone: number | null; zhuyin: string | null } | null;
   initial_ok: boolean | null; final_ok: boolean | null; tone_ok: boolean; messages: string[];
@@ -106,6 +108,8 @@ export type CoachState = {
   history: { id: number; ts: number; status: string; source: string; diagnosis: string; headline: string | null; done_ts: number | null; steps: number; done: number; skipped: number }[];
 };
 export type StepState = { step: CoachStep; plan: { id: number; status: string }; count: number; done: number; next: CoachStep | null; generating: boolean; stage: string };
+export type Alphabet = CoachState["alphabet"];
+export type AlphabetSymbol = Alphabet["symbols"][number];
 
 /** The coach step of the current page (?step=12). Answers given on that page count for the step. */
 export const currentStep = () => {
@@ -124,16 +128,22 @@ export function apiBase(): string {
   return window.location.protocol + "//" + window.location.hostname + ":8765";
 }
 
+// Messages the learner can read as they are. Every other error gets a short, friendly message.
+const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story)/;
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let r: Response;
   try {
     r = await fetch(apiBase() + path, init);
   } catch {
-    throw new Error("The backend is not reachable. Start it with start.cmd.");
+    throw new Error("Can't connect right now. Please try again in a moment.");
   }
   if (!r.ok) {
-    let msg = r.status + " " + r.statusText;
-    try { const j = await r.json(); msg = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail ?? j); } catch {}
+    let detail = "";
+    try { const j = await r.json(); if (typeof j.detail === "string") detail = j.detail; } catch {}
+    const msg = SAFE_DETAIL.test(detail) ? detail
+      : r.status === 503 ? "The speech check is getting ready. Try again in a few seconds."
+      : "Something went wrong. Please try again in a moment.";
     throw new Error(msg);
   }
   return r.json() as Promise<T>;
@@ -151,12 +161,15 @@ export const api = {
   sentences: () => call<{ sentences: Sentence[] }>("/api/sentences"),
   sentence: (id: number) => call<Sentence>("/api/sentences/" + id),
   deleteSentence: (id: number) => call<{ ok: boolean }>("/api/sentences/" + id, { method: "DELETE" }),
-  speech: (wav: Blob, text: string, mode = "") => {
+  /** help: the learner used the cheat (model audio or Pinyin) on this card. tryN: 0 for the first recording of the card. */
+  speech: (wav: Blob, text: string, mode = "", opts: { help?: boolean; tryN?: number } = {}) => {
     markActive();
     const f = new FormData();
     f.append("audio", wav, "speech.wav");
     f.append("text", text);
     f.append("mode", mode);
+    if (opts.help) f.append("help", "1");
+    if (opts.tryN) f.append("try_n", String(opts.tryN));
     const step = currentStep();
     if (step) f.append("step", String(step));
     return call<SpeechResult>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); return r; });
@@ -174,6 +187,8 @@ export const api = {
   stats: (days: number, area = "") => call<Stats>("/api/stats?days=" + days + (area ? "&area=" + area : "")),
   challenges: () => call<{ challenges: Challenge[] }>("/api/stats/challenges"),
   coach: () => call<CoachState>("/api/coach"),
+  /** Which of the 37 symbols the learner knows. Read only, so the Symbols screen can load it on every visit. */
+  alphabet: () => call<Alphabet>("/api/alphabet"),
   coachPlan: (reason = "") => call<CoachState>("/api/coach/plan", json({ reason })),
   skipStep: (id: number, reason: "too_hard" | "too_easy" | "not_now") => call<CoachState>("/api/coach/step/" + id + "/skip", json({ reason })),
   coachStep: (id: number) => call<StepState>("/api/coach/step/" + id),

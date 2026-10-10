@@ -1,4 +1,4 @@
-"""Zhuyin Studio API."""
+"""bopomofo API."""
 from __future__ import annotations
 
 import io
@@ -17,7 +17,7 @@ from .asr import recognizer
 from .config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .zhuyin import analyze_text
 
-app = FastAPI(title="Zhuyin Studio API")
+app = FastAPI(title="bopomofo API")
 
 
 @app.middleware("http")
@@ -30,7 +30,8 @@ async def errors_as_json(request: Request, call_next):
         return JSONResponse({"detail": f"Server error: {type(e).__name__}: {e}"}, status_code=500)
 
 
-app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?", allow_methods=["*"], allow_headers=["*"])
+# Local and LAN addresses for development, plus the public site at bopomofo.app and its subdomains.
+app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?|https://([a-z0-9-]+\.)*bopomofo\.app", allow_methods=["*"], allow_headers=["*"])
 
 
 @app.on_event("startup")
@@ -103,7 +104,9 @@ def with_items(s: dict) -> dict:
 
 @app.get("/api/sentences")
 def sentences_list():
-    return {"sentences": [with_items(s) for s in db.list_sentences()]}
+    # "practice": how often each sentence was said aloud, and its best and last score (None when never said).
+    said = db.speaking_by_text()
+    return {"sentences": [{**with_items(s), "practice": said.get(s["hanzi"])} for s in db.list_sentences()]}
 
 
 @app.get("/api/sentences/{sid}")
@@ -159,7 +162,8 @@ def read_audio(data: bytes) -> np.ndarray:
 
 
 @app.post("/api/speech/analyze")
-def speech_analyze(audio: UploadFile = File(...), text: str = Form(...), mode: str = Form(""), step: str = Form("")):
+def speech_analyze(audio: UploadFile = File(...), text: str = Form(...), mode: str = Form(""), step: str = Form(""),
+                   help: str = Form(""), try_n: str = Form("")):
     if not recognizer.ready:
         raise HTTPException(503, recognizer.error or "The speech model is still loading. Try again in a few seconds.")
     a = read_audio(audio.file.read())
@@ -173,7 +177,9 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(...), mode: s
         speaker.update(res["speaker_hz"])
     # Every syllable is saved: expected and heard tone, initial, and final, so the stats can show confusions.
     # "step": the coach step this recording belongs to. Only answers given inside a step count for it.
-    stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None)
+    # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
+    stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
+                       help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
     coach.refresh()
     return res
 
@@ -281,13 +287,19 @@ def stats_challenges():
 @app.get("/api/stats/export.csv")
 def stats_export():
     return Response(stats.export_csv(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": 'attachment; filename="zhuyin-history.csv"'})
+                    headers={"Content-Disposition": 'attachment; filename="bopomofo-history.csv"'})
 
 
 @app.get("/api/coach")
 def coach_get():
     coach.refresh()
     return coach.state()
+
+
+@app.get("/api/alphabet")
+def alphabet_get():
+    """Which of the 37 symbols the learner knows, for the Symbols screen. Read only: it does not refresh the plan."""
+    return coach.alphabet_status()
 
 
 class PlanIn(BaseModel):

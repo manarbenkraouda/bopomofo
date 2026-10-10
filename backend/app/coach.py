@@ -60,6 +60,8 @@ MEASURES = {
 ALPHABET_GATE = 30
 NEEDS_ALPHABET = {"listen_sounds", "write_syllables"}
 ALPHABET_STEPS = {"read_symbols", "write_symbols"}
+# Coach notes the learner sees: checkpoint notes and the learner line of a debrief. The rest ("debrief", "skip") is for the next plan.
+VISIBLE_NOTES = "(kind LIKE 'checkpoint:%' OR kind='debrief:learner')"
 # A new symbol is learned by repetition first: the app plays it and shows its name or strokes, and the learner repeats it.
 # Recall tests (name it from memory) start only after this many right repetitions of the symbol.
 LEARN_REPS = 10
@@ -318,27 +320,24 @@ def alphabet_gate(steps: list[dict], st: dict) -> tuple[list[dict], list[str]]:
     info = {x["sym"]: x for x in st["symbols"]}
     repeat = [s for s in g if info[s]["reps"] < LEARN_REPS]
     recall = [s for s in g if s not in repeat]
-    base = f"You know {st['known_count']} of the 37 symbols, and every Bopomofo drill needs them."
     meta = {"finding_ids": [], "review": "Added by the alphabet rule: the 37 symbols come first.", "rule": "alphabet"}
     first: list[dict] = []
     if recall:
-        detail = ", ".join(f"{s} {info[s]['right']} right of {info[s]['answers']}" if info[s]["answers"] else f"{s} not tested yet" for s in recall)
         first += [
             {"type": "read_symbols", "title": "Say from memory: " + " ".join(recall), "params": {"syms": recall}, "minutes": 5, "meta": dict(meta),
-             "why": f"{base} You repeated {' '.join(recall)} at least {LEARN_REPS} times each, so now say them without help ({detail}). "
-                    "Press Space only when you do not remember: that answer counts as a miss.", "target": max(6, 2 * len(recall))},
+             "why": "You have repeated these enough. Now say them from memory, and press Space only when you are stuck.",
+             "target": max(6, 2 * len(recall))},
             {"type": "write_symbols", "title": "Hear and write from memory: " + " ".join(recall), "params": {"syms": recall}, "minutes": 5,
-             "meta": dict(meta), "why": "Write the same symbols from their sound, so you know them in both directions.", "target": max(6, len(recall))}]
+             "meta": dict(meta), "why": "Now write them from their sound, so you know them both ways.", "target": max(6, len(recall))}]
     if repeat:
         left = sum(LEARN_REPS - info[s]["reps"] for s in repeat)
         first += [
             {"type": "read_symbols", "title": "Listen and repeat: " + " ".join(repeat), "params": {"syms": repeat, "learn": True},
              "minutes": max(4, round(left / 6)), "meta": dict(meta), "target": max(len(repeat), left),
-             "why": f"{base} New symbols start with repetition: the app plays each symbol and shows its name, and you say it after the voice. "
-                    f"Every right repetition counts. Tests from memory start after {LEARN_REPS} right repetitions of a symbol."},
+             "why": "Hear each symbol and say it back. Every right repetition counts, and the symbols come before every other drill."},
             {"type": "write_symbols", "title": "Copy and write: " + " ".join(repeat), "params": {"syms": repeat, "learn": True},
              "minutes": max(3, len(repeat)), "meta": dict(meta), "target": 3 * len(repeat),
-             "why": "The app plays each symbol and shows its strokes. Copy it to learn its shape. Every right copy counts."}]
+             "why": "Watch the strokes and copy each symbol to learn its shape."}]
     kept = [s for s in steps if s["type"] not in NEEDS_ALPHABET | ALPHABET_STEPS]
     removed = [s["title"] for s in steps if s not in kept]
     return (first + kept)[:7], removed
@@ -530,7 +529,7 @@ def digest() -> dict:
 
 # ---------- model calls ----------
 
-COMMON = """You are part of the coach inside Zhuyin Studio, a private app for one adult who learns Taiwan Mandarin and Bopomofo (Zhuyin).
+COMMON = """You are part of the coach inside bopomofo, a private app for one adult who learns Taiwan Mandarin and Bopomofo (Zhuyin).
 The app saves every answer down to each tone, initial, final, symbol, and stroke, with what the learner produced instead.
 The coach is a pipeline of small decisions. You make one of them. Rules for every decision:
 - Data first. Base every claim on the numbers you get, and quote them (counts, percentages, what was produced instead, the context).
@@ -546,8 +545,11 @@ The coach is a pipeline of small decisions. You make one of them. Rules for ever
 - The app logs every answer in detail. Old answers, from before "detailed_log_since", only say right or wrong: no "produced instead",
   no context. Empty confusion data means there are few detailed answers yet, never that logging is off. Do not ask the learner to
   change any setting. More practice in that area fills the data: a diagnostic step is the right answer to missing data.
-- Text the learner reads (diagnosis, problem, context, title, why, note) uses plain words. Never write JSON field names such as
-  produced_instead, never_practiced, or detailed_answers: say "what you said instead", "never practiced", "detailed answers".
+- Text the learner reads in the app (a step "title" and "why", a milestone "title" and "why", a "note" or "learner" line) is for a
+  learner, not for a coach: one short, friendly sentence in plain words, at most one number. Say what the practice trains and why
+  it helps now. Never mention data, logs, detailed or old answers, "missing data", findings, analysts, the planner, the reviewer,
+  the model, the app, the plan's process, or JSON field names. The diagnosis, findings, and other fields are internal: there,
+  write for the coach and quote the numbers.
 - Write short, plain English. Return one JSON object only."""
 
 DOMAINS = {
@@ -603,7 +605,8 @@ Step types (only these; the app measures each one from the answers given inside 
 Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "sentence" or with speak_sentences, never on single syllables.
 For listen_tones, listen_sounds, speak_sounds with source syllable, and write_syllables, a later stage picks the exact syllables from your
 focus and the learner's history: give the focus, not the syllables.
-Every step has "type", "title" (imperative, max 60 characters), "why" (1-2 sentences with numbers), "finding_ids", "minutes", and
+Every step has "type", "title" (imperative, max 60 characters), "why" (one short, friendly sentence for the learner, at most one
+number; see the rule for text the learner reads), "finding_ids", "minutes", and
 "target" (right answers, 5-60, before the pace scale), except speak_sentences.
 Return {"diagnosis":"2-4 sentences: the biggest gaps and why this plan","steps":[...]}"""
 
@@ -676,12 +679,15 @@ Actions:
 - "easier": accuracy is very low (under 40%) or falling: narrow, and lower "min_score" (sentences) or "target".
 A listening quiz must not be guessable: listen_tones keeps at least 2 tones, listen_sounds at least 2 sounds, and a deck keeps both sides
 of a contrast. To train the weak side harder, keep the contrast and use "extend".
-"note": 1-2 sentences to the learner, with numbers from the answers. Direct and honest.
+"note": one short, friendly sentence to the learner: what is going well, or what to listen for (at most one number). Never mention
+the target, the step settings, or your decision.
 Return {"action":"...","target":null,"reps":null,"tones":null,"syms":null,"deck":null,"sentence_ids":null,"min_score":null,"note":"..."}"""
 
 DEBRIEF = """Task: a drill step just ended. Compare the answers inside the step with the same focus in the 30 days before the plan.
-"note": 1-3 sentences: what improved, what still fails (name the items), and what the next plan should do about it. Only numbers from the data.
-Return {"note":"...","still_weak":[...],"solid":[...]}"""
+"note" (internal, for the next plan): 1-3 sentences: what improved, what still fails (name the items), and what the next plan should do
+about it. Only numbers from the data.
+"learner": one short, warm sentence for the learner about this step: what got better, or what to keep an eye on. At most one number.
+Return {"note":"...","learner":"...","still_weak":[...],"solid":[...]}"""
 
 
 def _log(run, plan_id, step_id, stage, model, t0, usage, ok, error, response):
@@ -781,7 +787,9 @@ def clean_milestone(m: dict) -> dict | None:
     if unit == "alphabet":
         c["window"] = 37
     # The numbers in the title always come from the criterion.
-    name = re.sub(r"\s*[:,(-]?\s*(at\s+)?\d+\s*%.*$", "", _text(m.get("title"), 80)).strip(" :-,") or "Milestone"
+    # The model often writes the goal into the title too ("Speaking score: 95 average…"): cut from the first number.
+    name = re.sub(r"\s*[:,(-]?\s*(at\s+)?\d+\s*%.*$", "", _text(m.get("title"), 80))
+    name = re.sub(r"\s*[:,(—-]\s*(?:an?\s+)?(?:average\s+|avg\.?\s+)?\d.*$", "", name).strip(" :-,") or "Milestone"
     goal = (f"average {c['min_acc']} over the last {c['window']}" if unit == "score"
             else f"{round(37 * c['min_acc'] / 100)} of 37 symbols known" if unit == "alphabet" else f"{c['min_acc']}% of the last {c['window']}")
     return {"title": f"{name}: {goal}", "why": _text(m.get("why"), 400), "criterion": c}
@@ -915,7 +923,7 @@ def apply_review(steps: list[dict], r: dict, diagnosis: str) -> tuple[list[dict]
 
 
 async def pipeline(d: dict, reason: str, run: str) -> dict:
-    _stage(f"{len(DOMAINS)} analysts read your stats")
+    _stage("Reading your answers")
 
     async def analyst(dom):
         try:
@@ -947,7 +955,7 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     pace = {"plan_minutes": _int(pace_r.get("plan_minutes"), 10, 60, PLAN_MINUTES), "target_scale": _float(pace_r.get("target_scale"), 0.5, 2.0, 1.0),
             "steps": _int(pace_r.get("steps"), 3, 7, 5), "notes": _text(pace_r.get("notes"), 400), "avoid": _list(pace_r.get("avoid"), 6)}
 
-    _stage("The planner writes the steps")
+    _stage("Choosing your next steps")
     s = d["sentences"]
     task = PLAN + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "")
     plan = await call("plan", task, {"reason": reason, "overview": d["overview"], "pace": pace, "findings": findings[:30], "strengths": strengths,
@@ -959,7 +967,7 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     if not steps:
         raise llm.LLMError("The planner's steps could not be measured.")
 
-    _stage(f"Writing sentences and picking syllables for {len(steps)} steps")
+    _stage("Preparing your drills")
     profile = llm.profile_text(db.get_profile())
     hist = syllable_history()
 
@@ -981,7 +989,7 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     if not steps:
         raise llm.LLMError("No step was left after the details stage.")
 
-    _stage("The reviewer checks the plan; milestones are set")
+    _stage("Checking your plan")
     draft = [{"pos": i, "type": x["type"], "title": x["title"], "why": x["why"], "focus": _focus_of(x), "target": x["target"],
               "minutes": x["minutes"], "finding_ids": x["meta"]["finding_ids"]} for i, x in enumerate(steps)]
     review_r, ms_r = await asyncio.gather(
@@ -1005,7 +1013,7 @@ def rules_plan(d: dict) -> dict:
             continue
         other = [k for k in s["produced_instead"] if k not in ("?", "∅")]
         a, u, x = s["area"], s["unit"], s["x"]
-        why = f"{s['right_pct']:.0f}% right on {s['answers']} answers" + (f", often {other[0]} instead." if other else ".")
+        why = f"Right {s['right_pct']:.0f}% of the time so far, so a little more practice here pays off."
         if a == "listening" and u == "tone" and x != "5":
             steps.append({"type": "listen_tones", "title": f"Hear tone {x}" + (f" vs tone {other[0]}" if other else ""), "why": why, "tones": [x] + other[:1], "target": 15})
         elif a == "speaking" and u == "tone" and x == "5":
@@ -1022,17 +1030,17 @@ def rules_plan(d: dict) -> dict:
             break
     for a, syms in grouped.items():
         steps.append({"type": "read_symbols" if a == "reading" else "write_symbols", "syms": syms[:4],
-                      "title": ("Read " if a == "reading" else "Write ") + " ".join(syms[:4]), "why": f"Your weakest {a} symbols.", "target": 8})
+                      "title": ("Read " if a == "reading" else "Write ") + " ".join(syms[:4]), "why": "The symbols that still trip you up most.", "target": 8})
     weak = [s for s in d["sentences"]["weak"] if s["id"]][:4]
     if weak:
         steps.append({"type": "speak_sentences", "sentence_ids": [s["id"] for s in weak], "reps": 2, "min_score": 85,
-                      "title": "Repeat your weakest sentences", "why": "Average scores " + ", ".join(str(s["avg_score"]) for s in weak) + "."})
+                      "title": "Repeat your weakest sentences", "why": "These sentences are close: a few more tries make them smooth."})
     if not steps:
         steps = [
-            {"type": "listen_tones", "tones": [1, 2, 3, 4], "target": 20, "title": "Tone check: all four tones", "why": "Not enough listening data yet."},
-            {"type": "read_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Read the first symbols", "why": "Not enough reading data yet."},
-            {"type": "write_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Write the first symbols", "why": "Not enough writing data yet."},
-            {"type": "speak_sounds", "unit": "tone", "tones": [1, 2, 3, 4], "source": "syllable", "target": 10, "title": "Say single syllables", "why": "Not enough speaking data yet."},
+            {"type": "listen_tones", "tones": [1, 2, 3, 4], "target": 20, "title": "Tone check: all four tones", "why": "A first look at how you hear the tones."},
+            {"type": "read_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Read the first symbols", "why": "A first look at the symbols."},
+            {"type": "write_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Write the first symbols", "why": "A first try at writing them."},
+            {"type": "speak_sounds", "unit": "tone", "tones": [1, 2, 3, 4], "source": "syllable", "target": 10, "title": "Say single syllables", "why": "A first look at how you say the tones."},
         ]
     return {"diagnosis": "Built by rules from your weak spots, because the coach model was not available.", "steps": steps[:6], "milestones": None}
 
@@ -1044,7 +1052,7 @@ def _run_pipeline(d: dict, reason: str, run: str) -> dict:
 def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
     """Build and save a new plan. run_pipeline(digest, reason, run) -> result can replace the model pipeline in tests.
     as_next: the plan waits (status 'next') until the active plan is finished."""
-    _stage("Reading your stats")
+    _stage("Reading your answers")
     d = digest()
     run = uuid.uuid4().hex[:12]
     error = None
@@ -1064,7 +1072,7 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         out["diagnosis"] = "Tone quizzes train your ear, but they do not show that you know the symbols. " + out["diagnosis"]
     if alpha["gate"] and alpha["next_group"]:
         out["diagnosis"] = alphabet_sentence(alpha) + " " + (out.get("diagnosis") or "")
-    _stage("Saving the plan")
+    _stage("Saving your plan")
     models = Counter(r["model"] for r in _q("SELECT model FROM coach_calls WHERE run=? AND ok=1", (run,)))
     model = ", ".join(m for m, _ in models.most_common(3)) or None
     raw = {k: out.get(k) for k in ("findings", "strengths", "unknown", "too_advanced", "pace", "review")}
@@ -1396,9 +1404,13 @@ def debrief(step_id: int, ask=None) -> str | None:
                "before_plan_30_days": _before(s, plan["ts"]), "findings": _linked_findings(s)}
     r = (ask or (lambda st, task, pl: _ask_sync(st, task, pl, s)))("debrief", DEBRIEF, payload)
     note = _text(r.get("note"), 500)
+    learner = _text(r.get("learner"), 300)
     if note:
         with db.conn() as c:
             c.execute("INSERT INTO coach_notes(ts, plan_id, step_id, kind, text) VALUES (?,?,?,?,?)", (time.time(), s["plan_id"], s["id"], "debrief", note))
+    if learner:  # the line the learner sees; the note above stays for the next plan
+        with db.conn() as c:
+            c.execute("INSERT INTO coach_notes(ts, plan_id, step_id, kind, text) VALUES (?,?,?,?,?)", (time.time(), s["plan_id"], s["id"], "debrief:learner", learner))
     return note
 
 
@@ -1482,7 +1494,7 @@ def skip(step_id: int, reason: str) -> dict:
 
 def _step_view(s: dict) -> dict:
     meta = s["params"].get("meta") or {}
-    note = _q("SELECT kind, text, ts FROM coach_notes WHERE step_id=? ORDER BY id DESC LIMIT 1", (s["id"],))
+    note = _q(f"SELECT kind, text, ts FROM coach_notes WHERE step_id=? AND {VISIBLE_NOTES} ORDER BY id DESC LIMIT 1", (s["id"],))
     return {**{k: s[k] for k in ("id", "plan_id", "pos", "type", "title", "why", "target", "minutes", "status", "skip_reason", "done_ts")},
             "params": {k: v for k, v in s["params"].items() if k != "meta"}, "area": TYPES[s["type"]], "href": href(s),
             "finding_ids": meta.get("finding_ids") or [], "review": meta.get("review") or "", "note": note[0] if note else None,
@@ -1520,7 +1532,7 @@ def state() -> dict:
             "findings": raw.get("findings") or [], "strengths": raw.get("strengths") or [], "unknown": raw.get("unknown") or [],
             "too_advanced": raw.get("too_advanced") or [], "pace": raw.get("pace"), "calls": _calls(plan["id"])}
         out["steps"] = [_step_view(s) for s in _steps(plan["id"])]
-        out["notes"] = _q("SELECT id, ts, step_id, kind, text FROM coach_notes WHERE plan_id=? ORDER BY id DESC LIMIT 30", (plan["id"],))
+        out["notes"] = _q(f"SELECT id, ts, step_id, kind, text FROM coach_notes WHERE plan_id=? AND {VISIBLE_NOTES} ORDER BY id DESC LIMIT 30", (plan["id"],))
     for m in _q("SELECT * FROM milestones WHERE status IN ('active','achieved') ORDER BY status='achieved', id DESC LIMIT 20"):
         c = json.loads(m["criterion"])
         out["milestones"].append({k: m[k] for k in ("id", "ts", "title", "why", "status", "done_ts")} | {"criterion": c, **milestone_progress(c)})

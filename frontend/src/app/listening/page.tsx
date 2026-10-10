@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { Listening } from "@/components/listening/Listening";
 
-export const metadata = { title: "Listening · Zhuyin Studio" };
+export const metadata = { title: "Listening · bopomofo" };
 
 export default function Page() {
   return (

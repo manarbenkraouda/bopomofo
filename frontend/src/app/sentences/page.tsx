@@ -1,6 +1,6 @@
 import { Sentences } from "@/components/sentences/Sentences";
 
-export const metadata = { title: "Sentences · Zhuyin Studio" };
+export const metadata = { title: "Sentences · bopomofo" };
 
 export default function Page() {
   return (

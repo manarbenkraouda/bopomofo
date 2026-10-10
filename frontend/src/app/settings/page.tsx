@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Preferences } from "@/components/settings/Preferences";
 import { VoicePicker } from "@/components/settings/VoicePicker";
 
-export const metadata = { title: "Settings · Zhuyin Studio" };
+export const metadata = { title: "Settings · bopomofo" };
 
 export default function Page() {
   return (

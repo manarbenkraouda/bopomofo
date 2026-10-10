@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { SpeakingPractice } from "@/components/speaking/SpeakingPractice";
 
-export const metadata = { title: "Speaking · Zhuyin Studio" };
+export const metadata = { title: "Speaking · bopomofo" };
 
 export default function Page() {
   return (

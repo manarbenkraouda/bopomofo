@@ -1,8 +1,9 @@
-# Zhuyin Studio
+# bopomofo
 
 A personal app to learn Bopomofo (注音符號) and Taiwan Mandarin: reading, writing, listening, and speaking with feedback on every stroke and every tone.
 
 - **Frontend:** Next.js 16 (frontend/), http://localhost:3210
+- **Domain:** https://bopomofo.app
 - **Backend:** FastAPI (backend/), http://127.0.0.1:8765 (port 8000 is used by Docker on this PC)
 - **Location on this PC:** C:\Users\manar\Documents\zhuyin-studio
 
@@ -38,8 +39,8 @@ setup.cmd uses the Windows ARM64 Python (cpython-3.12-windows-aarch64). On an x6
 | Stats | Full history, down to each tone and stroke. Today: four daily challenges from your weakest skills, ranked weak spots (press Enter to train one), period totals against the period before, and personal records. Tones: confusion tables (the tone you said, heard, or wrote instead), tone accuracy by the tone before and after, position, and tone changes. Sounds: initial and final mix-ups. Symbols: per-symbol accuracy, what you said or wrote instead, and stroke problems. History: answers per day, practice calendar, time of day, sessions, the last answers, and a CSV export. Every "Train" link opens a practice mode limited to that weak spot (?tones=3,2 or ?syms=ㄗ,ㄘ). |
 | Symbols | The 37 symbols and 5 tones. Official MOE recordings and animated stroke order. |
 | Sentences | Generates short Taiwan Mandarin sentences on any topic (OpenRouter, deepseek/deepseek-v4.1-flash). Each sentence has Bopomofo beside the characters (Taiwan style), pinyin, English, word glosses, and audio (normal and slow). Quick lookup: paste any Chinese text to get Bopomofo, audio, and a translation. Sentences are saved in a library. |
-| Speaking | Record yourself (or upload a recording). A local speech model checks each syllable: initial, final, and tone. It shows your pitch curve against the target tone shapes, and handles tone changes (3-3 sandhi, 一, 不). Targets: your sentences, single syllables, or any text you type. |
-| Writing | Hear a sound and write the Bopomofo by hand. Stroke-level corrections: wrong symbol, stroke order, direction, missing, extra, joined strokes, shape. Modes: single symbols, syllables with tone marks, and words from your sentences. Watch the correct stroke order after each answer. |
+| Speaking | A quiz: one card at a time, read it aloud and record (or upload a recording). A local speech model checks each syllable: initial, final, and tone. It shows your pitch curve against the target tone shapes, and handles tone changes (3-3 sandhi, 一, 不). The Cheat button (Space) plays the model and unlocks the slow audio and the Pinyin; the recordings after it count as helped in the stats. Cards: your sentences, single syllables, or any text you type. |
+| Writing | Hear a sound and write the Bopomofo by hand on one ruled sheet, left to right, with a small space between symbols and the tone mark after each syllable. The app splits the ink into symbols and tone marks (bars under the writing show the split), lines them up with the answer, and corrects each one: wrong symbol, stroke order, direction, missing, extra, joined strokes, shape. Missing symbols show as pink ghosts. Modes: single symbols, syllables with tone marks, and words from your sentences. Watch the correct stroke order after each answer. |
 | Listening | Quizzes: name the tone, or pick the matching Bopomofo. |
 
 Keyboard: Space = play, Enter = check / next, R = record (Speaking), Ctrl+Z = undo stroke (Writing), 1-4 = answer (Listening).

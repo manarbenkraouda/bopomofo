@@ -169,3 +169,35 @@ export function Meter({ value, color }: { value: number | null; color?: string }
   );
 }
 
+
+/** A row of options where one is selected. Used to show one table at a time instead of all of them. */
+export function Segmented<T extends string | number>({ options, value, onChange }: { options: { id: T; label: React.ReactNode }[]; value: T; onChange: (v: T) => void }) {
+  return (
+    <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl bg-raise p-1" role="tablist">
+      {options.map((o) => (
+        <button key={String(o.id)} role="tab" aria-selected={o.id === value} onClick={() => onChange(o.id)}
+          className={"rounded-lg px-3 py-1.5 text-sm transition " + (o.id === value ? "bg-card font-semibold text-ink shadow-sm" : "text-muted hover:text-ink")}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A card that opens on click. Details stay out of the way until asked for. */
+export function Disclosure({ title, hint, children, open }: { title: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; open?: boolean }) {
+  return (
+    <details className="card group" open={open}>
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-4 md:px-5 [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1">
+          <span className="font-semibold">{title}</span>
+          {hint && <span className="block text-xs text-muted">{hint}</span>}
+        </span>
+        <svg viewBox="0 0 20 20" className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden><path d="M5 7.5l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </summary>
+      <div className="border-t border-line p-4 md:p-5">{children}</div>
+    </details>
+  );
+}
+
+

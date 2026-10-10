@@ -6,9 +6,10 @@ import { AppShell } from "@/components/shell/AppShell";
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Zhuyin Studio",
+  metadataBase: new URL("https://bopomofo.app"),
+  title: "bopomofo",
   description: "Learn Bopomofo: reading, writing, listening, and speaking with tone feedback.",
-  appleWebApp: { capable: true, title: "Zhuyin", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "bopomofo", statusBarStyle: "black-translucent" },
   icons: { icon: "/icon.svg", apple: "/icon.svg" },
 };
 

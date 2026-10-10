@@ -1,6 +1,6 @@
 import { Coach } from "@/components/coach/Coach";
 
-export const metadata = { title: "Coach · Zhuyin Studio" };
+export const metadata = { title: "Coach · bopomofo" };
 
 export default function Page() {
   return (

@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { WritingPractice } from "@/components/writing/WritingPractice";
 
-export const metadata = { title: "Writing · Zhuyin Studio" };
+export const metadata = { title: "Writing · bopomofo" };
 
 export default function Page() {
   return (

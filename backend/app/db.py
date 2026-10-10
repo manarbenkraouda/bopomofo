@@ -125,6 +125,20 @@ def delete_sentence(sid: int):
         c.execute("DELETE FROM sentences WHERE id=?", (sid,))
 
 
+def speaking_by_text() -> dict[str, dict]:
+    """Per spoken text: how many recordings, the best and the last score, and when it was last said."""
+    with conn() as c:
+        rows = c.execute("SELECT item, score, ts FROM events WHERE area='speaking' AND score IS NOT NULL ORDER BY ts").fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        p = out.setdefault(r["item"], {"said": 0, "best": 0, "last": 0, "ts": 0})
+        p["said"] += 1
+        p["best"] = max(p["best"], round(r["score"]))
+        p["last"] = round(r["score"])
+        p["ts"] = r["ts"]
+    return out
+
+
 def day_of(ts: float) -> str:
     return time.strftime("%Y-%m-%d", time.localtime(ts))
 
