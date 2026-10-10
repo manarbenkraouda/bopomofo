@@ -68,7 +68,10 @@ def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None
 
 def _rows(sql: str, args=()) -> list[dict]:
     with db.conn() as c:
-        return [dict(r) for r in c.execute(sql, args)]
+        rows = [dict(r) for r in c.execute(sql, args)]
+    for r in rows:
+        r.pop("user_id", None)
+    return rows
 
 
 def _since(days: int | None) -> str:
@@ -485,7 +488,7 @@ def challenges(today: date | None = None) -> list[dict]:
 # ---------- export ----------
 
 def export_csv() -> str:
-    rows = _rows("SELECT e.id AS event, datetime(e.ts, 'unixepoch', 'localtime') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
+    rows = _rows("SELECT e.id AS event, to_char(to_timestamp(e.ts), 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
                  " e.score, e.ms, e.tries, e.help AS event_help, e.replays, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n,"
                  " u.help, u.ctx, u.lex, u.prev, u.next, u.source, u.uncertain"
                  " FROM events e LEFT JOIN units u ON u.event_id = e.id ORDER BY e.ts, u.id")

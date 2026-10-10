@@ -6,18 +6,19 @@ import traceback
 
 import numpy as np
 import soundfile as sf
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import coach, db, llm, scoring, speaker, stats, symbols, tts
+from . import auth, coach, db, llm, scoring, speaker, stats, symbols, tts
 from .asr import recognizer
 from .config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .zhuyin import analyze_text
 
-app = FastAPI(title="bopomofo API")
+# Every route needs a signed-in Clerk user, except auth.PUBLIC. Each user sees only their own data (see db.py).
+app = FastAPI(title="bopomofo API", dependencies=[Depends(auth.require_user)])
 
 
 @app.middleware("http")
@@ -39,6 +40,11 @@ def startup():
     db.init()
     recognizer.load_async()
     tts.preload_async()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    db.close_pool()
 
 
 @app.get("/api/health")

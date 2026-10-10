@@ -11,3 +11,7 @@ sherpa-onnx
 python-multipart
 python-dotenv
 pytest
+pg8000
+clerk-backend-api
+# cryptography 47+ has no Windows ARM64 wheel; never build it from source.
+--only-binary cryptography

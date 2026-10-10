@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import { AppShell } from "@/components/shell/AppShell";
+import { ApiAuth } from "@/components/shell/ApiAuth";
+import { Frame } from "@/components/shell/AppShell";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
@@ -26,7 +28,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME }} />
       </head>
       <body className="h-full overflow-hidden">
-        <AppShell>{children}</AppShell>
+        <ClerkProvider>
+          <ApiAuth />
+          <Frame>{children}</Frame>
+        </ClerkProvider>
       </body>
     </html>
   );

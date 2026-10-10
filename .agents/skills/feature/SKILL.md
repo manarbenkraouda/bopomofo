@@ -59,12 +59,14 @@ It checks registration only, not behavior.
 
 ## Verify
 
-- Backend tests in backend/tests, using the pattern of test_tracking.py and test_coach.py: a temporary database, coach.LIVE =
-  False, and a fake model with no network. Test at least these: the units saved for an answer, the stats rows for the new
+- Backend tests in backend/tests, using the pattern of test_tracking.py and test_coach.py: the pg fixture of conftest.py
+  (empty tables in TEST_DATABASE_URL, user "user_test"), coach.LIVE = False, and a fake model with no network. SQL uses ?
+  placeholders and PostgreSQL syntax; new tables need a migration in backend/app/migrations with a user_id column and the
+  own_rows policy. Test at least these: the units saved for an answer, the stats rows for the new
   kind, clean_step for each new step type, and step_progress counting only the new type's answers inside the step.
-- Run a live check on a copy of the database, never on backend/data/zhuyin.db. Copy it with sqlite3 backup to %TEMP%\<name>,
-  run the backend with DATA_DIR set to that folder on port 8766, and run
-  NEXT_PUBLIC_API_URL=http://localhost:8766 bunx next dev -p 3211. Answer some questions in the new mode. Run one real coach
+- Run a live check on a scratch database, never on DATABASE_URL: run the backend with DATABASE_URL set to TEST_DATABASE_URL
+  (or another scratch database) on port 8766, and run NEXT_PUBLIC_API_URL=http://localhost:8766 bunx next dev -p 3211, signed
+  in with a Clerk test user. tools/import_sqlite.py can fill it with real history. Answer some questions in the new mode. Run one real coach
   build (coach.build) and check that the new domain appears in the findings and the new step type can appear in the plan.
   Check that a step of that type counts answers and that a checkpoint runs after 10 answers.
 - Frontend: bunx tsc --noEmit -p ., bun run lint, bun run build. In the browser, check the desktop layout and a 390 px layout.

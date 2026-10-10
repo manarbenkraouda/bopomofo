@@ -1,4 +1,5 @@
 "use client";
+import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
@@ -13,6 +14,23 @@ import { GotoOverlay, HelpOverlay, Palette, type Command } from "./Overlays";
 import { StepBanner } from "./StepBanner";
 
 type Overlay = null | "palette" | "help" | "goto";
+
+/** The sign-in and sign-up pages show only the Clerk form. Every other page gets the app shell. */
+export function Frame({ children }: { children: React.ReactNode }) {
+  const path = usePathname();
+  if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
+    return (
+      <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto p-4">
+        <div className="flex items-center gap-3">
+          <span className="cjk grid h-11 w-11 place-items-center rounded-2xl bg-accent text-xl text-white shadow">注</span>
+          <span className="text-xl font-semibold">bopomofo</span>
+        </div>
+        {children}
+      </main>
+    );
+  }
+  return <AppShell>{children}</AppShell>;
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
@@ -198,6 +216,7 @@ function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, o
           <button className="icon-btn" onClick={onSfx} title="Sounds (M)">{sfxOn ? "🔊" : "🔇"}</button>
           <button className="icon-btn" onClick={onFull} title="Full screen (Alt+Enter)">{full ? "🗗" : "⛶"}</button>
           <button className="icon-btn font-semibold" onClick={onHelp} title="Shortcuts (?)">?</button>
+          <span className="ml-1 grid h-9 w-9 place-items-center"><UserButton /></span>
         </div>
       </div>
     </header>
@@ -258,6 +277,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
           <span className="hud !h-8 !px-2.5" title="Days in a row with practice">🔥<b className="tabular-nums">{dayStreak ?? "–"}</b></span>
           <span className="hud !h-8 !px-2.5">{combo}</span>
           <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>{sfxOn ? "🔊" : "🔇"}</button>
+          <span className="grid h-9 w-9 place-items-center"><UserButton /></span>
         </div>
       )}
       {!status.ok && (

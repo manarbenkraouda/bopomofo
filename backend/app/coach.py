@@ -69,7 +69,12 @@ MAX_LEARNING = 8  # no new symbols while this many symbols are seen but not know
 
 _lock = threading.Lock()
 _refresh_lock = threading.RLock()
-_gen = {"running": False, "error": None, "started": 0.0, "stage": "", "next": False, "story": None}
+# What the coach is doing in the background, per user (db.current_user()).
+_gens: dict[str | None, dict] = {}
+
+
+def _g() -> dict:
+    return _gens.setdefault(db.current_user(), {"running": False, "error": None, "started": 0.0, "stage": "", "next": False, "story": None})
 _checking: set[int] = set()
 
 
@@ -78,7 +83,7 @@ def _q(sql: str, args=()) -> list[dict]:
 
 
 def _stage(text: str):
-    _gen["stage"] = text
+    _g()["stage"] = text
 
 
 # ---------- small validators ----------
@@ -271,7 +276,7 @@ def alphabet_status() -> dict:
     known = said or written right reliably; learning = seen but not known yet; new = never practiced.
     reps = right answers in reading and dictation, with or without help. Answers in learn mode (the answer is shown on purpose)
     are repetitions only: they are not tests, so they do not count for or against "known"."""
-    rows = _q("SELECT u.area, u.kind, u.expected, u.ok, u.help, u.try_n, json_extract(e.details, '$.learn') AS learn"
+    rows = _q("SELECT u.area, u.kind, u.expected, u.ok, u.help, u.try_n, (e.details::jsonb -> 'learn') AS learn"
               " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND ((u.kind='symbol'"
               " AND u.area IN ('reading','dictation','writing')) OR (u.kind IN ('initial','final') AND u.area='listening')) ORDER BY u.ts, u.id")
     per = {s: {"say": [], "write": [], "pick": []} for s in SYMS}
@@ -837,7 +842,7 @@ async def write_sentences(step: dict, d: dict, profile: str, run: str):
     del p["new"]
     if accepted and LIVE:
         from . import tts  # the audio is made in the background, so Listen plays at once
-        threading.Thread(target=tts.pregenerate, args=([(c["hanzi"], r) for c in accepted for r in (0, -35)],), daemon=True).start()
+        db.spawn(tts.pregenerate, [(c["hanzi"], r) for c in accepted for r in (0, -35)])
 
 
 async def pick_deck(step: dict, findings: list[dict], hist: dict, run: str):
@@ -1082,9 +1087,9 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         has_active = c.execute("SELECT 1 FROM plans WHERE status='active'").fetchone()
         status = "next" if as_next and has_active else "active"
         c.execute("UPDATE plans SET status='replaced', done_ts=? WHERE status IN " + ("('next')" if status == "next" else "('active','next')"), (now,))
-        pid = c.execute("INSERT INTO plans(ts, status, source, model, diagnosis, reason, digest, raw, error) VALUES (?,?,?,?,?,?,?,?,?)",
+        pid = c.execute("INSERT INTO plans(ts, status, source, model, diagnosis, reason, digest, raw, error) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id",
                         (now, status, source, model, _text(out.get("diagnosis"), 1200), reason, json.dumps(d, ensure_ascii=False),
-                         json.dumps(raw, ensure_ascii=False), error)).lastrowid
+                         json.dumps(raw, ensure_ascii=False), error)).fetchone()["id"]
         for i, s in enumerate(out["steps"]):
             c.execute("INSERT INTO steps(plan_id, pos, type, title, why, params, target, minutes) VALUES (?,?,?,?,?,?,?,?)",
                       (pid, i, s["type"], s["title"], s["why"], json.dumps({**s["params"], "meta": s.get("meta") or {}}, ensure_ascii=False), s["target"], s["minutes"]))
@@ -1138,9 +1143,9 @@ def start_story(pid: int) -> bool:
     if not LIVE or not _plan_row(pid):
         return False
     with _lock:
-        if _gen["running"]:
+        if _g()["running"]:
             return False
-        _gen.update(running=True, error=None, started=time.time(), stage="Writing your story", next=False, story=pid)
+        _g().update(running=True, error=None, started=time.time(), stage="Writing your story", next=False, story=pid)
 
     def run():
         try:
@@ -1148,11 +1153,11 @@ def start_story(pid: int) -> bool:
             story.write(pid)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-            _gen["error"] = f"{type(e).__name__}: {e}"
+            _g()["error"] = f"{type(e).__name__}: {e}"
         finally:
-            _gen.update(running=False, stage="", story=None)
+            _g().update(running=False, stage="", story=None)
 
-    threading.Thread(target=run, daemon=True).start()
+    db.spawn(run)
     return True
 
 
@@ -1161,20 +1166,20 @@ def start(reason: str, as_next: bool = False) -> bool:
     if not LIVE:
         return False
     with _lock:
-        if _gen["running"]:
+        if _g()["running"]:
             return False
-        _gen.update(running=True, error=None, started=time.time(), stage="Starting", next=as_next, story=None)
+        _g().update(running=True, error=None, started=time.time(), stage="Starting", next=as_next, story=None)
 
     def run():
         try:
             build(reason, as_next=as_next)
         except Exception as e:  # noqa: BLE001
             traceback.print_exc()
-            _gen["error"] = f"{type(e).__name__}: {e}"
+            _g()["error"] = f"{type(e).__name__}: {e}"
         finally:
-            _gen.update(running=False, stage="")
+            _g().update(running=False, stage="")
 
-    threading.Thread(target=run, daemon=True).start()
+    db.spawn(run)
     return True
 
 
@@ -1204,7 +1209,7 @@ def _hit(step: dict, r: dict) -> bool:
     return r["kind"] in ("symbol", "tone") and r["expected"] != "∅"  # write_syllables: every written part of the deck
 
 
-STEP_SQL = "e.details LIKE '%\"step\"%' AND json_extract(e.details, '$.step')=?"
+STEP_SQL = "(e.details::jsonb ->> 'step') = CAST(? AS TEXT)"
 
 
 def step_progress(step: dict, detail: bool = False) -> dict:
@@ -1423,7 +1428,7 @@ def _bg(fn, sid: int):
         finally:
             _checking.discard(sid)
 
-    threading.Thread(target=run, daemon=True).start()
+    db.spawn(run)
 
 
 def _promote() -> int | None:
@@ -1455,7 +1460,7 @@ def refresh(check: bool = True) -> dict:
                     elif check and pr["tried"] - (s["checked_n"] or 0) >= CHECK_EVERY and s["id"] not in _checking:
                         c.execute("UPDATE steps SET checked_n=? WHERE id=?", (pr["tried"], s["id"]))
                         to_check.append(s["id"])
-                left, total = c.execute("SELECT SUM(status='open'), COUNT(*) FROM steps WHERE plan_id=?", (plan["id"],)).fetchone()
+                left, total = c.execute("SELECT COUNT(*) FILTER (WHERE status='open'), COUNT(*) FROM steps WHERE plan_id=?", (plan["id"],)).fetchone()
                 if total and not left:
                     c.execute("UPDATE plans SET status='done', done_ts=? WHERE id=?", (now, plan["id"]))
                     finished = True
@@ -1513,13 +1518,13 @@ def _calls(plan_id: int) -> dict:
 
 def state() -> dict:
     plan = _plan_row() or (_q("SELECT * FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 1") or [None])[0]
-    if not plan and not _gen["running"]:
+    if not plan and not _g()["running"]:
         start("First plan for this learner.")
     midnight = datetime.combine(date.today(), datetime.min.time()).timestamp()
-    use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, SUM(ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
-    out: dict = {"generating": _gen["running"], "stage": _gen["stage"], "building_next": _gen["running"] and _gen["next"], "error": _gen["error"],
-                 "writing_story": _gen.get("story"),
-                 "started": _gen["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
+    use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, COUNT(*) FILTER (WHERE ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
+    out: dict = {"generating": _g()["running"], "stage": _g()["stage"], "building_next": _g()["running"] and _g()["next"], "error": _g()["error"],
+                 "writing_story": _g().get("story"),
+                 "started": _g()["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
                  "next_ready": bool(_q("SELECT id FROM plans WHERE status='next'")), "coach_model": COACH_MODEL,
                  "alphabet": alphabet_status(),
                  "usage": {"calls": use["n"] or 0, "cost": round(use["cost"] or 0, 4), "today_calls": use["today_n"] or 0, "today_cost": round(use["today_cost"] or 0, 4)}}
@@ -1554,5 +1559,5 @@ def step_state(step_id: int) -> dict | None:
         nxt = next((x for x in _steps(cur["id"]) if x["status"] == "open"), None) if cur else None
     return {"step": _step_view(s), "plan": {"id": plan["id"], "status": plan["status"]}, "count": len(steps),
             "done": sum(1 for x in steps if x["status"] != "open"), "next": _step_view(nxt) if nxt else None,
-            "generating": _gen["running"], "stage": _gen["stage"]}
+            "generating": _g()["running"], "stage": _g()["stage"]}
 

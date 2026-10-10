@@ -8,12 +8,9 @@ from app import coach, db, story
 
 
 @pytest.fixture()
-def tmpdb(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
+def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 30)
-    db.init()
-    return tmp_path
 
 
 FACTS = {

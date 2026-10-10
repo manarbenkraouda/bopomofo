@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { api, exportUrl, type ItemStat, type Stats as Data } from "@/lib/api";
+import { api, downloadExport, type ItemStat, type Stats as Data } from "@/lib/api";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { setPref, usePref } from "@/lib/prefs";
 import { goalMinutes } from "@/lib/session";
@@ -680,7 +680,7 @@ function ActivityView({ data, phone }: { data: Data; phone: boolean }) {
       </Disclosure>
 
       <Disclosure title="Last answers" hint="Your most recent answers, with what went wrong">
-        <div className="mb-3"><a className="btn !px-3 !py-1 text-xs" href={exportUrl()} download>Export all answers as CSV</a></div>
+        <div className="mb-3"><button className="btn !px-3 !py-1 text-xs" onClick={() => downloadExport().catch((e: Error) => alert(e.message))}>Export all answers as CSV</button></div>
         <div className="flex max-h-96 flex-col gap-0.5 overflow-y-auto">
           {data.recent.map((e) => {
             // Speaking also saves whole syllables; the tone, initial, and final already say what went wrong.

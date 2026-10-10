@@ -10,6 +10,16 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4.1-flash")
 # The coach plans practice from the stats. Jev Router picks a model and reasoning effort per request.
 COACH_MODEL = os.getenv("COACH_MODEL", "typesafe/jev-router")
+# PostgreSQL. The role must not be a superuser or have BYPASSRLS: row-level security keeps each user's data apart.
+DATABASE_URL = os.getenv("DATABASE_URL", "")
+ALLOW_RLS_BYPASS = os.getenv("ALLOW_RLS_BYPASS", "") == "1"  # tests and tools only, never in production
+# Clerk sign-in. The API checks the session token of every request with the secret key (or the PEM public key).
+CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
+CLERK_JWT_KEY = os.getenv("CLERK_JWT_KEY", "")
+# The frontend origins allowed to use the tokens, comma separated, e.g. https://bopomofo.app. Empty: any origin.
+CLERK_AUTHORIZED_PARTIES = [o.strip() for o in os.getenv("CLERK_AUTHORIZED_PARTIES", "").split(",") if o.strip()]
+# Keep the learner's last reading quiz clips on disk to tune the thresholds. Off unless set to 1.
+SAVE_QUIZ_CLIPS = os.getenv("SAVE_QUIZ_CLIPS", "") == "1"
 MODEL_DIR = Path(os.getenv("MODEL_DIR", ROOT / "models"))
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)

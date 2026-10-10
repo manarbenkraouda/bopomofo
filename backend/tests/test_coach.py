@@ -7,12 +7,9 @@ from app import coach, db
 
 
 @pytest.fixture()
-def tmpdb(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
+def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
-    db.init()
-    return tmp_path
 
 
 def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):

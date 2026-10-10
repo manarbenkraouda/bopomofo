@@ -131,10 +131,37 @@ export function apiBase(): string {
 // Messages the learner can read as they are. Every other error gets a short, friendly message.
 const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story)/;
 
+// The Clerk session token. <ApiAuth /> gives the getter while a user is signed in, and null when not.
+// Just after the sign-in redirect there is no token yet: requests wait for one (at most 10 s).
+let tokenGetter: (() => Promise<string | null>) | null = null;
+let waiting: (() => void)[] = [];
+export function setTokenGetter(get: (() => Promise<string | null>) | null) {
+  tokenGetter = get;
+  if (get) { waiting.forEach((wake) => wake()); waiting = []; }
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (typeof window === "undefined") return {};
+  const end = Date.now() + 10000;
+  while (Date.now() < end) {
+    if (!tokenGetter) await new Promise<void>((wake) => { waiting.push(wake); setTimeout(wake, end - Date.now()); });
+    const token = await tokenGetter?.().catch(() => null);
+    if (token) return { Authorization: "Bearer " + token };
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return {};
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  for (const [k, v] of Object.entries(await authHeaders())) headers.set(k, v);
+  return fetch(apiBase() + path, { ...init, headers });
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let r: Response;
   try {
-    r = await fetch(apiBase() + path, init);
+    r = await send(path, init);
   } catch {
     throw new Error("Can't connect right now. Please try again in a moment.");
   }
@@ -142,6 +169,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = "";
     try { const j = await r.json(); if (typeof j.detail === "string") detail = j.detail; } catch {}
     const msg = SAFE_DETAIL.test(detail) ? detail
+      : r.status === 401 ? "Please sign in again."
       : r.status === 503 ? "The speech check is getting ready. Try again in a few seconds."
       : "Something went wrong. Please try again in a moment.";
     throw new Error(msg);
@@ -224,4 +252,14 @@ export const clearAudioCache = async () => {
 export const ttsUrl = (text: string, rate = 0, voice = getVoice()) =>
   apiBase() + "/api/tts?text=" + encodeURIComponent(text) + "&rate=" + rate + (voice ? "&voice=" + encodeURIComponent(voice) : "") + (audioVersion() ? "&v=" + audioVersion() : "");
 
-export const exportUrl = () => apiBase() + "/api/stats/export.csv";
+/** Download every answer as CSV. A plain link cannot send the sign-in token, so the file is fetched first. */
+export async function downloadExport() {
+  const r = await send("/api/stats/export.csv");
+  if (!r.ok) throw new Error(r.status === 401 ? "Please sign in again." : "Something went wrong. Please try again in a moment.");
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "bopomofo-history.csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

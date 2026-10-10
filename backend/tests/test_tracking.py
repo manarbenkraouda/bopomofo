@@ -1,5 +1,4 @@
-"""Progress tracking: the event and unit tables, the copy of old attempts, and the statistics built on them."""
-import json
+"""Progress tracking: the event and unit tables, old-format attempts, per-user data, and the statistics built on them."""
 import time
 from datetime import date
 
@@ -9,33 +8,52 @@ from app import db, stats
 
 
 @pytest.fixture()
-def tmpdb(tmp_path, monkeypatch):
-    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
-    return tmp_path
+def tmpdb(pg):
+    return None
 
 
-def legacy(c, area, item, ok, details, ts):
-    c.execute("INSERT INTO attempts(area, item, ok, score, details, created) VALUES (?,?,?,?,?,?)", (area, item, int(ok), None, json.dumps(details), ts))
-
-
-def test_backfill_copies_old_attempts_once(tmpdb):
+def test_old_attempts_become_events_with_units(tmpdb):
+    """The old attempt format (POST /api/progress/attempt, and rows imported from SQLite) is saved as events and units."""
+    old = [("writing", "ㄗ", False, {"symbols": [{"sym": "ㄗ", "ok": False}], "mode": "dictation", "cheated": True}, time.time() - 86400),
+           ("writing", "ㄇㄚˇ", True, {"symbols": [{"sym": "ㄇ", "ok": True}, {"sym": "ˇ", "ok": True}], "mode": "syllable"}, time.time()),
+           ("speaking", "你好", True, {"tones": [{"tone": 2, "ok": True}, {"tone": 3, "ok": False}]}, time.time())]
+    for area, item, ok, details, ts in old:
+        db.add_event(db.legacy_event(area, item, ok, None, details), ts=ts, legacy=True)
     with db.conn() as c:
-        c.executescript("CREATE TABLE attempts (id INTEGER PRIMARY KEY AUTOINCREMENT, area TEXT NOT NULL, item TEXT NOT NULL,"
-                        " ok INTEGER NOT NULL, score REAL, details TEXT, created REAL NOT NULL);")
-        legacy(c, "writing", "ㄗ", False, {"symbols": [{"sym": "ㄗ", "ok": False}], "mode": "dictation", "cheated": True}, time.time() - 86400)
-        legacy(c, "writing", "ㄇㄚˇ", True, {"symbols": [{"sym": "ㄇ", "ok": True}, {"sym": "ˇ", "ok": True}], "mode": "syllable"}, time.time())
-        legacy(c, "speaking", "你好", True, {"tones": [{"tone": 2, "ok": True}, {"tone": 3, "ok": False}]}, time.time())
-    db.init()
-    db.init()  # a second start must not copy again
-    with db.conn() as c:
-        ev = [dict(r) for r in c.execute("SELECT area, mode, help FROM events ORDER BY id")]
+        ev = [dict(r) for r in c.execute("SELECT area, mode, help, legacy FROM events ORDER BY id")]
         un = [dict(r) for r in c.execute("SELECT area, kind, expected, ok FROM units ORDER BY id")]
     assert [e["area"] for e in ev] == ["dictation", "writing", "speaking"]
-    assert ev[0]["help"] == 1 and ev[2]["mode"] == "sentence"
+    assert ev[0]["help"] == 1 and ev[2]["mode"] == "sentence" and all(e["legacy"] == 1 for e in ev)
     assert {"area": "writing", "kind": "tone", "expected": "3", "ok": 1} in un
     assert sum(u["kind"] == "tone" and u["area"] == "speaking" for u in un) == 2
     s = db.summary()
     assert s["symbols"]["ㄗ"] == {"n": 1, "err": 1} and s["tones"]["3"] == {"n": 1, "err": 1}
+
+
+def test_each_user_sees_only_their_own_data(tmpdb):
+    db.add_sentence({"hanzi": "我很好"}, "t", "t")
+    db.set_profile({"job": "engineer"})
+    db.save_day("2026-10-10", 120, 15)
+    db.add_event({"area": "listening", "item": "ㄇㄚˇ", "ok": True, "units": [{"kind": "tone", "expected": "3", "ok": True}]})
+    db.set_user("user_other")
+    assert db.list_sentences() == [] and db.get_profile() == {} and db.summary()["attempts"] == 0
+    db.set_profile({"job": "teacher"})
+    db.save_day("2026-10-10", 30, None)
+    with db.conn() as c:
+        assert c.execute("SELECT COUNT(*) FROM units").fetchone()[0] == 0
+        assert c.execute("UPDATE sentences SET hanzi='x'").rowcount == 0  # cannot change the other user's rows
+    db.set_user("user_test")
+    assert [s["hanzi"] for s in db.list_sentences()] == ["我很好"] and db.get_profile() == {"job": "engineer"}
+    with db.conn() as c:
+        assert c.execute("SELECT seconds FROM days").fetchall() == [(120,)]
+
+
+def test_no_user_sees_nothing_and_cannot_write(tmpdb):
+    db.add_sentence({"hanzi": "我很好"}, "t", "t")
+    db.set_user(None)
+    assert db.list_sentences() == []
+    with pytest.raises(Exception):
+        db.add_sentence({"hanzi": "x"}, "t", "t")
 
 
 def test_speaking_units_keep_what_was_heard():
@@ -54,7 +72,6 @@ def test_speaking_units_keep_what_was_heard():
 
 def test_speaking_cheat_and_retry_are_saved(tmpdb):
     """A recording after the cheat (model audio or Pinyin) is helped, and a retry on the same card is not a first try."""
-    db.init()
     syl = {"char": "好", "zhuyin": "ㄏㄠˇ", "initial": "ㄏ", "final": "ㄠ", "tone": 3, "surface_tone": 3}
     res = {"score": 95, "syllables": [{"expected": syl, "heard": {"initial": "ㄏ", "final": "ㄠ", "tone": 3, "zhuyin": "ㄏㄠˇ"},
                                        "initial_ok": True, "final_ok": True, "tone_ok": True}]}
@@ -68,7 +85,6 @@ def test_speaking_cheat_and_retry_are_saved(tmpdb):
 
 
 def test_speaking_by_text_counts_recordings_per_sentence(tmpdb):
-    db.init()
     for score, ts in ((60, 1.0), (92, 2.0), (85, 3.0)):
         db.add_event({"area": "speaking", "mode": "sentence", "item": "你好。", "ok": score >= 80, "score": score}, ts=ts)
     db.add_event({"area": "listening", "mode": "tone", "item": "你好。", "ok": True}, ts=4.0)
@@ -76,7 +92,6 @@ def test_speaking_by_text_counts_recordings_per_sentence(tmpdb):
 
 
 def test_confusion_weak_and_challenges(tmpdb):
-    db.init()
     yesterday = time.time() - 86400
     for i in range(10):  # tone 3 heard as tone 2, 7 times out of 10
         picked = "2" if i < 7 else "3"

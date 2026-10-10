@@ -1,4 +1,4 @@
-"""SQLite storage for sentences and practice history.
+"""PostgreSQL storage for sentences and practice history.
 
 History has three tables:
 - events: one row per graded answer (a card, a recording, a quiz question).
@@ -6,105 +6,268 @@ History has three tables:
   actually produced: a tone, an initial, a final, a symbol, a syllable, or a stroke. Confusion tables
   ("tone 3 said as tone 2") are simple GROUP BY queries on this table.
 - days: active practice seconds per day, synced from the browser clock.
-The old attempts table is kept as an archive. Its rows are copied into events and units once.
+
+Every table has a user_id column (the Clerk user id). Row-level security in the database shows each connection
+only the rows of the user set with set_user(), and fills user_id on insert. So the queries in this app never
+name the user, and a query cannot read or change the data of another user. Without a user, a connection sees no rows.
+
+The schema is in app/migrations/*.sql, applied in order at startup. SQL uses ? placeholders.
 """
 from __future__ import annotations
 
+import contextvars
 import json
-import sqlite3
+import queue
+import ssl
+import threading
 import time
 from collections import defaultdict
+from contextlib import contextmanager
 from datetime import date, timedelta
+from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
 
-from .config import DATA_DIR
+import pg8000.dbapi
 
-DB = DATA_DIR / "zhuyin.db"
+from . import config
+
+pg8000.dbapi.paramstyle = "qmark"  # pg8000 reads the style from the module only
 UNIT_KINDS = {"tone", "initial", "final", "symbol", "syllable", "stroke", "order"}
+MIGRATIONS = Path(__file__).parent / "migrations"
+POOL_SIZE = 10
+NUMERIC_OID = 1700
+
+_user: contextvars.ContextVar[str | None] = contextvars.ContextVar("user_id", default=None)
 
 
+def set_user(user_id: str | None) -> contextvars.Token:
+    """The user of the current request. Every connection opened after this sees only this user's rows."""
+    return _user.set(user_id)
+
+
+def current_user() -> str | None:
+    return _user.get()
+
+
+def spawn(fn, *args) -> threading.Thread:
+    """Run fn in a background thread as the current user."""
+    t = threading.Thread(target=contextvars.copy_context().run, args=(fn, *args), daemon=True)
+    t.start()
+    return t
+
+
+# ---------- connections ----------
+
+class Row(tuple):
+    """A result row that reads by position or by column name, like sqlite3.Row. dict(row) works."""
+    _cols: tuple = ()
+    _idx: dict = {}
+
+    def __getitem__(self, k):
+        return super().__getitem__(self._idx[k] if isinstance(k, str) else k)
+
+    def keys(self):
+        return list(self._cols)
+
+
+class Result:
+    def __init__(self, cur):
+        self.rowcount = cur.rowcount
+        cols = tuple(d[0] for d in cur.description or ())
+        row = type("Row", (Row,), {"_cols": cols, "_idx": {c: i for i, c in enumerate(cols)}})
+        self._rows = [row(r) for r in cur.fetchall()] if cur.description else []
+        self._at = 0
+
+    def fetchone(self):
+        if self._at >= len(self._rows):
+            return None
+        self._at += 1
+        return self._rows[self._at - 1]
+
+    def fetchall(self):
+        out, self._at = self._rows[self._at:], len(self._rows)
+        return out
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+
+def _arg(v):
+    return int(v) if isinstance(v, bool) else v
+
+
+class Conn:
+    """A pooled connection. execute() takes ? placeholders."""
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, sql: str, args=()) -> Result:
+        cur = self.raw.cursor()
+        cur.execute(sql, tuple(_arg(a) for a in args))
+        return Result(cur)
+
+    def executemany(self, sql: str, rows, chunk: int = 200) -> None:
+        """INSERT ... VALUES (?,...) for many rows, sent as one multi-row INSERT per chunk."""
+        head, sep, values = sql.rpartition(" VALUES ")
+        if not sep or not values.strip().startswith("("):
+            raise ValueError("executemany takes an INSERT ... VALUES (...) statement")
+        rows = [tuple(r) for r in rows]
+        for i in range(0, len(rows), chunk):
+            part = rows[i:i + chunk]
+            self.execute(head + " VALUES " + ",".join([values.strip()] * len(part)), tuple(a for r in part for a in r))
+
+
+def _connect():
+    url = config.DATABASE_URL
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set. Add it to backend/.env (see backend/.env.example).")
+    u = urlparse(url)
+    if u.scheme not in ("postgres", "postgresql"):
+        raise RuntimeError("DATABASE_URL must start with postgresql://")
+    mode = (parse_qs(u.query).get("sslmode") or [""])[0]
+    local = u.hostname in ("localhost", "127.0.0.1", "::1")
+    if mode == "disable" or (not mode and local):
+        ctx = None
+    elif mode in ("require", "prefer", "allow"):  # encrypted, certificate not checked (libpq semantics)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    else:  # verify-ca, verify-full, or no sslmode on a remote host
+        ctx = ssl.create_default_context()
+    raw = pg8000.dbapi.connect(user=unquote(u.username or ""), password=unquote(u.password or ""), host=u.hostname or "localhost",
+                               port=u.port or 5432, database=unquote(u.path.lstrip("/")) or None, ssl_context=ctx,
+                               timeout=60, application_name="bopomofo")
+    raw.register_in_adapter(NUMERIC_OID, float)  # AVG() and similar: float, not Decimal
+    return raw
+
+
+_pool: queue.LifoQueue = queue.LifoQueue()
+
+
+def _close(raw):
+    try:
+        raw.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+@contextmanager
 def conn():
-    c = sqlite3.connect(DB)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA foreign_keys = ON")
-    return c
+    """A transaction as the current user. Commits at the end, rolls back on an error."""
+    uid = _user.get() or ""
+    raw = None
+    for fresh in (False, True):
+        try:
+            raw = _pool.get_nowait() if not fresh else _connect()
+        except queue.Empty:
+            raw = _connect()
+        try:
+            Conn(raw).execute("SELECT set_config('app.user_id', ?, false)", (uid,))
+            break
+        except (pg8000.dbapi.InterfaceError, OSError):  # a dropped pooled connection
+            _close(raw)
+            if fresh:
+                raise
+    c = Conn(raw)
+    try:
+        yield c
+        raw.commit()
+    except BaseException:
+        try:
+            raw.rollback()
+        except Exception:  # noqa: BLE001
+            _close(raw)
+            raw = None
+        raise
+    finally:
+        if raw is not None:
+            if _pool.qsize() < POOL_SIZE:
+                _pool.put(raw)
+            else:
+                _close(raw)
 
+
+def close_pool():
+    while True:
+        try:
+            _close(_pool.get_nowait())
+        except queue.Empty:
+            return
+
+
+# ---------- schema ----------
 
 def init():
-    with conn() as c:
-        c.executescript("""
-        CREATE TABLE IF NOT EXISTS sentences (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, hanzi TEXT NOT NULL, english TEXT, words TEXT,
-          topic TEXT, level TEXT, created REAL NOT NULL);
-        CREATE TABLE IF NOT EXISTS attempts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, area TEXT NOT NULL, item TEXT NOT NULL,
-          ok INTEGER NOT NULL, score REAL, details TEXT, created REAL NOT NULL);
-        CREATE INDEX IF NOT EXISTS attempts_area ON attempts(area, created);
-        CREATE TABLE IF NOT EXISTS profile (id INTEGER PRIMARY KEY CHECK (id = 1), data TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, day TEXT NOT NULL, area TEXT NOT NULL, mode TEXT,
-          item TEXT NOT NULL, ok INTEGER NOT NULL, first_try INTEGER, score REAL, ms INTEGER, tries INTEGER,
-          help INTEGER NOT NULL DEFAULT 0, replays INTEGER, legacy INTEGER NOT NULL DEFAULT 0, details TEXT);
-        CREATE INDEX IF NOT EXISTS events_day ON events(day, area);
-        CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
-        CREATE TABLE IF NOT EXISTS units (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-          ts REAL NOT NULL, day TEXT NOT NULL, area TEXT NOT NULL, mode TEXT, kind TEXT NOT NULL,
-          expected TEXT NOT NULL, actual TEXT, ok INTEGER, pos INTEGER NOT NULL DEFAULT 0, try_n INTEGER NOT NULL DEFAULT 0,
-          help INTEGER NOT NULL DEFAULT 0, ctx TEXT, lex TEXT, prev TEXT, next TEXT, source TEXT,
-          uncertain INTEGER NOT NULL DEFAULT 0, extra TEXT);
-        CREATE INDEX IF NOT EXISTS units_kind ON units(kind, area, expected);
-        CREATE INDEX IF NOT EXISTS units_day ON units(day);
-        CREATE INDEX IF NOT EXISTS units_event ON units(event_id);
-        CREATE TABLE IF NOT EXISTS days (day TEXT PRIMARY KEY, seconds INTEGER NOT NULL DEFAULT 0, goal_min INTEGER);
-        CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-        CREATE TABLE IF NOT EXISTS plans (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, status TEXT NOT NULL, source TEXT, model TEXT,
-          diagnosis TEXT, reason TEXT, digest TEXT, raw TEXT, error TEXT, done_ts REAL);
-        CREATE TABLE IF NOT EXISTS steps (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER NOT NULL REFERENCES plans(id) ON DELETE CASCADE, pos INTEGER NOT NULL,
-          type TEXT NOT NULL, title TEXT NOT NULL, why TEXT, params TEXT NOT NULL, target INTEGER NOT NULL, minutes INTEGER,
-          status TEXT NOT NULL DEFAULT 'open', done_ts REAL, skip_reason TEXT, checked_n INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE IF NOT EXISTS milestones (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, plan_id INTEGER, title TEXT NOT NULL, why TEXT,
-          criterion TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', done_ts REAL);
-        CREATE TABLE IF NOT EXISTS coach_calls (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, run TEXT, plan_id INTEGER, step_id INTEGER, stage TEXT NOT NULL,
-          model TEXT, ms INTEGER, cost REAL, tokens INTEGER, ok INTEGER NOT NULL, error TEXT, response TEXT);
-        CREATE TABLE IF NOT EXISTS coach_notes (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, ts REAL NOT NULL, plan_id INTEGER, step_id INTEGER, kind TEXT NOT NULL, text TEXT NOT NULL);
-        """)
-        cols = {r[1] for r in c.execute("PRAGMA table_info(steps)")}
-        if "checked_n" not in cols:
-            c.execute("ALTER TABLE steps ADD COLUMN checked_n INTEGER NOT NULL DEFAULT 0")
-        plan_cols = {r[1] for r in c.execute("PRAGMA table_info(plans)")}
-        for col in ("headline", "story"):  # the plan's short headline and its "How do we know?" story (JSON)
-            if col not in plan_cols:
-                c.execute(f"ALTER TABLE plans ADD COLUMN {col} TEXT")
-    backfill()
+    """Check the database role and apply the new migrations. Safe to run from several workers at once."""
+    raw = _connect()
+    try:
+        raw.autocommit = True
+        cur = raw.cursor()
+        cur.execute("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")
+        if cur.fetchone()[0] and not config.ALLOW_RLS_BYPASS:
+            raise RuntimeError("DATABASE_URL logs in as a role that skips row-level security (a superuser or BYPASSRLS), "
+                               "so every user would see all data. Use a normal role that owns the database (see README.md).")
+        cur.execute("SELECT pg_advisory_lock(727001)")
+        try:
+            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now())")
+            cur.execute("SELECT version FROM schema_migrations")
+            done = {r[0] for r in cur.fetchall()}
+            for f in sorted(MIGRATIONS.glob("*.sql")):
+                if f.name in done:
+                    continue
+                try:
+                    raw.execute_simple("BEGIN;\n" + f.read_text(encoding="utf-8") +
+                                       f"\nINSERT INTO schema_migrations(version) VALUES ('{f.name}');\nCOMMIT;")
+                except Exception:
+                    raw.execute_simple("ROLLBACK")
+                    raise
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(727001)")
+    finally:
+        _close(raw)
 
+
+# ---------- profile, sentences, small values ----------
 
 def get_profile() -> dict:
     with conn() as c:
-        r = c.execute("SELECT data FROM profile WHERE id=1").fetchone()
+        r = c.execute("SELECT data FROM profile").fetchone()
     return json.loads(r["data"]) if r else {}
 
 
 def set_profile(data: dict) -> dict:
     with conn() as c:
-        c.execute("INSERT INTO profile(id, data) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data", (json.dumps(data, ensure_ascii=False),))
+        c.execute("INSERT INTO profile(data) VALUES (?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data", (json.dumps(data, ensure_ascii=False),))
     return get_profile()
+
+
+def get_meta(key: str) -> str | None:
+    if not _user.get():
+        return None
+    with conn() as c:
+        r = c.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+    return r["value"] if r else None
+
+
+def set_meta(key: str, value: str | None):
+    with conn() as c:
+        if value is None:
+            c.execute("DELETE FROM meta WHERE key=?", (key,))
+        else:
+            c.execute("INSERT INTO meta(key, value) VALUES (?,?) ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value", (key, value))
 
 
 def add_sentence(s: dict, topic: str, level: str) -> dict:
     with conn() as c:
-        cur = c.execute("INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?)",
-                        (s["hanzi"], s.get("english", ""), json.dumps(s.get("words", []), ensure_ascii=False), topic, level, time.time()))
-        sid = cur.lastrowid
+        sid = c.execute("INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?) RETURNING id",
+                        (s["hanzi"], s.get("english", ""), json.dumps(s.get("words", []), ensure_ascii=False), topic, level, time.time())).fetchone()["id"]
     return get_sentence(sid)
 
 
 def _row(r) -> dict:
     d = dict(r)
+    d.pop("user_id", None)
     d["words"] = json.loads(d["words"] or "[]")
     return d
 
@@ -151,39 +314,33 @@ def _s(v) -> str | None:
     return None if v is None else str(v)[:64]
 
 
-def add_event(ev: dict, c: sqlite3.Connection | None = None, ts: float | None = None, legacy: bool = False) -> int:
+def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: bool = False) -> int:
     """Save one graded answer and its units. ev keys: area, mode, item, ok, first_try, score, ms, tries, help,
     replays, details, units (list of dicts: kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next,
     source, uncertain, extra)."""
     ts = ts or time.time()
     day = day_of(ts)
-    own = c is None
-    c = c or conn()
-    try:
-        cur = c.execute(
-            "INSERT INTO events(ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays, legacy, details)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (ts, day, ev["area"], ev.get("mode"), str(ev["item"])[:400], int(bool(ev["ok"])), _b(ev.get("first_try")), ev.get("score"),
-             ev.get("ms"), ev.get("tries"), int(bool(ev.get("help"))), ev.get("replays"), int(legacy),
-             json.dumps(ev.get("details") or {}, ensure_ascii=False)))
-        eid = cur.lastrowid
-        rows = []
-        for u in ev.get("units") or []:
-            if u.get("kind") not in UNIT_KINDS or u.get("expected") in (None, ""):
-                continue
-            rows.append((eid, ts, day, ev["area"], ev.get("mode"), u["kind"], str(u["expected"])[:64], _s(u.get("actual")),
-                         _b(u.get("ok")), int(u.get("pos") or 0), int(u.get("try_n") or 0), int(bool(u.get("help"))),
-                         _s(u.get("ctx")), _s(u.get("lex")), _s(u.get("prev")), _s(u.get("next")), _s(u.get("source")),
-                         int(bool(u.get("uncertain"))), json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None))
-        c.executemany(
-            "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
-        if own:
-            c.commit()
-        return eid
-    finally:
-        if own:
-            c.close()
+    if c is None:
+        with conn() as own:
+            return add_event(ev, own, ts, legacy)
+    eid = c.execute(
+        "INSERT INTO events(ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays, legacy, details)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
+        (ts, day, ev["area"], ev.get("mode"), str(ev["item"])[:400], int(bool(ev["ok"])), _b(ev.get("first_try")), ev.get("score"),
+         ev.get("ms"), ev.get("tries"), int(bool(ev.get("help"))), ev.get("replays"), int(legacy),
+         json.dumps(ev.get("details") or {}, ensure_ascii=False))).fetchone()["id"]
+    rows = []
+    for u in ev.get("units") or []:
+        if u.get("kind") not in UNIT_KINDS or u.get("expected") in (None, ""):
+            continue
+        rows.append((eid, ts, day, ev["area"], ev.get("mode"), u["kind"], str(u["expected"])[:64], _s(u.get("actual")),
+                     _b(u.get("ok")), int(u.get("pos") or 0), int(u.get("try_n") or 0), int(bool(u.get("help"))),
+                     _s(u.get("ctx")), _s(u.get("lex")), _s(u.get("prev")), _s(u.get("next")), _s(u.get("source")),
+                     int(bool(u.get("uncertain"))), json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None))
+    c.executemany(
+        "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    return eid
 
 
 def legacy_event(area: str, item: str, ok: bool, score: float | None, details: dict | None) -> dict:
@@ -206,23 +363,11 @@ def legacy_event(area: str, item: str, ok: bool, score: float | None, details: d
             "tries": d.get("tries"), "help": helped, "details": d, "units": units}
 
 
-def backfill():
-    """Copy the old attempts rows into events and units, once."""
-    with conn() as c:
-        if c.execute("SELECT value FROM meta WHERE key='backfill'").fetchone():
-            return
-        rows = c.execute("SELECT * FROM attempts ORDER BY id").fetchall()
-        for r in rows:
-            add_event(legacy_event(r["area"], r["item"], bool(r["ok"]), r["score"], json.loads(r["details"] or "{}")),
-                      c=c, ts=r["created"], legacy=True)
-        c.execute("INSERT INTO meta(key, value) VALUES ('backfill', ?)", (str(len(rows)),))
-
-
 def save_day(day: str, seconds: int, goal_min: int | None):
     """Active seconds for a day. The browser clock only grows during a day, so keep the larger value."""
     with conn() as c:
-        c.execute("INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(day) DO UPDATE SET "
-                  "seconds=MAX(seconds, excluded.seconds), goal_min=COALESCE(excluded.goal_min, goal_min)",
+        c.execute("INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(user_id, day) DO UPDATE SET "
+                  "seconds=GREATEST(days.seconds, excluded.seconds), goal_min=COALESCE(excluded.goal_min, days.goal_min)",
                   (day, max(0, int(seconds)), goal_min))
 
 
@@ -269,3 +414,4 @@ def streak(days: set[str], today: date | None = None) -> int:
         n += 1
         d -= timedelta(days=1)
     return n
+

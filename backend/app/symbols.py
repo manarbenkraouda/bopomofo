@@ -8,13 +8,15 @@ and the best name wins.
 from __future__ import annotations
 
 import json
+import re
 import time
 
 import numpy as np
 import soundfile as sf
 
+from . import db
 from .asr import recognizer
-from .config import DATA_DIR
+from .config import DATA_DIR, SAVE_QUIZ_CLIPS
 from .tts import level
 
 CLIPS = DATA_DIR / "quiz_clips"
@@ -135,13 +137,18 @@ def check(audio: np.ndarray, target: str) -> dict:
 
 
 def save_clip(audio: np.ndarray, result: dict) -> None:
-    """Keep the learner's recent quiz clips (local data folder only) to tune the thresholds on a real voice."""
+    """Keep the learner's recent quiz clips (local data folder, one folder per user) to tune the thresholds on a real voice.
+    Off unless SAVE_QUIZ_CLIPS=1: on a shared server these are other people's voices."""
+    uid = db.current_user()
+    if not SAVE_QUIZ_CLIPS or not uid:
+        return
+    folder = CLIPS / re.sub(r"[^A-Za-z0-9_-]", "_", uid)
     try:
-        CLIPS.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(parents=True, exist_ok=True)
         stem = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
-        sf.write(str(CLIPS / f"{stem}.wav"), audio, 16000)
-        (CLIPS / f"{stem}.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        for old in sorted(CLIPS.glob("*.wav"))[:-KEEP_CLIPS]:
+        sf.write(str(folder / f"{stem}.wav"), audio, 16000)
+        (folder / f"{stem}.json").write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        for old in sorted(folder.glob("*.wav"))[:-KEEP_CLIPS]:
             old.unlink(missing_ok=True)
             old.with_suffix(".json").unlink(missing_ok=True)
     except OSError:

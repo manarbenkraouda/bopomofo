@@ -23,10 +23,11 @@ The repository does not contain the secret key, the speech model (3.6 GB), or yo
        git clone git@github.com:manarbenkraouda/zhuyin-studio.git
        cd zhuyin-studio
 
-3. Run **setup.cmd**. It creates the Python environment, installs the frontend packages, builds the frontend, and creates backend/.env.
-4. Put your OpenRouter key in backend/.env (see Configuration).
-5. Create the speech model (see Speech model), or copy the backend/models folder from another machine.
-6. Run **start.cmd**.
+3. Create the PostgreSQL role and databases (see Database).
+4. Run **setup.cmd**. It creates the Python environment, installs the frontend packages, and creates backend/.env.
+5. Fill in backend/.env: the OpenRouter key, DATABASE_URL, and the Clerk secret key. Run `clerk env pull --file frontend/.env.local` for the Clerk keys of the frontend (see Sign-in), then `cd frontend && bun run build`.
+6. Create the speech model (see Speech model), or copy the backend/models folder from another machine.
+7. Run **start.cmd**.
 
 setup.cmd uses the Windows ARM64 Python (cpython-3.12-windows-aarch64). On an x64 PC, change it to cpython-3.12-windows-x86_64.
 
@@ -52,8 +53,9 @@ Keyboard: Space = play, Enter = check / next, R = record (Speaking), Ctrl+Z = un
 - **Bopomofo for text:** pypinyin with Taiwan (MOE) corrections for common words (星期 ㄑㄧˊ, 垃圾 ㄌㄜˋ ㄙㄜˋ, 誰 ㄕㄟˊ...), and neutral-tone dots in front (˙ㄇㄚ). Some readings can still follow mainland usage.
 - **Audio:** open-source voices that run offline with sherpa-onnx: Kokoro v1.1-zh (female, default, and male) and MediaTek Breeze2-VITS (Taiwan accent). Choose one in Settings. On test sentences the speech model scored Kokoro 93-100 and Breeze2 87-100 (average 93). Breeze2 runs directly on ONNX Runtime with the app's own Zhuyin analyzer, because the sherpa-onnx text front end merged and dropped its syllables. setup.cmd downloads the voices (backend/tools/download_voices.py) into backend/models; audio is cached in backend/data/tts.
 - **Writing data:** stroke outlines and centerlines from the Taiwan Ministry of Education 國語注音符號手冊; stroke counts match the handbook for all 37 symbols.
-- **Data:** backend/data/zhuyin.db (sentences and practice history), backend/data/speaker.json (your pitch reference). Git ignores this folder. To reset the pitch reference, delete speaker.json.
-- **Practice history:** one row per answer in "events" (area, mode, item, right or wrong, time to answer, tries, help, replays), and one row per part of the answer in "units": the expected tone, initial, final, symbol, syllable, or stroke, and what you actually produced. Speaking also saves the tone before and after, the tone change, and which signal judged the tone. "days" keeps your active minutes per day. The older "attempts" table stays as an archive; its rows were copied into the new tables once.
+- **Data:** PostgreSQL (DATABASE_URL): sentences, practice history, coach plans, profile, and your pitch reference, per user. backend/data keeps only the audio cache. Git ignores this folder.
+- **Users:** sign-in is Clerk. The frontend sends the Clerk session token with every API request, and the backend checks it (backend/app/auth.py). Every table has a user_id column, and PostgreSQL row-level security shows each request only the rows of its user (backend/app/db.py). /api/health, /api/tts and /api/tts/voices are open without sign-in.
+- **Practice history:** one row per answer in "events" (area, mode, item, right or wrong, time to answer, tries, help, replays), and one row per part of the answer in "units": the expected tone, initial, final, symbol, syllable, or stroke, and what you actually produced. Speaking also saves the tone before and after, the tone change, and which signal judged the tone. "days" keeps your active minutes per day.
 - **Coach (backend/app/coach.py):** a pipeline of small model decisions, all logged in the "coach_calls" table with model, time, and cost. 1) Five analysts in parallel (listening tones, speaking tones, sounds, symbols, sentences) and a pace call. 2) A planner turns the findings into steps. 3) For each step: a writer makes new sentences for an exact focus (tones, tone pairs such as 3-3, symbols); the app's Bopomofo analyzer checks each sentence and sends rejected ones back with the reason. A picker chooses the exact syllables of a drill deck, and the app checks that the deck holds every focus tone. 4) A reviewer keeps, drops, or changes each step, and a milestone call sets the long goals. The backend checks every decision: unknown symbols are dropped, targets are clamped, a checkpoint can only shrink a focus to a subset, and a listening quiz keeps at least two tones. If the model fails, a plan is built by rules. A plan costs about $0.05 and takes 40-50 s; a checkpoint costs about $0.003 and takes 4-14 s. Steps open practice modes with ?step= (answers carry the step id), ?items= (a deck), and ?ids= (sentences).
 
 ## Configuration
@@ -63,6 +65,40 @@ backend/.env:
     OPENROUTER_API_KEY=sk-or-...
     OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
     COACH_MODEL=typesafe/jev-router    # optional; the coach falls back to OPENROUTER_MODEL
+    DATABASE_URL=postgresql://bopomofo_app:...@127.0.0.1:5432/bopomofo
+    TEST_DATABASE_URL=postgresql://bopomofo_app:...@127.0.0.1:5432/bopomofo_test
+    CLERK_SECRET_KEY=sk_test_...
+    CLERK_AUTHORIZED_PARTIES=https://bopomofo.app   # production: the frontend origins
+
+frontend/.env.local (written by `clerk env pull`):
+
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+    CLERK_SECRET_KEY=sk_test_...
+    NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+    NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+    NEXT_PUBLIC_API_URL=https://api.bopomofo.app    # optional; default: the page's host on port 8765
+
+## Database
+
+PostgreSQL 14 or newer. The backend applies backend/app/migrations/*.sql in order when it starts (table schema_migrations).
+
+The app role must own the database and must not be a superuser or have BYPASSRLS: those roles skip row-level security, so every user would see all data. The backend refuses to start with such a role. As the postgres superuser:
+
+    CREATE ROLE bopomofo_app LOGIN PASSWORD '...' NOSUPERUSER NOBYPASSRLS;
+    CREATE DATABASE bopomofo OWNER bopomofo_app;
+    CREATE DATABASE bopomofo_test OWNER bopomofo_app;
+
+On a hosted PostgreSQL (Neon, Supabase, RDS...), create the same kind of role; the default admin role often has BYPASSRLS. Add ?sslmode=require (or verify-full) to a remote DATABASE_URL.
+
+To move your old SQLite history (backend/data/zhuyin.db) into PostgreSQL, sign up in the app once, find your user id (`clerk users list`), then:
+
+    cd backend && .venv\Scripts\python tools\import_sqlite.py --user user_...
+
+It copies everything in one transaction and keeps the row ids, so run it before other accounts exist.
+
+## Sign-in
+
+Clerk app: bopomofo.app (app_3KWA4ktlOfTZ3w6bU2m7u62MJkC), linked with `clerk link`. `clerk env pull --file frontend/.env.local` writes the development keys; rename CLERK_PUBLISHABLE_KEY to NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY if the CLI did not detect Next.js. For production, run `clerk deploy`, use the production keys (`clerk env pull --instance prod`), and set CLERK_AUTHORIZED_PARTIES. frontend/src/proxy.ts sends signed-out visitors to /sign-in.
 
 ## Speech model
 
@@ -77,8 +113,10 @@ You can delete .venv-export after the export.
 
 ## Tests
 
-    cd backend && .venv\Scripts\python -m pytest -q tests      # speech, text, tracking, coach (no network), live OpenRouter
+    cd backend && .venv\Scripts\python -m pytest -q tests      # speech, text, tracking, per-user data, sign-in, coach (no network), live OpenRouter
     cd frontend && bun test src/lib                               # stroke engine
+
+The database tests empty the tables of TEST_DATABASE_URL first. They never use DATABASE_URL.
 
 ## Limits
 
