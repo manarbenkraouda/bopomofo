@@ -28,7 +28,7 @@ export function PitchChart({ result, height = 190 }: { result: SpeechResult; hei
   if (cur) segs.push(cur);
   return (
     <svg viewBox={"0 0 " + W + " " + (H + 30)} className="w-full" preserveAspectRatio="none" style={{ height: H + 30 }}>
-      {[-6, -3, 0, 3, 6].map((g) => <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} stroke="#eee5d6" strokeWidth={1} />)}
+      {[-6, -3, 0, 3, 6].map((g) => <line key={g} x1={0} x2={W} y1={y(g)} y2={y(g)} style={{ stroke: "var(--line)" }} strokeWidth={1} />)}
       {result.syllables.map((s, i) => {
         if (!s.span) return null;
         const [a, b] = s.span;
@@ -37,13 +37,13 @@ export function PitchChart({ result, height = 190 }: { result: SpeechResult; hei
         const ok = s.tone_ok;
         return (
           <g key={i}>
-            <rect x={x(a)} y={0} width={Math.max(2, x(b) - x(a))} height={H} fill={ok ? "#2f946614" : "#d23f3f14"} stroke={i % 2 ? "#e3dbcc" : "none"} />
+            <rect x={x(a)} y={0} width={Math.max(2, x(b) - x(a))} height={H} fill={ok ? "#2f946614" : "#d23f3f14"} style={{ stroke: i % 2 ? "var(--line)" : "none" }} />
             {shape && <path d={shape.map(([u, v], k) => (k ? "L" : "M") + (x(a) + u * (x(b) - x(a))).toFixed(1) + " " + y(v).toFixed(1)).join(" ")} fill="none" stroke={ok ? "#2f9466" : "#d23f3f"} strokeWidth={10} strokeLinecap="round" strokeLinejoin="round" opacity={0.18} />}
             <text x={(x(a) + x(b)) / 2} y={H + 22} textAnchor="middle" fontSize={20} fill={ok ? "#2f9466" : "#d23f3f"} className="cjk">{s.expected.char} {tone === 5 ? "˙" : tone}</text>
           </g>
         );
       })}
-      {segs.map((d, i) => <path key={i} d={d} fill="none" stroke="#24201b" strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />)}
+      {segs.map((d, i) => <path key={i} d={d} fill="none" style={{ stroke: "var(--ink)" }} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />)}
     </svg>
   );
 }

@@ -107,14 +107,15 @@ def analyze(audio: np.ndarray, text: str, speaker_ref: float | None = None) -> d
         else:
             heard_tone, source = model_tone, "model"
         # Taiwan tone 3 alone is often a low fall that the model labels tone 4. With the learner's pitch
-        # reference, a fall that starts low and moves little is tone 3 (tuned on 198 isolated syllables: +23 fixed, 0 broken).
+        # reference, a fall that starts low and moves little is tone 3. Tuned for the Praat tracker on 198 isolated
+        # syllables (tools/eval_pitch.py data): +20 fixed, 0 broken; stable for range limits 7.0-9.0.
         if single and speaker_ref and heard_tone == 4 and span:
             a_, b_ = int(span[0] * 100), int(np.ceil(span[1] * 100))
             seg = st[a_:b_]
             seg = seg[~np.isnan(seg)]
             if len(seg) >= 5:
-                q = max(1, len(seg) // 4)
-                if seg[:q].mean() < 2.5 and (seg.max() - seg.min()) < 5.5:
+                sm = np.convolve(seg, np.ones(3) / 3, mode="valid")
+                if seg[: len(seg) // 2].mean() < 2.0 and (sm.max() - sm.min()) < 7.5:
                     heard_tone, source = 3, "model+pitch"
         r.update({
             "heard": {"initial": h["initial"] if h else None, "final": h["final"] if h else None, "tone": heard_tone,

@@ -1,15 +1,15 @@
+import { Suspense } from "react";
 import { WritingPractice } from "@/components/writing/WritingPractice";
 
 export const metadata = { title: "Writing · Zhuyin Studio" };
 
-export default function WritingPage() {
+export default function Page() {
   return (
-    <div className="max-w-5xl mx-auto flex flex-col gap-5">
-      <header>
-        <h1 className="text-2xl font-semibold">Writing</h1>
-        <p className="text-muted">Hear a sound, write the Bopomofo by hand, and get a correction for every stroke: order, direction, shape, and missing or extra strokes.</p>
-      </header>
-      <WritingPractice />
+    <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">
+      {/* The mode reads its focus from the URL, so it renders in the browser. */}
+      <Suspense>
+        <WritingPractice />
+      </Suspense>
     </div>
   );
 }

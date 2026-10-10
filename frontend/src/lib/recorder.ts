@@ -40,7 +40,7 @@ export class Recorder {
   }
 }
 
-function resample(x: Float32Array, from: number, to: number): Float32Array {
+export function resample(x: Float32Array, from: number, to: number): Float32Array {
   if (from === to) return x;
   const ratio = from / to, n = Math.floor(x.length / ratio), out = new Float32Array(n);
   for (let i = 0; i < n; i++) {
@@ -53,7 +53,7 @@ function resample(x: Float32Array, from: number, to: number): Float32Array {
   return out;
 }
 
-function encodeWav(pcm: Float32Array, rate: number): Blob {
+export function encodeWav(pcm: Float32Array, rate: number): Blob {
   const buf = new ArrayBuffer(44 + pcm.length * 2), v = new DataView(buf);
   const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
   w(0, "RIFF"); v.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt ");

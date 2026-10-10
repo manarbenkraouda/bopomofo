@@ -1,21 +1,31 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist } from "next/font/google";
 import "./globals.css";
-import { Nav } from "@/components/Nav";
+import { AppShell } from "@/components/shell/AppShell";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Zhuyin Studio",
   description: "Learn Bopomofo: reading, writing, listening, and speaking with tone feedback.",
+  appleWebApp: { capable: true, title: "Zhuyin", statusBarStyle: "black-translucent" },
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
 };
+
+// viewportFit "cover": the app draws under the phone's notch and home bar; the shell keeps clear of them with safe-area padding.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#141218" };
+
+// Set the saved theme before the first paint, so the page does not flash.
+const THEME = "try{document.documentElement.dataset.theme=localStorage.getItem('zhuyin.theme')||'dark'}catch(e){}";
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={geistSans.variable + " h-full antialiased"}>
-      <body className="min-h-full flex flex-col md:flex-row">
-        <Nav />
-        <main className="flex-1 min-w-0 px-5 py-6 md:px-10 md:py-8">{children}</main>
+    <html lang="en" data-theme="dark" className={geistSans.variable + " h-full antialiased"} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME }} />
+      </head>
+      <body className="h-full overflow-hidden">
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

@@ -1,5 +1,6 @@
 """Speech and text tests. Uses Taiwan neural TTS recordings of known text as a stand-in for a learner."""
 import asyncio
+import hashlib
 import io
 from pathlib import Path
 
@@ -16,7 +17,7 @@ FIX.mkdir(exist_ok=True)
 
 
 def clip(text: str, rate: int = -10) -> np.ndarray:
-    p = FIX / f"{abs(hash((text, rate))) % 10**10}.mp3"
+    p = FIX / f"{hashlib.sha1(f'{text}|{rate}'.encode()).hexdigest()[:12]}.mp3"
     if not p.exists():
         import edge_tts
         asyncio.run(edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural", rate=f"{rate:+d}%").save(str(p)))

@@ -1,8 +1,26 @@
 @import "tailwindcss";
 
+/* Dark game theme (default). The light theme keeps the original paper look. */
 :root {
+  color-scheme: dark;
+  --bg: #141218;
+  --card: #1d1a22;
+  --raise: #27232e;
+  --ink: #f2ece2;
+  --muted: #9a92a3;
+  --line: #322d3a;
+  --accent: #e5643f;
+  --accent-soft: #3b231d;
+  --ok: #3cbc80;
+  --rough: #e3a62b;
+  --bad: #ef5b5b;
+  --field: #17151b;
+}
+[data-theme="light"] {
+  color-scheme: light;
   --bg: #f5f1e8;
   --card: #fffdf8;
+  --raise: #f7f2e8;
   --ink: #24201b;
   --muted: #7b7367;
   --line: #e3dbcc;
@@ -11,11 +29,13 @@
   --ok: #2f9466;
   --rough: #d39418;
   --bad: #d23f3f;
+  --field: #ffffff;
 }
 
 @theme inline {
   --color-bg: var(--bg);
   --color-card: var(--card);
+  --color-raise: var(--raise);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-line: var(--line);
@@ -27,21 +47,110 @@
   --font-sans: var(--font-geist-sans), "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", sans-serif;
 }
 
-body { background: var(--bg); color: var(--ink); }
+html { -webkit-tap-highlight-color: transparent; }
+body { background: var(--bg); color: var(--ink); overscroll-behavior: none; }
+button, a, label { touch-action: manipulation; }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .cjk { font-family: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", "Noto Sans CJK TC", sans-serif; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; }
-.btn { display: inline-flex; align-items: center; gap: .4rem; border-radius: 10px; padding: .5rem .9rem; font-size: .9rem; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; transition: background .15s, transform .05s; }
-.btn:hover { background: #f7f2e8; }
+.btn { display: inline-flex; align-items: center; gap: .45rem; border-radius: 10px; padding: .5rem .9rem; font-size: .9rem; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; transition: background .15s, transform .05s, border-color .15s; }
+.btn:hover { background: var(--raise); }
 .btn:active { transform: scale(.98); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
-.btn-primary { background: var(--ink); color: #fff; border-color: var(--ink); }
-.btn-primary:hover { background: #3a342c; }
+.btn-primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn-primary:hover { background: color-mix(in srgb, var(--ink) 86%, var(--bg)); }
 .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn-accent:hover { background: #9f3a26; }
+.btn-accent:hover { background: color-mix(in srgb, var(--accent) 86%, #000); }
+.btn .kbd, .chip .kbd { margin-left: .15rem; }
+.btn-primary .kbd { background: transparent; color: inherit; border-color: color-mix(in srgb, var(--bg) 40%, transparent); }
+.btn-accent .kbd { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .45); }
+/* "How do we know?": the door to the plan's story, with a slow shimmer. */
+.story-btn { position: relative; border-color: transparent; background:
+  linear-gradient(var(--card), var(--card)) padding-box,
+  linear-gradient(110deg, #c24a2c, #7134c4, #2366b5, #17a06a, #c24a2c) border-box; background-size: 100% 100%, 300% 100%;
+  animation: story-shimmer 6s linear infinite; }
+.story-btn:hover { background: linear-gradient(var(--raise), var(--raise)) padding-box, linear-gradient(110deg, #c24a2c, #7134c4, #2366b5, #17a06a, #c24a2c) border-box; background-size: 100% 100%, 300% 100%; }
+@keyframes story-shimmer { to { background-position: 0 0, 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .story-btn { animation: none; } }
 .chip { border: 1px solid var(--line); background: var(--card); border-radius: 999px; padding: .3rem .75rem; font-size: .85rem; cursor: pointer; }
-.chip[data-active="true"] { background: var(--ink); color: #fff; border-color: var(--ink); }
-.input { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: .55rem .75rem; outline: none; }
+.chip:hover { border-color: color-mix(in srgb, var(--ink) 40%, var(--line)); }
+.chip[data-active="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.input { border: 1px solid var(--line); background: var(--field); color: var(--ink); border-radius: 10px; padding: .55rem .75rem; outline: none; }
 .input:focus { border-color: var(--accent); }
+
+/* Key caps */
+.kbd { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; padding: 0 .38em; border-radius: 5px; border: 1px solid var(--line); border-bottom-width: 2px; background: var(--raise); color: var(--ink); font: 600 .7rem/1 var(--font-sans); white-space: nowrap; }
+
+/* App shell. Desktop: icon rail, top HUD, scrolling stage, controls bar. Phone: top bar, stage, bottom tab bar. */
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; height: 100vh; height: 100dvh; }
+@media (min-width: 768px) { .shell { grid-template-columns: 78px minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) 34px; } }
+.shell main { overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+.rail-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: .3rem; width: 64px; flex-shrink: 0; padding: .55rem 0 .5rem; border-radius: 14px; color: var(--muted); transition: background .15s, color .15s; }
+.rail-item:hover { background: var(--raise); color: var(--ink); }
+.rail-item[data-active="true"] { background: var(--accent-soft); color: var(--accent); }
+.rail-item[data-active="true"]::before { content: ""; position: absolute; left: -7px; top: 22%; bottom: 22%; width: 3px; border-radius: 3px; background: var(--accent); }
+.hud { display: inline-flex; align-items: center; gap: .4rem; height: 2rem; padding: 0 .7rem; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); white-space: nowrap; }
+.icon-btn { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 9px; color: var(--muted); transition: background .15s, color .15s; }
+.icon-btn:hover { background: var(--raise); color: var(--ink); }
+@media (max-width: 1100px) { .hud-optional { display: none; } }
+
+/* Phone bottom tab bar */
+.tab { display: flex; flex-direction: column; align-items: center; gap: .2rem; padding: .45rem 0 .35rem; color: var(--muted); font-size: 11px; font-weight: 600; }
+.tab-icon { display: grid; place-items: center; width: 2.6rem; height: 2.1rem; border-radius: 12px; border: 2px solid transparent; font-size: 1.3rem; line-height: 1; transition: background .15s, border-color .15s; }
+.tab[data-active="true"] { color: var(--accent); }
+.tab[data-active="true"] .tab-icon { background: var(--accent-soft); border-color: var(--accent); }
+
+/* Key caps mean nothing on a touch screen. */
+@media (hover: none) and (pointer: coarse) { .kbd { display: none !important; } }
+
+/* Main buttons of a practice screen. Desktop: an inline row. Phone: a bar fixed at the bottom, in thumb reach,
+   that turns green, yellow, or red with the result (as in Duolingo). The main button gets its own full-width row. */
+.action-bar .ab-buttons { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .75rem; }
+@keyframes ab-up { from { transform: translateY(16px); opacity: .6; } to { transform: none; opacity: 1; } }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (max-width: 767px) {
+  .action-bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; padding: .8rem 1rem calc(.8rem + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line); transition: background .2s, border-color .2s; }
+  .action-bar[data-tone="ok"] { background: color-mix(in srgb, var(--ok) 16%, var(--card)); border-color: color-mix(in srgb, var(--ok) 50%, transparent); animation: ab-up .2s ease-out; }
+  .action-bar[data-tone="close"] { background: color-mix(in srgb, var(--rough) 16%, var(--card)); border-color: color-mix(in srgb, var(--rough) 50%, transparent); animation: ab-up .2s ease-out; }
+  .action-bar[data-tone="bad"] { background: color-mix(in srgb, var(--bad) 16%, var(--card)); border-color: color-mix(in srgb, var(--bad) 50%, transparent); animation: ab-up .2s ease-out; }
+  .ab-feedback { margin-bottom: .7rem; }
+  .ab-title { font-size: 1.15rem; font-weight: 800; }
+  .action-bar[data-tone="ok"] .ab-title { color: var(--ok); }
+  .action-bar[data-tone="close"] .ab-title { color: var(--rough); }
+  .action-bar[data-tone="bad"] .ab-title { color: var(--bad); }
+  .ab-detail { margin-top: .15rem; font-size: .95rem; }
+  .action-bar .ab-buttons { gap: .6rem; }
+  .action-bar .ab-buttons > * { flex: 1 1 0; min-width: 0; min-height: 48px; justify-content: center; text-align: center; white-space: normal; line-height: 1.15; font-size: .95rem; font-weight: 700; border-radius: 14px !important; }
+  .action-bar .ab-buttons > .ab-primary { flex-basis: 100%; order: 10; min-height: 54px; font-size: 1.05rem; letter-spacing: .02em; }
+  /* Buttons that press down */
+  .action-bar .btn { box-shadow: 0 3px 0 var(--line); }
+  .action-bar .btn-primary { box-shadow: 0 4px 0 color-mix(in srgb, var(--ink) 55%, #000); }
+  .action-bar .btn-accent { box-shadow: 0 4px 0 color-mix(in srgb, var(--accent) 60%, #000); }
+  .action-bar .btn:active { transform: translateY(3px); box-shadow: none; }
+
+  /* Answer tiles with a thick bottom edge */
+  .tile { border-bottom-width: 5px !important; }
+  .tile:active { transform: translateY(2px); border-bottom-width: 3px !important; }
+
+  /* The practice stage is the whole screen on a phone: no card frame. */
+  .stage { border-color: transparent !important; background: transparent !important; padding: .25rem !important; }
+
+  /* Mode chips scroll sideways instead of wrapping. */
+  .chips { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; margin-inline: -1rem; padding-inline: 1rem; }
+  .chips > * { flex-shrink: 0; }
+
+  /* No zoom-in when a field gets focus (iOS). */
+  .input, textarea, select { font-size: 16px !important; }
+}
+
+/* Bottom sheets: a side panel on desktop, a sheet that slides up on phones and tablets. */
+@media (max-width: 1023px) {
+  .m-sheet { position: fixed !important; left: 0; right: 0; bottom: 0; z-index: 40; max-height: 82dvh; overflow-y: auto !important; border-radius: 22px 22px 0 0 !important; padding-bottom: calc(1rem + env(safe-area-inset-bottom)) !important; animation: sheet-up .25s cubic-bezier(.2, .8, .3, 1); box-shadow: 0 -12px 40px rgba(0, 0, 0, .45); }
+  .m-sheet:not([data-open="true"]) { display: none !important; }
+  .m-sheet-backdrop { position: fixed; inset: 0; z-index: 39; background: rgba(0, 0, 0, .5); }
+}
+@media (min-width: 1024px) { .m-sheet-backdrop, .m-sheet-head { display: none !important; } }
 
 /* Bopomofo beside each character, Taiwan style */
 .zy-word { display: inline-flex; align-items: center; margin: 0 .12em; vertical-align: middle; }
@@ -54,9 +163,10 @@ body { background: var(--bg); color: var(--ink); }
 .zy-top .p { font-size: .3em; color: var(--muted); line-height: 1.3; }
 
 @keyframes draw { to { stroke-dashoffset: 0; } }
-@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(181, 69, 47, .45); } 100% { box-shadow: 0 0 0 18px rgba(181, 69, 47, 0); } }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(229, 100, 63, .45); } 100% { box-shadow: 0 0 0 18px rgba(229, 100, 63, 0); } }
 .recording { animation: pulse-ring 1.2s infinite; }
+/* Writing pads and stroke animations stay paper white in both themes. */
 .pad-grid {
-  background-color: #fff;
+  background-color: #fffdf8;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M50 0V100M0 50H100M0 0L100 100M100 0L0 100' stroke='%23eadfd0' stroke-width='.6' stroke-dasharray='2 2' fill='none'/%3E%3C/svg%3E");
 }

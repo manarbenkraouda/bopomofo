@@ -1,0 +1,20 @@
+/* Quiz feedback animations (status, result pop, shake, burst). Imported by Feedback.tsx. */
+@keyframes zq-spin { to { transform: rotate(360deg); } }
+@keyframes zq-pop { 0% { transform: scale(1); } 35% { transform: scale(1.18); } 70% { transform: scale(0.96); } 100% { transform: scale(1); } }
+@keyframes zq-shake { 0%,100% { transform: translateX(0); } 15% { transform: translateX(-14px); } 30% { transform: translateX(12px); } 45% { transform: translateX(-9px); } 60% { transform: translateX(6px); } 75% { transform: translateX(-3px); } }
+@keyframes zq-burst { 0% { transform: rotate(var(--a)) translateY(0) scale(1); opacity: 1; } 100% { transform: rotate(var(--a)) translateY(calc(-1 * var(--d))) scale(.3); opacity: 0; } }
+@keyframes zq-glow-ok { 0% { box-shadow: 0 0 0 0 rgba(47,148,102,.45); } 100% { box-shadow: 0 0 0 26px rgba(47,148,102,0); } }
+@keyframes zq-glow-bad { 0% { box-shadow: 0 0 0 0 rgba(210,63,63,.4); } 100% { box-shadow: 0 0 0 22px rgba(210,63,63,0); } }
+@keyframes zq-glow-close { 0% { box-shadow: 0 0 0 0 rgba(211,148,24,.45); } 100% { box-shadow: 0 0 0 22px rgba(211,148,24,0); } }
+@keyframes zq-breathe { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes zq-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.zq-pop { animation: zq-pop .45s cubic-bezier(.3,1.6,.5,1); }
+.zq-shake { animation: zq-shake .45s ease-in-out; }
+.zq-glow-ok { animation: zq-glow-ok .7s ease-out; }
+.zq-glow-bad { animation: zq-glow-bad .6s ease-out; }
+.zq-glow-close { animation: zq-glow-close .6s ease-out; }
+.zq-checking { animation: zq-breathe 1s ease-in-out infinite; }
+.zq-ring { position: absolute; inset: -14px; border-radius: 999px; border: 4px solid transparent; border-top-color: var(--rough); border-right-color: color-mix(in srgb, var(--rough) 40%, transparent); animation: zq-spin .8s linear infinite; pointer-events: none; }
+.zq-particle { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px; border-radius: 4px; z-index: 5; animation: zq-burst .9s cubic-bezier(.2,.8,.3,1) forwards; pointer-events: none; }
+.zq-in { animation: zq-fade-in .2s ease-out; }
+

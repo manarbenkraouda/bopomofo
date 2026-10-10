@@ -54,6 +54,19 @@ class Recognizer:
             self._loading = False
 
     def transcribe(self, audio: np.ndarray) -> dict:
+        return self._decode(audio)
+
+    def log_probs(self, audio: np.ndarray) -> np.ndarray:
+        """Frame-by-frame log probabilities over the model vocabulary, shape (frames, vocab)."""
+        if not self.ready:
+            raise RuntimeError(self.error or "Speech model is still loading.")
+        x = (audio - audio.mean()) / np.sqrt(audio.var() + 1e-7)
+        with self._lock:
+            logits = self.session.run(None, {"input_values": x[None].astype(np.float32)})[0][0]
+        logits = logits - logits.max(-1, keepdims=True)
+        return logits - np.log(np.exp(logits).sum(-1, keepdims=True))
+
+    def _decode(self, audio: np.ndarray) -> dict:
         if not self.ready:
             raise RuntimeError(self.error or "Speech model is still loading.")
         x = (audio - audio.mean()) / np.sqrt(audio.var() + 1e-7)

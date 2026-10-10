@@ -2,11 +2,12 @@ fastapi
 uvicorn[standard]
 onnxruntime
 numpy
+praat-parselmouth
 soundfile
 pypinyin
 opencc-python-reimplemented
 httpx
-edge-tts
+sherpa-onnx
 python-multipart
 python-dotenv
 pytest

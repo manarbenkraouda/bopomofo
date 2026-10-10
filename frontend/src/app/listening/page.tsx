@@ -1,15 +1,15 @@
+import { Suspense } from "react";
 import { Listening } from "@/components/listening/Listening";
 
 export const metadata = { title: "Listening · Zhuyin Studio" };
 
-export default function ListeningPage() {
+export default function Page() {
   return (
-    <div className="max-w-4xl mx-auto flex flex-col gap-5">
-      <header>
-        <h1 className="text-2xl font-semibold">Listening</h1>
-        <p className="text-muted">Train your ear: name the tone, or pick the Bopomofo that matches the sound.</p>
-      </header>
-      <Listening />
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
+      {/* The mode reads its focus from the URL, so it renders in the browser. */}
+      <Suspense>
+        <Listening />
+      </Suspense>
     </div>
   );
 }

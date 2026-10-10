@@ -1,0 +1,187 @@
+"""Coach: the checks on the model's decisions, step progress, and the plan life cycle. No network calls: the model is replaced."""
+import time
+
+import pytest
+
+from app import coach, db
+
+
+@pytest.fixture()
+def tmpdb(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "t.db")
+    monkeypatch.setattr(coach, "LIVE", False)
+    monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
+    db.init()
+    return tmp_path
+
+
+def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):
+    db.add_event({"area": area, "item": item, "ok": ok, "details": {"step": step} if step else {},
+                  "units": [{"kind": kind, "expected": expected, "actual": expected if ok else "?", "ok": ok, "try_n": try_n, "help": help}]})
+
+
+def fake(steps, milestones=None):
+    def run(d, reason, run_id):
+        known = set()
+        return {"diagnosis": "test", "steps": [coach.clean_step(s, known) for s in steps], "milestones": milestones, "findings": []}
+    return run
+
+
+def test_clean_step_rejects_what_cannot_be_measured(tmpdb):
+    assert coach.clean_step({"type": "dance"}, set()) is None
+    assert coach.clean_step({"type": "listen_tones", "tones": [5]}, set()) is None  # no neutral tone in the tone quiz
+    assert coach.clean_step({"type": "read_symbols", "syms": ["a", "ㄅㄆ"]}, set()) is None  # single Bopomofo symbols only
+    assert coach.clean_step({"type": "speak_sentences", "texts": ["我不認識這句"]}, set()) is None  # unknown text, no new sentences
+    s = coach.clean_step({"type": "listen_tones", "tones": ["3", 2, 9, 3], "target": 500, "finding_ids": ["t:1"]}, set(), scale=1.5)
+    assert s["params"] == {"tones": [3, 2]} and s["target"] == 90 and s["meta"]["finding_ids"] == ["t:1"]
+    s = coach.clean_step({"type": "speak_sentences", "new": {"count": 9, "focus": {"tones": [3], "pairs": ["3-3", "bad"], "syms": ["ㄓ", "x"]}}}, set())
+    assert s["params"]["new"] == {"count": 4, "focus": {"tones": [3], "pairs": ["3-3"], "syms": ["ㄓ"]}}
+
+
+def test_focus_check_uses_surface_tones():
+    assert coach.focus_check("我很好", {"tones": [3], "syms": ["ㄏ"]}) == []
+    assert coach.focus_check("我很好", {"pairs": ["2-3", "3-3"]}) == []  # said 2-3, written 3-3: the tone change itself
+    problems = coach.focus_check("我很好", {"pairs": ["4-1"], "syms": ["ㄓ"]})
+    assert any("4-1" in p for p in problems) and any("ㄓ" in p for p in problems)
+    assert coach.focus_check("好", {}) == ["1 syllables; write 3 to 16"]
+
+
+def test_progress_counts_only_answers_inside_the_step_and_the_next_plan_takes_over(tmpdb):
+    pid = coach.build("test", run_pipeline=fake([{"type": "listen_tones", "tones": [3], "target": 5},
+                                                 {"type": "read_symbols", "syms": ["ㄅ"], "target": 5}]))
+    st = coach.state()
+    a, b = st["steps"]
+    assert "&step=%d" % a["id"] in a["href"] and a["href"].startswith("/listening?quiz=tone&tones=3")
+    for _ in range(6):
+        answer("listening", "tone", "3", True)  # outside the step: does not count
+    for ok in (True, True, False, True):
+        answer("listening", "tone", "3", ok, step=a["id"])
+    answer("listening", "tone", "2", True, step=a["id"])  # not the focus
+    assert coach.step_progress(coach._step(a["id"])) == {"progress": 3, "tried": 4, "right": 3}
+    answer("listening", "tone", "3", True, step=a["id"])
+    answer("listening", "tone", "3", True, step=a["id"])
+    assert coach.refresh(check=False)["done_now"] == [a["id"]]
+    # One step is left: the next plan is built in advance and waits.
+    nxt = coach.build("next", run_pipeline=fake([{"type": "write_symbols", "syms": ["ㄆ"], "target": 5}]), as_next=True)
+    assert coach._plan_row(nxt)["status"] == "next" and coach._plan_row()["id"] == pid
+    for _ in range(5):
+        answer("reading", "symbol", "ㄅ", True, step=b["id"])
+    answer("reading", "symbol", "ㄅ", True, step=b["id"], try_n=1)  # a second try does not count for read_symbols
+    r = coach.refresh(check=False)
+    assert r["finished"] and coach._plan_row(pid)["status"] == "done" and coach._plan_row()["id"] == nxt
+    s = coach.step_state(b["id"])
+    assert s["step"]["status"] == "done" and s["next"]["title"] == "write symbols"
+
+
+def test_sentence_steps_count_passes_per_sentence(tmpdb):
+    one = db.add_sentence({"hanzi": "我很好"}, "t", "t")
+    two = db.add_sentence({"hanzi": "你好嗎"}, "t", "t")
+    coach.build("test", run_pipeline=fake([{"type": "speak_sentences", "sentence_ids": [one["id"], two["id"], 999], "reps": 2, "min_score": 80}]))
+    step = coach.state()["steps"][0]
+    assert step["target"] == 4 and step["href"].startswith(f"/speaking?source=sentence&ids={one['id']},{two['id']}")
+    for text, score in (("我很好", 90), ("我很好", 70), ("我很好", 85), ("我很好", 95), ("你好嗎", 82)):
+        db.add_event({"area": "speaking", "item": text, "ok": score >= 80, "score": score, "details": {"step": step["id"]}, "units": []})
+    p = coach.step_progress(coach._step(step["id"]))
+    assert p["progress"] == 3 and p["tried"] == 5 and [x["passes"] for x in p["items"]] == [2, 1]
+
+
+def test_rules_fallback_and_milestones(tmpdb):
+    def broken(d, reason, run):
+        raise RuntimeError("model down")
+    pid = coach.build("test", run_pipeline=broken)
+    plan = coach._plan_row(pid)
+    assert plan["source"] == "rules" and "model down" in plan["error"] and coach._steps(pid)
+    ms = {"keep": [], "new": [coach.clean_milestone({"title": "Tone 3", "area": "listening", "unit": "tone", "expected": [3], "min_acc": 90, "window": 20})]}
+    assert ms["new"][0]["title"] == "Tone 3: 90% of the last 20"
+    assert coach.clean_milestone({"title": "Read ㄒ at 40% (30)", "area": "reading", "unit": "symbol", "expected": ["ㄒ"], "min_acc": 50, "window": 30})["title"] == "Read ㄒ: 50% of the last 30"
+    coach.build("test", run_pipeline=fake([{"type": "listen_tones", "tones": [3], "target": 5}], ms))
+    m = [x for x in coach.state()["milestones"] if x["criterion"]["unit"] != "alphabet"]
+    assert len(m) == 1 and m[0]["criterion"]["expected"] == ["3"] and not m[0]["reached"]
+    for _ in range(20):
+        answer("listening", "tone", "3", True)
+    coach.refresh(check=False)
+    assert [x for x in coach.state()["milestones"] if x["criterion"]["unit"] != "alphabet"][0]["status"] == "achieved"
+
+
+def test_checkpoint_can_only_narrow_to_a_subset(tmpdb):
+    coach.build("test", run_pipeline=fake([{"type": "listen_tones", "tones": [2, 3, 4], "target": 20}]))
+    s = coach._step(coach.state()["steps"][0]["id"])
+    for ok in (True, False) * 6:
+        answer("listening", "tone", "3", ok, step=s["id"])
+    out = coach.checkpoint(s["id"], ask=lambda st, task, payload: {"action": "narrow", "tones": [3], "note": "x"})
+    assert out["params"]["tones"] == [2, 3, 4]  # one tone left would make the quiz guessable
+    out = coach.checkpoint(s["id"], ask=lambda st, task, payload: {"action": "narrow", "tones": [3, 4, 1], "deck": ["ㄇㄚˇ"], "note": "Tone 3: 6 of 12."})
+    assert out["params"]["tones"] == [3, 4] and "deck" not in out["params"] and out["status"] == "open"
+    out = coach.checkpoint(s["id"], ask=lambda st, task, payload: {"action": "extend", "target": 2})
+    assert out["target"] == 9  # at least the progress + 3
+    assert coach.state()["steps"][0]["note"]["text"] == "Tone 3: 6 of 12."
+    with db.conn() as c:
+        c.execute("UPDATE steps SET status='done' WHERE id=?", (s["id"],))
+    late = coach.apply_checkpoint(s, coach.step_progress(s), {"action": "extend", "note": "Keep going."})
+    assert late["status"] == "late" and coach.state()["steps"][0]["note"]["text"] == "Tone 3: 6 of 12."
+
+
+def test_review_drops_and_orders(tmpdb):
+    steps = [coach.clean_step({"type": "listen_tones", "tones": [t], "target": 10}, set()) for t in (1, 2, 3)]
+    out, diag = coach.apply_review(steps, {"verdicts": [{"pos": 1, "action": "drop"}, {"pos": 2, "action": "change", "target": 300, "title": "New"}],
+                                           "order": [2, 0], "diagnosis": "Final."}, "draft")
+    assert [s["params"]["tones"] for s in out] == [[3], [1]] and out[0]["target"] == 120 and out[0]["title"] == "New" and diag == "Final."
+
+
+def test_deck_must_cover_the_focus_and_neutral_tone_needs_context(tmpdb):
+    s = coach.clean_step({"type": "speak_sounds", "unit": "tone", "tones": [5, 2], "source": "syllable"}, set())
+    assert s["params"]["source"] == "sentence"
+    step = coach.clean_step({"type": "listen_tones", "tones": [4, 2]}, set())
+    cands = coach.candidates(step, {})
+    assert cands and all(c["tone"] in (2, 4) for c in cands)
+    only_t2 = [c["z"] for c in cands if c["tone"] == 2][:12]
+    assert coach.deck_problems(step, only_t2, cands) == [f"tone 4 is in the focus but the deck has 0 syllables with it ({sum(c['tone'] == 4 for c in cands)} candidates have it)"]
+    assert coach.deck_problems(step, [c["z"] for c in cands], cands) == []
+
+
+def test_alphabet_comes_first_until_the_symbols_are_known(tmpdb, monkeypatch):
+    monkeypatch.setattr(coach, "ALPHABET_GATE", 30)
+    answer("reading", "symbol", "ㄅ", True)
+    answer("reading", "symbol", "ㄅ", True)  # said right twice without help: known
+    answer("reading", "symbol", "ㄆ", False, help=True)
+    answer("reading", "symbol", "ㄆ", True, help=True)  # right only after hearing the answer: still learning
+    answer("listening", "tone", "3", True)  # the tone quiz says nothing about the symbols
+    st = coach.alphabet_status()
+    assert st["known"] == "ㄅ" and st["learning"] == "ㄆ" and st["gate"]
+    assert st["next_group"] == ["ㄆ", "ㄇ", "ㄈ", "ㄉ", "ㄊ"]  # the symbol being learned, then at most 4 new ones in order
+    pid = coach.build("test", run_pipeline=fake([{"type": "listen_sounds", "syms": ["ㄓ", "ㄗ"]}, {"type": "listen_tones", "tones": [2, 3]},
+                                                 {"type": "read_symbols", "syms": ["ㄒ"]}]))
+    steps = coach.state()["steps"]
+    assert [s["type"] for s in steps] == ["read_symbols", "write_symbols", "listen_tones"]
+    assert steps[0]["params"]["syms"] == st["next_group"] and "1 of the 37" in steps[0]["why"]
+    assert steps[0]["params"]["learn"] and steps[1]["params"]["learn"] and "learn=1" in steps[0]["href"]  # new symbols: repetition first
+    assert coach.state()["plan"]["diagnosis"].startswith("Alphabet first: you know 1 of the 37 Bopomofo symbols, so this plan starts with them: repeat ㄆ ㄇ")
+    assert len(__import__("json").loads(coach._plan_row(pid)["raw"])["alphabet_rule"]["removed_steps"]) == 2
+    m = [x for x in coach.state()["milestones"] if x["criterion"]["unit"] == "alphabet"]
+    assert len(m) == 1 and m[0]["n"] == 1 and m[0]["title"] == "Know the alphabet: 37 of 37 symbols known"
+    coach.build("again", run_pipeline=fake([{"type": "listen_tones", "tones": [2, 3]}], {"keep": [], "new": []}))
+    assert len([x for x in coach.state()["milestones"] if x["criterion"]["unit"] == "alphabet"]) == 1  # never dropped, never doubled
+
+    # Repetition: every right answer with the answer shown counts in a learn step, and it is not a test (ㄇ stays not known).
+    sid = coach.state()["steps"][0]["id"]
+    for _ in range(coach.LEARN_REPS):
+        db.add_event({"area": "reading", "item": "ㄇ", "ok": False, "help": True, "details": {"step": sid, "learn": True},
+                      "units": [{"kind": "symbol", "expected": "ㄇ", "actual": "ㄇ", "ok": True, "try_n": 0, "help": True}]})
+    assert coach.state()["steps"][0]["progress"] == coach.LEARN_REPS
+    m = next(x for x in coach.alphabet_status()["symbols"] if x["sym"] == "ㄇ")
+    assert m["state"] == "learning" and m["reps"] == coach.LEARN_REPS and m["phase"] == "recall" and m["answers"] == 0
+    # After enough repetitions the symbol gets tests from memory; the others keep repeating. Symbol milestones wait.
+    sym_m = coach.clean_milestone({"title": "Name symbols", "area": "reading", "unit": "symbol", "expected": ["ㄅ"]})
+    tone_m = coach.clean_milestone({"title": "Tone 2", "area": "speaking", "unit": "tone", "expected": [2]})
+    coach.build("recall", run_pipeline=fake([{"type": "listen_tones", "tones": [2, 3]}], {"keep": [], "new": [sym_m, tone_m]}))
+    steps = coach.state()["steps"]
+    assert [(s["title"].split(":")[0], s["params"].get("learn", False)) for s in steps[:4]] == [
+        ("Say from memory", False), ("Hear and write from memory", False), ("Listen and repeat", True), ("Copy and write", True)]
+    assert steps[0]["params"]["syms"] == ["ㄇ"] and "ㄇ" not in steps[2]["params"]["syms"]
+    units = {x["criterion"]["unit"] for x in coach.state()["milestones"]}
+    assert "symbol" not in units and {"tone", "alphabet"} <= units
+
+    monkeypatch.setattr(coach, "ALPHABET_GATE", 1)  # enough symbols known: the model's plan is kept as it is
+    coach.build("known", run_pipeline=fake([{"type": "listen_sounds", "syms": ["ㄓ", "ㄗ"]}]))
+    assert [s["type"] for s in coach.state()["steps"]] == ["listen_sounds"]
+
