@@ -122,6 +122,16 @@ const answered = () => { if (typeof window !== "undefined") window.dispatchEvent
 
 export type Profile = Record<string, string>;
 
+export type Reason = "travel" | "family" | "live" | "work" | "culture" | "fun";
+export type Level = "new" | "words" | "everyday" | "fluent";
+export type BopomofoLevel = "none" | "some" | "reads";
+/** The signed-in learner: settings, and whether the onboarding is done. */
+export type Me = {
+  onboarded: boolean; timezone: string; timezone_set: boolean; goal_min: number | null; level: Level | null; bopomofo: BopomofoLevel | null;
+  reasons: Reason[]; sentence_level: "beginner" | "intermediate" | "advanced"; name: string;
+};
+export type Onboarding = { name: string; reasons: Reason[]; level: Level; bopomofo: BopomofoLevel; goal_min: number; timezone: string };
+
 export function apiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
   if (typeof window === "undefined") return "http://127.0.0.1:8765";
@@ -129,7 +139,7 @@ export function apiBase(): string {
 }
 
 // Messages the learner can read as they are. Every other error gets a short, friendly message.
-const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story)/;
+const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story|Unknown time zone)/;
 
 // The Clerk session token. <ApiAuth /> gives the getter while a user is signed in, and null when not.
 // Just after the sign-in redirect there is no token yet: requests wait for one (at most 10 s).
@@ -182,6 +192,9 @@ const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "Cont
 export const api = {
   profile: () => call<Profile>("/api/profile"),
   saveProfile: (p: Profile) => call<Profile>("/api/profile", { ...json(p), method: "PUT" }),
+  me: () => call<Me>("/api/me"),
+  onboard: (o: Onboarding) => call<Me>("/api/onboarding", json(o)),
+  saveSettings: (s: { timezone?: string; goal_min?: number }) => call<Me>("/api/settings", { ...json(s), method: "PUT" }),
   health: () => call<Health>("/api/health"),
   analyzeText: (text: string) => call<{ text: string; items: TextItem[] }>("/api/text/analyze", json({ text })),
   translate: (text: string) => call<{ english: string; words: { text: string; english: string }[] }>("/api/text/translate", json({ text })),

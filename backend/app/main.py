@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import io
+import time
 import traceback
+from typing import Literal
 
 import numpy as np
 import soundfile as sf
@@ -14,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, coach, db, llm, scoring, speaker, stats, symbols, tts
 from .asr import recognizer
-from .config import OPENROUTER_API_KEY, OPENROUTER_MODEL
+from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .zhuyin import analyze_text
 
 # Every route needs a signed-in Clerk user, except auth.PUBLIC. Each user sees only their own data (see db.py).
@@ -88,6 +90,74 @@ def profile_get():
 def profile_put(body: dict[str, str]):
     clean = {k: v.strip()[:1000] for k, v in body.items() if k in llm.PROFILE_LABELS}
     return db.set_profile(clean)
+
+
+# ---------- onboarding and settings ----------
+# The answers of the onboarding. The profile gets them as text, so the sentence writer and the coach read them.
+REASONS = {"travel": "to travel in Taiwan", "family": "to talk with family and friends", "live": "because I live in Taiwan or plan to",
+           "work": "for work or studies", "culture": "to enjoy shows, music, and games", "fun": "for fun and to keep my mind sharp"}
+LEVELS = {"new": ("I am new to Mandarin", "beginner"), "words": ("I know some common words", "beginner"),
+          "everyday": ("I can talk about everyday topics", "intermediate"), "fluent": ("I can talk about most topics", "advanced")}
+BOPOMOFO = {"none": "I do not know Bopomofo yet", "some": "I know some Bopomofo symbols", "reads": "I can read Bopomofo"}
+
+
+def me_state() -> dict:
+    s = db.get_settings()
+    level = s.get("level")
+    return {"onboarded": bool(s.get("onboarded_at")), "timezone": s.get("timezone") or DEFAULT_TIMEZONE, "timezone_set": bool(s.get("timezone")),
+            "goal_min": s.get("goal_min"), "level": level, "bopomofo": s.get("bopomofo"), "reasons": s.get("reasons") or [],
+            "sentence_level": LEVELS[level][1] if level in LEVELS else "beginner", "name": db.get_profile().get("name", "")}
+
+
+@app.get("/api/me")
+def me_get():
+    """The signed-in learner's settings, and whether the onboarding is done."""
+    return me_state()
+
+
+class OnboardingIn(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    reasons: list[Literal["travel", "family", "live", "work", "culture", "fun"]] = Field(default_factory=list, max_length=6)
+    level: Literal["new", "words", "everyday", "fluent"]
+    bopomofo: Literal["none", "some", "reads"]
+    goal_min: int = Field(ge=5, le=120)
+    timezone: str = Field(max_length=64)
+
+
+@app.post("/api/onboarding")
+def onboarding(body: OnboardingIn):
+    tz = db.valid_timezone(body.timezone)
+    if not tz:
+        raise HTTPException(400, "Unknown time zone. Pick one from the list.")
+    p = db.get_profile()
+    p["name"] = body.name.strip()
+    p["level"] = LEVELS[body.level][0] + ". " + BOPOMOFO[body.bopomofo] + "."
+    if body.reasons and not p.get("why_mandarin", "").strip():
+        p["why_mandarin"] = "I learn Mandarin " + ", ".join(REASONS[r] for r in body.reasons) + "."
+    db.set_profile({k: str(v)[:1000] for k, v in p.items() if k in llm.PROFILE_LABELS})
+    db.save_settings({"timezone": tz, "goal_min": body.goal_min, "level": body.level, "bopomofo": body.bopomofo,
+                      "reasons": list(dict.fromkeys(body.reasons)), "onboarded_at": time.time()})
+    coach.start("First plan for this learner, right after the onboarding.")
+    return me_state()
+
+
+class SettingsIn(BaseModel):
+    timezone: str | None = Field(default=None, max_length=64)
+    goal_min: int | None = Field(default=None, ge=5, le=120)
+
+
+@app.put("/api/settings")
+def settings_put(body: SettingsIn):
+    changes: dict = {}
+    if body.timezone is not None:
+        if not (tz := db.valid_timezone(body.timezone)):
+            raise HTTPException(400, "Unknown time zone. Pick one from the list.")
+        changes["timezone"] = tz
+    if body.goal_min is not None:
+        changes["goal_min"] = body.goal_min
+    if changes:
+        db.save_settings(changes)
+    return me_state()
 
 
 @app.post("/api/sentences/generate")

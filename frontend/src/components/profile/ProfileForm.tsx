@@ -32,6 +32,7 @@ const SECTIONS: Section[] = [
     { key: "notes", label: "Other facts", hint: "Anything else you want in your sentences", long: true },
   ] },
   { icon: "學", title: "Mandarin", note: "Why you learn, and your link to Taiwan", fields: [
+    { key: "level", label: "Your level", hint: "e.g. I know some common words. I know some Bopomofo symbols.", long: true },
     { key: "why_mandarin", label: "Why you learn Mandarin", hint: "e.g. I want to travel in Taiwan", long: true },
     { key: "taiwan", label: "Connection to Taiwan", hint: "e.g. I visited Taipei in 2025", long: true },
   ] },

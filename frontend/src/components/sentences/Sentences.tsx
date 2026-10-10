@@ -47,6 +47,8 @@ export function Sentences() {
   const [topic, setTopic] = useState(TOPICS[0]);
   const [custom, setCustom] = useState("");
   const [level, setLevel] = useState("beginner");
+  // Start at the level given in the onboarding (the learner can still change it here).
+  useEffect(() => { api.me().then((m) => setLevel((l) => (l === "beginner" ? m.sentence_level : l))).catch(() => {}); }, []);
   const [count, setCount] = useState(5);
   const [useProfile, setUseProfile] = useState(true);
   const [busy, setBusy] = useState(false);

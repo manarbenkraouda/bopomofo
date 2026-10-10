@@ -76,7 +76,7 @@ PROFILE_LABELS = {
     "name": "Name", "chinese_name": "Chinese name", "age": "Age", "nationality": "Nationality", "hometown": "Hometown",
     "lives_in": "Lives in", "job": "Job", "company": "Company or school", "studies": "Studies", "family": "Family",
     "languages": "Languages", "hobbies": "Hobbies", "food": "Favorite food", "why_mandarin": "Why learning Mandarin",
-    "taiwan": "Connection to Taiwan", "notes": "Other facts",
+    "taiwan": "Connection to Taiwan", "level": "Mandarin and Bopomofo level", "notes": "Other facts",
 }
 
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import csv
 import io
 import random
-import time
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
@@ -75,7 +74,7 @@ def _rows(sql: str, args=()) -> list[dict]:
 
 
 def _since(days: int | None) -> str:
-    return "0000-00-00" if not days else (date.today() - timedelta(days=days - 1)).isoformat()
+    return "0000-00-00" if not days else (db.local_today() - timedelta(days=days - 1)).isoformat()
 
 
 def _good(u: dict) -> bool:
@@ -180,7 +179,7 @@ def item_stats(units: list[dict], today: date) -> list[dict]:
 # ---------- main stats ----------
 
 def compute(days: int | None = 30, area: str | None = None) -> dict:
-    today = date.today()
+    today = db.local_today()
     since = _since(days)
     af = " AND area=?" if area else ""
     aa = (area,) if area else ()
@@ -293,7 +292,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     # Time of day.
     hours: dict[int, list[int]] = defaultdict(lambda: [0, 0])
     for e in events:
-        h = time.localtime(e["ts"]).tm_hour
+        h = db.hour_of(e["ts"])
         hours[h][0] += 1
         hours[h][1] += e["ok"]
     by_hour = [{"hour": h, "n": v[0], "ok": v[1]} for h, v in sorted(hours.items())]
@@ -407,7 +406,7 @@ def records() -> dict:
 def challenges(today: date | None = None) -> list[dict]:
     """Up to four goals for today, picked from the weakest skills before today, so they stay the same all day.
     Progress counts today's answers."""
-    today = today or date.today()
+    today = today or db.local_today()
     t = today.isoformat()
     since = (today - timedelta(days=45)).isoformat()
     past = _rows("SELECT day, area, kind, expected, actual, ok, try_n, help FROM units WHERE day>=? AND day<? AND kind!='stroke'", (since, t))
@@ -488,10 +487,10 @@ def challenges(today: date | None = None) -> list[dict]:
 # ---------- export ----------
 
 def export_csv() -> str:
-    rows = _rows("SELECT e.id AS event, to_char(to_timestamp(e.ts), 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
+    rows = _rows("SELECT e.id AS event, to_char(to_timestamp(e.ts) AT TIME ZONE ?, 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
                  " e.score, e.ms, e.tries, e.help AS event_help, e.replays, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n,"
                  " u.help, u.ctx, u.lex, u.prev, u.next, u.source, u.uncertain"
-                 " FROM events e LEFT JOIN units u ON u.event_id = e.id ORDER BY e.ts, u.id")
+                 " FROM events e LEFT JOIN units u ON u.event_id = e.id ORDER BY e.ts, u.id", (db.user_tz().key,))
     buf = io.StringIO()
     if rows:
         w = csv.DictWriter(buf, fieldnames=list(rows[0]))

@@ -1,6 +1,5 @@
 """Progress tracking: the event and unit tables, old-format attempts, per-user data, and the statistics built on them."""
 import time
-from datetime import date
 
 import pytest
 
@@ -107,5 +106,5 @@ def test_confusion_weak_and_challenges(tmpdb):
     assert w["href"] == "/listening?quiz=tone&tones=3,2"
     ch = next(c for c in s["challenges"] if c["id"] == "hear-tone")
     assert ch["progress"] == 1 and "tone 2" in ch["title"]
-    assert s["daily"][-1]["day"] == date.today().isoformat() and s["daily"][-1]["cards"] == 1
+    assert s["daily"][-1]["day"] == db.local_today().isoformat() and s["daily"][-1]["cards"] == 1
 

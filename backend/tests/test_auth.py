@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, main
+from app import auth, coach, db, main
 
 A = {"Authorization": "Bearer token-a"}
 B = {"Authorization": "Bearer token-b"}
@@ -14,6 +14,7 @@ def client(pg, monkeypatch):
         return {"Bearer token-a": "user_a", "Bearer token-b": "user_b"}.get(request.headers.get("authorization"))
     monkeypatch.setattr(auth, "CLERK_SECRET_KEY", "sk_test_fake")
     monkeypatch.setattr(auth, "user_id", fake_user_id)
+    monkeypatch.setattr(coach, "LIVE", False)  # no plan is built after the onboarding
     return TestClient(main.app)  # not a context manager: the speech model is not loaded
 
 
@@ -40,3 +41,42 @@ def test_no_secret_key_means_no_access(client, monkeypatch):
     monkeypatch.setattr(auth, "CLERK_SECRET_KEY", "")
     assert client.get("/api/profile", headers=A).status_code == 503
     assert client.get("/api/health").status_code == 200
+
+
+ONBOARD = {"name": "Ana", "reasons": ["travel", "family"], "level": "words", "bopomofo": "none", "goal_min": 15, "timezone": "Asia/Taipei"}
+
+
+def test_onboarding_saves_the_answers(client):
+    me = client.get("/api/me", headers=A).json()
+    assert not me["onboarded"] and not me["timezone_set"]
+    assert client.post("/api/onboarding", json={**ONBOARD, "timezone": "Mars/Base"}, headers=A).status_code == 400
+    assert client.post("/api/onboarding", json={**ONBOARD, "reasons": ["money"]}, headers=A).status_code == 422
+    me = client.post("/api/onboarding", json=ONBOARD, headers=A).json()
+    assert me["onboarded"] and me["timezone"] == "Asia/Taipei" and me["goal_min"] == 15 and me["sentence_level"] == "beginner"
+    p = client.get("/api/profile", headers=A).json()
+    assert p["name"] == "Ana" and "Bopomofo" in p["level"] and p["why_mandarin"].startswith("I learn Mandarin to travel in Taiwan")
+    assert not client.get("/api/me", headers=B).json()["onboarded"]  # another user is not onboarded
+    me = client.put("/api/settings", json={"timezone": "Europe/Paris", "goal_min": 30}, headers=A).json()
+    assert (me["timezone"], me["goal_min"]) == ("Europe/Paris", 30)
+    assert client.put("/api/settings", json={"timezone": "../etc/passwd"}, headers=A).status_code == 400
+
+
+def test_days_follow_the_learner_time_zone(pg):
+    ts = 1791590400.0  # 2026-10-10 00:00 UTC: 08:00 on 10 October in Taipei, 20:00 on 9 October in New York
+    db.save_settings({"timezone": "Asia/Taipei"})
+    assert db.day_of(ts) == "2026-10-10"
+    db.add_event({"area": "listening", "item": "x", "ok": True}, ts=ts)
+    db.save_settings({"timezone": "America/New_York"})
+    assert db.day_of(ts) == "2026-10-09" and db.hour_of(ts) == 20
+    with db.conn() as c:
+        assert c.execute("SELECT day FROM events").fetchone()[0] == "2026-10-10"  # saved with the zone of that moment
+
+
+def test_first_plan_waits_for_the_onboarding(pg, monkeypatch):
+    started = []
+    monkeypatch.setattr(coach, "start", lambda reason, as_next=False: started.append(reason) or False)
+    coach.state()
+    assert started == []
+    db.save_settings({"onboarded_at": 1.0})
+    coach.state()
+    assert started == ["First plan for this learner."]

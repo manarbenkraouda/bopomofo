@@ -24,7 +24,7 @@ import time
 import traceback
 import uuid
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
@@ -163,7 +163,7 @@ def syllables(neutral: bool = False) -> list[dict]:
 
 def syllable_history(days: int = 60) -> dict[str, dict]:
     """Per syllable (Bopomofo with tone mark): first-try answers in listening, speaking, and writing, and the wrong answers."""
-    since = (date.today() - timedelta(days=days)).isoformat()
+    since = (db.local_today() - timedelta(days=days)).isoformat()
     sy = syllables(neutral=True)
     by_base = {(s["base"], s["tone"]): s["z"] for s in sy}
     known = {s["z"] for s in sy}
@@ -367,7 +367,7 @@ def needs_alphabet(c: dict) -> bool:
 # ---------- the stats digest ----------
 
 def digest() -> dict:
-    today = date.today()
+    today = db.local_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()
     d45 = (today - timedelta(days=44)).isoformat()
@@ -1518,9 +1518,10 @@ def _calls(plan_id: int) -> dict:
 
 def state() -> dict:
     plan = _plan_row() or (_q("SELECT * FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 1") or [None])[0]
-    if not plan and not _g()["running"]:
+    # The first plan waits for the onboarding, so it can use the learner's level, goal, and reasons.
+    if not plan and not _g()["running"] and db.get_settings().get("onboarded_at"):
         start("First plan for this learner.")
-    midnight = datetime.combine(date.today(), datetime.min.time()).timestamp()
+    midnight = db.day_start(db.local_today())
     use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, COUNT(*) FILTER (WHERE ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
     out: dict = {"generating": _g()["running"], "stage": _g()["stage"], "building_next": _g()["running"] and _g()["next"], "error": _g()["error"],
                  "writing_story": _g().get("story"),

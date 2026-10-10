@@ -7,7 +7,7 @@ import { api, type Health } from "@/lib/api";
 import { capsOf, keyCaps, useHotkeys, useLayers, type Hotkey } from "@/lib/hotkeys";
 import { setTheme, THEME_KEY, usePref } from "@/lib/prefs";
 import { LAST_KEY, ROUTES, routeFor, type RouteInfo } from "@/lib/routes";
-import { goalMinutes, markActive, tick, useToday, type Today } from "@/lib/session";
+import { goalMinutes, markActive, setGoalMinutes, tick, useToday, type Today } from "@/lib/session";
 import { playSfx, setSfxEnabled, SFX_KEY } from "@/lib/sfx";
 import { Caps, Kbd } from "./Kbd";
 import { GotoOverlay, HelpOverlay, Palette, type Command } from "./Overlays";
@@ -15,9 +15,13 @@ import { StepBanner } from "./StepBanner";
 
 type Overlay = null | "palette" | "help" | "goto";
 
-/** The sign-in and sign-up pages show only the Clerk form. Every other page gets the app shell. */
+/**
+ * The sign-in and sign-up pages show only the Clerk form, and the onboarding fills the screen.
+ * Every other page gets the app shell, and first checks that the onboarding is done.
+ */
 export function Frame({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  if (path.startsWith("/onboarding")) return <div className="h-full">{children}</div>;
   if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto p-4">
@@ -29,7 +33,19 @@ export function Frame({ children }: { children: React.ReactNode }) {
       </main>
     );
   }
-  return <AppShell>{children}</AppShell>;
+  return <><OnboardingGate /><AppShell>{children}</AppShell></>;
+}
+
+/** Sends a learner who has not finished the onboarding to it, and keeps the daily goal the same on every device. */
+function OnboardingGate() {
+  const router = useRouter();
+  useEffect(() => {
+    api.me().then((m) => {
+      if (!m.onboarded) router.replace("/onboarding");
+      else if (m.goal_min && m.goal_min !== goalMinutes()) setGoalMinutes(m.goal_min);
+    }).catch(() => {});
+  }, [router]);
+  return null;
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {

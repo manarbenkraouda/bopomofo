@@ -23,9 +23,10 @@ import threading
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pg8000.dbapi
 
@@ -258,6 +259,69 @@ def set_meta(key: str, value: str | None):
             c.execute("INSERT INTO meta(key, value) VALUES (?,?) ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value", (key, value))
 
 
+# ---------- settings and time zone ----------
+# One JSON value per user (meta key "settings"): timezone, goal_min, level, bopomofo, reasons, onboarded_at.
+
+_tz_cache: dict[str, tuple[float, ZoneInfo]] = {}
+TZ_CACHE_SECONDS = 60
+
+
+def valid_timezone(name: str | None) -> str | None:
+    """The IANA name if it is a real time zone (Europe/Paris, Asia/Taipei...), else None."""
+    if not name or len(name) > 64 or name.startswith(("/", ".")) or ".." in name:
+        return None
+    try:
+        ZoneInfo(name)
+        return name
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def get_settings() -> dict:
+    try:
+        v = get_meta("settings")
+        return json.loads(v) if v else {}
+    except ValueError:
+        return {}
+
+
+def save_settings(changes: dict) -> dict:
+    s = {**get_settings(), **changes}
+    set_meta("settings", json.dumps(s, ensure_ascii=False))
+    _tz_cache.pop(_user.get() or "", None)
+    return s
+
+
+def user_tz() -> ZoneInfo:
+    """The current user's time zone. Their days start at midnight there."""
+    uid = _user.get()
+    hit = _tz_cache.get(uid or "")
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    name = valid_timezone(get_settings().get("timezone") if uid else None) or valid_timezone(config.DEFAULT_TIMEZONE) or "UTC"
+    tz = ZoneInfo(name)
+    if uid:
+        _tz_cache[uid] = (time.monotonic() + TZ_CACHE_SECONDS, tz)
+    return tz
+
+
+def local_today() -> date:
+    return datetime.now(user_tz()).date()
+
+
+def day_of(ts: float) -> str:
+    return datetime.fromtimestamp(ts, user_tz()).strftime("%Y-%m-%d")
+
+
+def hour_of(ts: float) -> int:
+    return datetime.fromtimestamp(ts, user_tz()).hour
+
+
+def day_start(d: date) -> float:
+    """The time stamp of midnight at the start of day d, in the user's time zone."""
+    return datetime.combine(d, datetime.min.time(), tzinfo=user_tz()).timestamp()
+
+
 def add_sentence(s: dict, topic: str, level: str) -> dict:
     with conn() as c:
         sid = c.execute("INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?) RETURNING id",
@@ -300,10 +364,6 @@ def speaking_by_text() -> dict[str, dict]:
         p["last"] = round(r["score"])
         p["ts"] = r["ts"]
     return out
-
-
-def day_of(ts: float) -> str:
-    return time.strftime("%Y-%m-%d", time.localtime(ts))
 
 
 def _b(v) -> int | None:
@@ -406,7 +466,7 @@ def summary() -> dict:
 
 def streak(days: set[str], today: date | None = None) -> int:
     """Days in a row with practice, up to today. A day without practice yet today does not break it."""
-    d = today or date.today()
+    d = today or local_today()
     if d.isoformat() not in days:
         d -= timedelta(days=1)
     n = 0

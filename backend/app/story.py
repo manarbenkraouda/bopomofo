@@ -151,7 +151,7 @@ def story_context(d: dict, steps: list[dict]) -> dict:
     """Data for the blocks that need more than one number: the alphabet grid, the calendar, the plan steps."""
     a = (d.get("overview") or {}).get("alphabet") or {}
     by_day = (d.get("story") or {}).get("minutes_by_day_28d") or (d.get("pace") or {}).get("minutes_by_day_14d") or {}
-    today = date.fromisoformat((d.get("overview") or {}).get("today") or date.today().isoformat())
+    today = date.fromisoformat((d.get("overview") or {}).get("today") or db.local_today().isoformat())
     cal = [{"day": (today - timedelta(days=i)).isoformat(), "minutes": by_day.get((today - timedelta(days=i)).isoformat(), 0)} for i in range(27, -1, -1)]
     nxt = next((x["params"].get("syms") or [] for x in steps if x["type"] == "read_symbols"), [])
     return {"alphabet": {"known": a.get("known", ""), "learning": a.get("seen_not_known", ""), "new": a.get("never_practiced", ""),

@@ -13,6 +13,8 @@ COACH_MODEL = os.getenv("COACH_MODEL", "typesafe/jev-router")
 # PostgreSQL. The role must not be a superuser or have BYPASSRLS: row-level security keeps each user's data apart.
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 ALLOW_RLS_BYPASS = os.getenv("ALLOW_RLS_BYPASS", "") == "1"  # tests and tools only, never in production
+# The time zone of a user who has not chosen one yet (onboarding asks for it). Days, streaks, and goals follow it.
+DEFAULT_TIMEZONE = os.getenv("DEFAULT_TIMEZONE", "UTC")
 # Clerk sign-in. The API checks the session token of every request with the secret key (or the PEM public key).
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY", "")
 CLERK_JWT_KEY = os.getenv("CLERK_JWT_KEY", "")
