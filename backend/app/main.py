@@ -457,6 +457,12 @@ def stats_get(days: int = 30, area: str = ""):
     return stats.compute(days if days > 0 else None, area or None)
 
 
+@app.get("/api/progress/memory")
+def progress_memory(area: str, mode: str = ""):
+    """Past tests per item of one practice mode, for the review schedule of the practice picks."""
+    return {"now": time.time(), "items": db.memory(area[:16], mode[:16] or None)}
+
+
 @app.get("/api/stats/challenges")
 def stats_challenges():
     return {"challenges": stats.challenges()}

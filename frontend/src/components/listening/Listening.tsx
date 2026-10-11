@@ -6,6 +6,7 @@ import { playAudio } from "@/lib/audio";
 import { FocusChip, matches, useFocus } from "@/lib/focus";
 import { ANSWER_KEYS, ANSWER_LETTERS, cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { playSfx } from "@/lib/sfx";
+import { useReview } from "@/lib/review";
 import { now, parts, since } from "@/lib/track";
 import { loadData, splitZhuyin, syllableAudio, TONE_MARK, TONE_NAME, type SyllableItem } from "@/lib/zhuyin";
 import { PlayButton } from "@/components/PlayButton";
@@ -38,6 +39,9 @@ export function Listening() {
   const replays = useRef(0);
   const focus = useFocus();
   const quizParam = useSearchParams().get("quiz");
+  // The question order: a few new syllables at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // Each quiz has its own schedule: hearing the tone and finding the spelling are different skills.
+  const { review, ready } = useReview("listening", quiz);
 
   useEffect(() => { loadData().then((d) => setItems(d.syllables.filter((s) => !s.zhuyin.includes("˙")))); }, []);
   useEffect(() => { if (quizParam === "tone" || quizParam === "zhuyin") setQuiz(quizParam); }, [quizParam]);
@@ -47,7 +51,8 @@ export function Listening() {
 
   const make = useCallback((): Q | null => {
     if (!pool.length) return null;
-    const item = pool[Math.floor(Math.random() * pool.length)];
+    const id = review().next(pool.map((s) => s.zhuyin));
+    const item = pool.find((s) => s.zhuyin === id) ?? pool[0];
     const { toneNum, symbols } = splitZhuyin(item.zhuyin);
     if (quiz === "tone") return { item, options: ["1", "2", "3", "4"], answer: String(toneNum) };
     const opts = new Set<string>([item.zhuyin]);
@@ -56,7 +61,7 @@ export function Listening() {
     for (const s of near) { if (opts.size >= 4) break; opts.add(withTone(s.zhuyin, toneNum)); }
     for (const s of shuffle(items)) { if (opts.size >= 4) break; opts.add(s.zhuyin); }
     return { item, options: shuffle([...opts]), answer: item.zhuyin };
-  }, [items, pool, quiz]);
+  }, [items, pool, quiz, review]);
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
@@ -69,13 +74,14 @@ export function Listening() {
     if (nq) playAudio(syllableAudio(nq.item.id));
   }, [make]);
 
-  useEffect(() => { if (items.length) next(); }, [items.length, quiz, pool]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (items.length && ready) next(); }, [items.length, quiz, pool, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (advance.current) clearTimeout(advance.current); }, []);
 
   const choose = useCallback((o: string) => {
     if (!q || picked) return;
     setPicked(o);
     const ok = o === q.answer;
+    review().answer(q.item.zhuyin, ok);
     setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
     // Save what was picked, so the stats can show which tone or sound you hear instead of the right one.
     const e = parts(q.item.zhuyin);
@@ -95,7 +101,7 @@ export function Listening() {
     playSfx(ok ? "right" : "wrong");
     // Always move on by itself: after 1 s when right, after 1.5 s when wrong (time to see the right answer).
     advance.current = setTimeout(next, ok ? 1000 : 1500);
-  }, [q, picked, quiz, next, focus]);
+  }, [q, picked, quiz, next, focus, review]);
 
   const toneSet = q && picked ? toneSetOf(items, q.item) : [];
   const compare = (i: number) => {

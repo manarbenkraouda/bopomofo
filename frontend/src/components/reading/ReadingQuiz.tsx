@@ -6,7 +6,8 @@ import { onPlaying, playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { Listener, type Utterance } from "@/lib/listener";
-import { cycleNext, inSet, pickWeighted, SET_LABEL, SYMBOL_NAME as NAME, updateMiss, type SymbolSet as Set_ } from "@/lib/quiz";
+import { inSet, SET_LABEL, SYMBOL_NAME as NAME, type SymbolSet as Set_ } from "@/lib/quiz";
+import { useReview } from "@/lib/review";
 import { playSfx, type Sfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
 import { loadData, symbolAudio, type MoeRow } from "@/lib/zhuyin";
@@ -37,8 +38,6 @@ export function ReadingQuiz() {
   const curRef = useRef<MoeRow | null>(null);
   const busy = useRef(false);
   const card = useRef({ revealed: false, tries: 0, shown: 0, ms: undefined as number | undefined, units: [] as Unit[] });
-  const recent = useRef<string[]>([]);
-  const missRate = useRef<Record<string, number>>({});
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerPlaying = useRef(false);
   const unmuteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,7 +46,8 @@ export function ReadingQuiz() {
   const focus = useFocus();
   // Learn mode (?learn=1): every card plays the symbol and shows its name, and the learner repeats it. Each right repetition counts.
   const learn = useSearchParams().get("learn") === "1";
-  const order = useRef<string[]>([]);
+  // The card order: a few new symbols at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  const { review, ready } = useReview("reading", "", { order: "pool" });
 
   // Play a sound effect with the microphone muted, so the quiz does not grade its own sounds.
   const fx = useCallback((kind: Sfx) => {
@@ -61,10 +61,6 @@ export function ReadingQuiz() {
 
   useEffect(() => {
     loadData().then((d) => setRows(d.table));
-    // Start from what the progress history says is weak, then adapt during the session.
-    api.summary().then((s) => {
-      missRate.current = Object.fromEntries(Object.entries(s.symbols_by_area?.reading ?? s.symbols).map(([k, v]) => [k, (v.err + 1) / (v.n + 2)]));
-    }).catch(() => {});
     let stop = false;
     const poll = () => api.health().then((h) => { if (stop) return; setHealth(h); if (h.speech_model === "loading") setTimeout(poll, 2000); }).catch(() => !stop && setHealth("down"));
     poll();
@@ -79,8 +75,8 @@ export function ReadingQuiz() {
   const next = useCallback(() => {
     const p = pool();
     if (!p.length) return;
-    const row = learn ? cycleNext(p, order.current, curRef.current?.sym) : pickWeighted(p, missRate.current, recent.current);
-    recent.current = [...recent.current, row.sym].slice(-Math.min(4, p.length - 1));
+    const id = review().next(p.map((r) => r.sym));
+    const row = p.find((r) => r.sym === id) ?? p[0];
     curRef.current = row;
     card.current = { revealed: learn, tries: 0, shown: now(), ms: undefined, units: [] };
     busy.current = false;
@@ -92,21 +88,22 @@ export function ReadingQuiz() {
     setHint("");
     setStatus((s) => (s === "idle" ? s : "listening"));
     if (learn) playAudio(symbolAudio(row));
-  }, [pool, learn]);
+  }, [pool, learn, review]);
 
-  useEffect(() => { if (rows.length) next(); }, [rows.length, set, focusSyms, learn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (rows.length && ready) next(); }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const finishCard = useCallback((ok: boolean) => {
     const row = curRef.current;
     if (!row) return;
     const c = card.current;
     const firstTry = ok && !c.revealed && c.tries === 0;
-    missRate.current[row.sym] = updateMiss(missRate.current[row.sym], firstTry);
+    // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
+    review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
     setStats((s) => ({ cards: s.cards + 1, firstTry: s.firstTry + (firstTry ? 1 : 0), streak: firstTry ? s.streak + 1 : 0, right: s.right + (ok ? 1 : 0) }));
     const units: Unit[] = c.units.length ? c.units : [{ kind: "symbol", expected: row.sym, actual: null, ok: false, help: c.revealed }];
     api.event({ area: "reading", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: c.tries + (ok ? 1 : 0), help: c.revealed, units,
       details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined } });
-  }, [set, focus, learn]);
+  }, [set, focus, learn, review]);
 
   const onUtterance = useCallback(async (u: Utterance) => {
     const row = curRef.current;

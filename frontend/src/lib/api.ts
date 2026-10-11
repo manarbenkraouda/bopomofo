@@ -242,6 +242,8 @@ export const api = {
   saveDay: (day: string, seconds: number, goal_min: number) =>
     call<{ ok: boolean }>("/api/progress/day", { ...json({ day, seconds, goal_min }), method: "PUT" }).catch(() => ({ ok: false })),
   summary: () => call<Summary>("/api/progress/summary"),
+  /** Past tests per item of one practice mode: [time in seconds, 1 if right on the first try without help], oldest first. */
+  memory: (area: string, mode = "") => call<{ now: number; items: Record<string, [number, number][]> }>("/api/progress/memory?area=" + area + (mode ? "&mode=" + mode : ""), { cache: "no-store" }),
   stats: (days: number, area = "") => call<Stats>("/api/stats?days=" + days + (area ? "&area=" + area : "")),
   challenges: () => call<{ challenges: Challenge[] }>("/api/stats/challenges"),
   coach: () => call<CoachState>("/api/coach"),

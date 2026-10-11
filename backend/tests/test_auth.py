@@ -22,11 +22,21 @@ def client(pg, monkeypatch):
 def test_sign_in_is_required(client):
     assert client.get("/api/profile").status_code == 401
     assert client.get("/api/stats").status_code == 401
+    assert client.get("/api/progress/memory", params={"area": "reading"}).status_code == 401
     assert client.get("/api/profile", headers={"Authorization": "Bearer wrong"}).status_code == 401
     assert client.get("/api/health").status_code == 200 and client.get("/api/health").json()["speaker_hz"] is None
     assert client.get("/api/tts/voices").status_code == 200
     assert client.get("/api/tts", params={"text": "你好"}).status_code == 401
     assert client.post("/api/tts/cache/clear").status_code == 401
+
+
+def test_review_memory_is_per_user(client):
+    ev = {"area": "listening", "mode": "tone", "item": "ㄇㄚˇ", "ok": True, "first_try": True, "units": []}
+    assert client.post("/api/progress/event", json=ev, headers=A).status_code == 200
+    a = client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=A).json()
+    assert [g for _, g in a["items"]["ㄇㄚˇ"]] == [1] and a["now"] >= a["items"]["ㄇㄚˇ"][0][0]
+    assert client.get("/api/progress/memory", params={"area": "listening", "mode": "zhuyin"}, headers=A).json()["items"] == {}
+    assert client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=B).json()["items"] == {}
 
 
 def test_each_user_clears_only_their_own_audio(client, monkeypatch, tmp_path):

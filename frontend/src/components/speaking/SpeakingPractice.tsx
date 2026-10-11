@@ -8,6 +8,7 @@ import { FocusChip, matches, useFocus, type Focus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { Recorder } from "@/lib/recorder";
 import { playSfx } from "@/lib/sfx";
+import { useReview } from "@/lib/review";
 import { loadData, syllableAudio, TONE_NAME, type SyllableItem } from "@/lib/zhuyin";
 import { PlayButton } from "@/components/PlayButton";
 import { ActionBar } from "@/components/shell/ActionBar";
@@ -23,7 +24,8 @@ const SOURCES: Source[] = ["sentence", "syllable", "custom"];
 const SOURCE_LABEL: Record<Source, string> = { sentence: "Sentences", syllable: "Syllables", custom: "My own text" };
 const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 ? "close" : "wrong");
 const verdict = (score: number) => (score >= 85 ? "Excellent! " : score >= 60 ? "Almost: " : "Keep practicing: ") + score;
-const shuffle = <T,>(a: T[]) => a.map((x) => [Math.random(), x] as const).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
+/** The score of a right recording, as the backend saves it (stats.log_speaking). */
+const RIGHT = 80;
 /** For speaking, a tone focus means the tone as said (after tone changes). */
 const sylMatch = (i: Syl, f: Focus) => (!f.tones.length || f.tones.includes(i.surface_tone)) && (!f.syms.length || f.syms.some((x) => (i.initial + i.final).includes(x)));
 /** The Pinyin of a text, with the punctuation kept next to the word before it. */
@@ -41,8 +43,6 @@ export function SpeakingPractice() {
   const [allSentences, setSentences] = useState<Sentence[] | null>(null);
   const [allSylls, setSylls] = useState<SyllableItem[]>([]);
   const [card, setCard] = useState<Card | null>(null);
-  const [deck, setDeck] = useState<number[]>([]); // sentence ids, in quiz order
-  const [pos, setPos] = useState(0);
   const [custom, setCustom] = useState(params.get("text") ?? "");
   const [bopo, setBopo] = useState(true);
   const [cheated, setCheated] = useState(false);
@@ -62,6 +62,9 @@ export function SpeakingPractice() {
   const meta = useRef({ card: null as Card | null, cheat: false, tries: 0 });
   const firstSentence = useRef(Number(params.get("sentence")) || 0);
   const focus = useFocus();
+  // The card order: a few new cards at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // Coach sentences (?ids=) come in the coach's order, the others in a mixed order.
+  const { review, ready: scheduled } = useReview("speaking", source, { order: focus.ids.length ? "pool" : "shuffle" });
 
   // The focus from the stats or the coach narrows the cards. Coach sentences (?ids=) keep the coach's order. With no match, all cards stay.
   const fSent = useMemo(() => {
@@ -74,6 +77,9 @@ export function SpeakingPractice() {
   const sylls = fSyl.length ? fSyl : allSylls;
   const sentenceKey = sentences.map((s) => s.id).join(",");
   const syllKey = sylls.map((s) => s.id).join(",");
+  /** The next sentence or syllable from the schedule. The key is the text, as saved with each recording. */
+  const nextSentence = () => { const t = review().next(sentences.map((s) => s.hanzi)); return sentences.find((s) => s.hanzi === t); };
+  const nextSyllable = () => { const t = review().next(sylls.map((s) => s.char)); return sylls.find((s) => s.char === t); };
 
   const clearRecording = () => { setResult(null); setError(""); setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
   const show = useCallback((c: Card | null) => {
@@ -110,38 +116,34 @@ export function SpeakingPractice() {
   // A link with ?source= picks the card type.
   const sourceParam = params.get("source");
   useEffect(() => { if (sourceParam === "sentence" || sourceParam === "syllable") setSource(sourceParam); }, [sourceParam]);
-  // A new set of sentences starts a new deck: shuffled, or in the coach's order. A link with ?sentence= starts on that one.
+  // A new set of sentences starts from the schedule. A link with ?sentence= starts on that one.
   useEffect(() => {
-    if (source !== "sentence" || !sentences.length) return;
-    let ids = sentences.map((s) => s.id);
-    if (!focus.ids.length) ids = shuffle(ids);
-    const first = firstSentence.current;
-    if (first && ids.includes(first)) ids = [first, ...ids.filter((x) => x !== first)];
+    if (source !== "sentence" || !sentences.length || !scheduled) return;
+    const s = sentences.find((x) => x.id === firstSentence.current) ?? nextSentence();
     firstSentence.current = 0;
     loadId.current++;
-    setDeck(ids);
-    setPos(0);
-    show(sentenceCard(sentences.find((s) => s.id === ids[0])!));
+    if (s) show(sentenceCard(s));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, sentenceKey]);
+  }, [source, sentenceKey, scheduled]);
   useEffect(() => {
-    if (source === "syllable" && sylls.length) showSyllable(sylls[Math.floor(Math.random() * sylls.length)]);
+    if (source !== "syllable" || !sylls.length || !scheduled) return;
+    const s = nextSyllable();
+    if (s) showSyllable(s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, syllKey]);
+  }, [source, syllKey, scheduled]);
   useEffect(() => { if (source === "custom" && !params.get("text")) { loadId.current++; show(null); } }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const next = () => {
     if (rec !== "idle") return;
-    if (source === "sentence" && deck.length) {
-      const p = (pos + 1) % deck.length;
-      const s = sentences.find((x) => x.id === deck[p]);
-      setPos(p);
+    // A card left without a recording comes back a little later; its memory does not change.
+    if (source !== "custom" && card && meta.current.tries === 0) review().skip(card.text);
+    if (source === "sentence" && sentences.length) {
+      const s = nextSentence();
       if (s) show(sentenceCard(s));
     } else if (source === "syllable" && sylls.length) {
-      const others = sylls.filter((s) => s.char !== card?.text);
-      const pool = others.length ? others : sylls;
-      showSyllable(pool[Math.floor(Math.random() * pool.length)]);
+      const s = nextSyllable();
+      if (s) showSyllable(s);
     } else if (source === "custom") {
       loadId.current++;
       show(null);
@@ -164,6 +166,8 @@ export function SpeakingPractice() {
     try {
       const r = await api.speech(audio, c.text, source, { help: m.cheat, tryN: m.tries });
       if (meta.current.card !== c) return;
+      // The first recording of a card is the test: right without the cheat moves it on in the schedule.
+      if (m.tries === 0 && source !== "custom") review().answer(c.text, r.score >= RIGHT && !m.cheat);
       m.tries += 1;
       setResult(r);
       const g = grade(r.score);
@@ -213,7 +217,7 @@ export function SpeakingPractice() {
   const marks = useMemo(() => result?.syllables.map((s) => (!s.heard ? "#d23f3f" : s.tone_ok && s.initial_ok !== false && s.final_ok !== false ? "#2f9466" : "#d23f3f")), [result]);
   const ready = health?.speech_model === "ready";
   const canRecord = ready && !!card && rec !== "analyzing";
-  const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? deck.length > 0 : sylls.length > 0);
+  const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? sentences.length > 0 : sylls.length > 0);
   const recordToggle = () => { if (rec === "idle") start(); else if (rec === "recording") stop(); };
 
   useHotkeys("speaking", [
@@ -270,7 +274,6 @@ export function SpeakingPractice() {
           (fx === "right" ? "border-ok bg-ok/5" : fx === "close" ? "border-rough/70" : fx === "wrong" ? "border-bad/60 bg-bad/5" : fx === "checking" ? "border-rough/70" : fx === "hearing" ? "border-accent/50" : "border-line")}>
           <div className="flex w-full items-center justify-center gap-3">
             <StatusPill status={fx} label={pill} />
-            {source === "sentence" && deck.length > 1 && <span className="text-sm tabular-nums text-muted">{pos + 1} / {deck.length}</span>}
           </div>
 
           <div className="relative flex flex-col items-center gap-3 text-center">

@@ -7,6 +7,7 @@ import { FocusChip, focusSymbols, matches, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { buildTemplates, type Pt, type Templates } from "@/lib/matcher";
 import { playSfx } from "@/lib/sfx";
+import { useReview } from "@/lib/review";
 import { now, since, TONE_OF_MARK, writtenUnits } from "@/lib/track";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { loadData, NOTES, splitZhuyin, symbolAudio, syllableAudio, type MoeRow, type StrokeData, type SyllableItem } from "@/lib/zhuyin";
@@ -27,6 +28,8 @@ const MODES: Mode[] = ["symbol", "syllable", "word"];
 const MODE_LABEL: Record<Mode, string> = { symbol: "Symbols", syllable: "Syllables", word: "Words" };
 /** Room on the sheet, in line heights, per syllable: most syllables have 2 or 3 symbols and a tone mark, plus the space after it. */
 const PER_SYLLABLE = 3.6;
+/** What is written for an item, as saved in the answer: the Bopomofo of each syllable, with spaces. */
+const itemKey = (it: Item) => it.groups.map((g) => g.zhuyin).join(" ");
 
 /** The tokens of a syllable in writing order: the neutral dot first, the other marks last. */
 const tokensOf = (z: string, withTone: boolean) => {
@@ -45,7 +48,6 @@ export function WritingPractice() {
   const [revealed, setRevealed] = useState(false);
   const [guide, setGuide] = useState(false);
   const [anim, setAnim] = useState(0);
-  const [err, setErr] = useState<Record<string, number>>({});
   const [words, setWords] = useState<Item[] | null>(null);
   const [queue, setQueue] = useState<Item[]>([]);
   const [msg, setMsg] = useState("");
@@ -58,6 +60,9 @@ export function WritingPractice() {
   const replays = useRef(0);
   const focus = useFocus();
   const modeParam = useSearchParams().get("mode");
+  // The card order: a few new items at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // Each mode has its own schedule. Symbols come in alphabet order, syllables and words in a mixed order.
+  const { review, ready } = useReview("writing", mode, { order: mode === "symbol" ? "pool" : "shuffle" });
   const { w: vw, h: vh } = useViewport();
   const phone = vw < PHONE;
   useEffect(() => () => { if (advance.current) clearTimeout(advance.current); }, []);
@@ -74,7 +79,6 @@ export function WritingPractice() {
 
   useEffect(() => {
     loadData().then((d) => { setData(d); setT(buildTemplates(d.strokes)); });
-    api.summary().then((s) => setErr(Object.fromEntries(Object.entries(s.symbols_by_area?.writing ?? s.symbols).map(([k, v]) => [k, (v.err + 1) / (v.n + 2)])))).catch(() => {});
     const q = new URLSearchParams(window.location.search);
     const sid = Number(q.get("sentence"));
     if (sid) api.sentence(sid).then((s) => { setMode("word"); setQueue(sentenceWords(s)); }).catch(() => {});
@@ -86,12 +90,6 @@ export function WritingPractice() {
   }, [mode, words]);
 
   const SYMBOLS = useMemo(() => data?.table.map((r) => r.sym) ?? [], [data]);
-  const weight = useCallback((z: string) => {
-    const { symbols, tone } = splitZhuyin(z);
-    const parts = [...symbols, tone].filter(Boolean);
-    const w = parts.reduce((a, s) => a + (err[s] ?? 0.5), 0) / Math.max(1, parts.length);
-    return 0.15 + w * w;
-  }, [err]);
 
   const pick = useCallback((): Item | null => {
     if (!data) return null;
@@ -111,11 +109,11 @@ export function WritingPractice() {
       if (f.length) pool = f;
     }
     if (!pool.length) return null;
-    const ws = pool.map((it) => (it.key === item?.key && pool.length > 1 ? 0 : it.groups.reduce((a, g) => a + weight(g.zhuyin), 0) / it.groups.length));
-    let r = Math.random() * ws.reduce((a, b) => a + b, 0);
-    for (let i = 0; i < pool.length; i++) if ((r -= ws[i]) <= 0) return pool[i];
-    return pool[0];
-  }, [data, mode, words, queue, item, weight, focus]);
+    // The schedule keys an item by what is written (the saved answer's item), so two characters with one reading are one item.
+    const ids = pool.map(itemKey);
+    const id = review().next(ids);
+    return pool[Math.max(0, ids.indexOf(id ?? ""))];
+  }, [data, mode, words, queue, focus, review]);
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
@@ -129,9 +127,9 @@ export function WritingPractice() {
     if (it) playAudio(it.audio);
   }, [pick]);
   useEffect(() => {
-    if (data && (mode !== "word" || words)) next();
+    if (data && ready && (mode !== "word" || words)) next();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, mode, words === null, focus]);
+  }, [data, mode, words === null, focus, ready]);
 
   const withTone = mode !== "symbol";
   const n = item?.groups.length ?? 1;
@@ -169,12 +167,7 @@ export function WritingPractice() {
     // A perfect answer moves on by itself; otherwise take the time to read the corrections.
     if (perfect) advance.current = setTimeout(next, 1400);
     setStats((s) => ({ done: s.done + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
-    const symbols = res.flatMap((r) => r.rows.flatMap((x) => (x.kind === "symbol" && !x.tone ? [{ sym: x.expected, ok: !reveal && (x.r.ok || !!x.r.nearly) }] : x.kind === "missing" && !x.tone ? [{ sym: x.expected, ok: false }] : [])));
-    setErr((e) => {
-      const out = { ...e };
-      for (const s of symbols) out[s.sym] = (out[s.sym] ?? 0.5) * 0.7 + (s.ok ? 0 : 0.3);
-      return out;
-    });
+    review().answer(itemKey(item), ok);
     // Save every part: the symbol each written shape looked like and its strokes, omitted and extra symbols (∅), and the tone mark as a tone number.
     const units: Unit[] = res.flatMap((r, gi) => {
       const toneOne = !splitZhuyin(item.groups[gi].zhuyin).tone;
@@ -192,9 +185,9 @@ export function WritingPractice() {
         return reveal ? [{ ...base, kind: "symbol", expected: x.expected, actual: null, ok: false }] : writtenUnits(x.expected, x.r, base);
       });
     });
-    api.event({ area: "writing", mode, item: item.groups.map((g) => g.zhuyin).join(" "), ok, first_try: ok, ms: since(shownAt.current), help: reveal,
+    api.event({ area: "writing", mode, item: itemKey(item), ok, first_try: ok, ms: since(shownAt.current), help: reveal,
       replays: replays.current, units, details: { perfect, sheet: true, shapes: clusters.length, focus: focus.active ? focus.label : undefined } });
-  }, [item, T, graded, strokes, clusters, SYMBOLS, withTone, mode, next, focus]);
+  }, [item, T, graded, strokes, clusters, SYMBOLS, withTone, mode, next, focus, review]);
 
   const switchMode = (m: Mode) => { setQueue([]); setMode(m); };
   const hear = () => { if (!item) return; if (!graded) replays.current += 1; playAudio(item.audio); };

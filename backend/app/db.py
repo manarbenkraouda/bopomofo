@@ -502,6 +502,28 @@ def summary() -> dict:
             "tones": dict(tones), "sentences": n_sent, "day_streak": streak(days), "attempts": len(ev)}
 
 
+MEMORY_KEEP = 20
+
+
+def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
+    """The recent tests of each item of one practice mode, oldest first: [time, 1 if right on the first try without help].
+    The practice picks use them to schedule reviews (frontend/src/lib/review.ts). Only tests count: learn-mode answers
+    (the answer is shown on purpose) are left out, and in speaking only the first recording of a card counts."""
+    sql = ("SELECT item, ts, COALESCE(first_try, ok) AS good, help FROM events WHERE area = ?"
+           " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1)"
+           " AND (details IS NULL OR details::jsonb ->> 'learn' IS NULL)")
+    args: list = [area]
+    if mode:
+        sql += " AND mode = ?"
+        args.append(mode)
+    with conn() as c:
+        rows = c.execute(sql + " ORDER BY ts, id", tuple(args)).fetchall()
+    out: dict[str, list[list]] = defaultdict(list)
+    for r in rows:
+        out[r["item"]].append([round(r["ts"], 1), int(bool(r["good"]) and not r["help"])])
+    return {k: v[-MEMORY_KEEP:] for k, v in out.items()}
+
+
 def streak(days: set[str], today: date | None = None) -> int:
     """Days in a row with practice, up to today. A day without practice yet today does not break it."""
     d = today or local_today()

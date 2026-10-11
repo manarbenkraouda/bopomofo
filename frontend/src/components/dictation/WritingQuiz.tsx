@@ -6,7 +6,8 @@ import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { buildTemplates, type Pt, type SymbolResult, type Templates } from "@/lib/matcher";
-import { cycleNext, inSet, pickWeighted, SET_LABEL, SYMBOL_NAME, updateMiss, type SymbolSet } from "@/lib/quiz";
+import { inSet, SET_LABEL, SYMBOL_NAME, type SymbolSet } from "@/lib/quiz";
+import { useReview } from "@/lib/review";
 import { playSfx } from "@/lib/sfx";
 import { now, since, writtenUnits } from "@/lib/track";
 import { useFit } from "@/lib/useFit";
@@ -42,21 +43,16 @@ export function WritingQuiz() {
   const PAD = useFit(200, 420, 0.36, 0.84); // follows the window height, and the width on a phone
 
   const card = useRef({ cheated: false, tries: 0, shown: 0, ms: undefined as number | undefined, replays: 0, units: [] as Unit[] });
-  const recent = useRef<string[]>([]);
-  const missRate = useRef<Record<string, number>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focus = useFocus();
   const focusSyms = focusSymbols(focus).join("");
   // Learn mode (?learn=1): every card shows the strokes, and the learner copies the symbol. Each right copy counts.
   const learn = useSearchParams().get("learn") === "1";
-  const order = useRef<string[]>([]);
-  const lastSym = useRef<string | undefined>(undefined);
+  // The card order: a few new symbols at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  const { review, ready } = useReview("dictation", "", { order: "pool" });
 
   useEffect(() => {
     loadData().then((d) => { setData(d); setT(buildTemplates(d.strokes)); });
-    api.summary().then((s) => {
-      missRate.current = Object.fromEntries(Object.entries(s.symbols_by_area?.dictation ?? s.symbols).map(([k, v]) => [k, (v.err + 1) / (v.n + 2)]));
-    }).catch(() => {});
     return () => { if (timer.current) clearTimeout(timer.current); };
   }, []);
 
@@ -65,9 +61,8 @@ export function WritingQuiz() {
     if (!data) return;
     const f = data.table.filter((r) => focusSyms.includes(r.sym));
     const pool = f.length ? f : inSet(data.table, set);
-    const row = learn ? cycleNext(pool, order.current, lastSym.current) : pickWeighted(pool, missRate.current, recent.current);
-    lastSym.current = row.sym;
-    recent.current = [...recent.current, row.sym].slice(-Math.min(4, pool.length - 1));
+    const id = review().next(pool.map((r) => r.sym));
+    const row = pool.find((r) => r.sym === id) ?? pool[0];
     card.current = { cheated: learn, tries: 0, shown: now(), ms: undefined, replays: 0, units: [] };
     setCur(row);
     setStrokes([]);
@@ -77,19 +72,20 @@ export function WritingQuiz() {
     setTries(0);
     setFx("writing");
     playAudio(symbolAudio(row));
-  }, [data, set, focusSyms, learn]);
+  }, [data, set, focusSyms, learn, review]);
 
-  useEffect(() => { if (data) next(); }, [data, set, focusSyms, learn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (data && ready) next(); }, [data, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const finishCard = useCallback((row: MoeRow, passed: boolean) => {
     const c = card.current;
     const firstTry = passed && !c.cheated && c.tries === 0;
-    missRate.current[row.sym] = updateMiss(missRate.current[row.sym], firstTry);
+    // In learn mode the strokes are shown: a right copy moves the symbol on, but it is not a test.
+    review().answer(row.sym, learn ? passed && c.tries === 0 : firstTry, !learn);
     setStats((s) => ({ cards: s.cards + 1, firstTry: s.firstTry + (firstTry ? 1 : 0), streak: firstTry ? s.streak + 1 : 0, right: s.right + (passed ? 1 : 0) }));
     const units: Unit[] = c.units.length ? c.units : [{ kind: "symbol", expected: row.sym, actual: null, ok: false, help: c.cheated }];
     api.event({ area: "dictation", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: c.tries + (passed ? 1 : 0), help: c.cheated,
       replays: c.replays, units, details: { skipped: !passed, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined } });
-  }, [set, focus, learn]);
+  }, [set, focus, learn, review]);
 
   // Grade after every stroke. Pass as soon as the strokes match in shape and order.
   // Count a miss only when the full stroke count is reached and the symbol is still wrong.

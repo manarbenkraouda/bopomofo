@@ -5,7 +5,8 @@ import { api, type Unit } from "@/lib/api";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { answerText, normalizePinyin, symbolOfPinyin } from "@/lib/pinyin";
-import { cycleNext, inSet, pickWeighted, SET_LABEL, updateMiss, type SymbolSet } from "@/lib/quiz";
+import { inSet, SET_LABEL, type SymbolSet } from "@/lib/quiz";
+import { useReview } from "@/lib/review";
 import { playSfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
 import { loadData, type MoeRow } from "@/lib/zhuyin";
@@ -37,19 +38,15 @@ export function RecognizeQuiz() {
   const input = useRef<HTMLInputElement>(null);
   const curRef = useRef<MoeRow | null>(null);
   const card = useRef({ revealed: false, tries: 0, shown: 0, ms: undefined as number | undefined, units: [] as Unit[], done: false });
-  const recent = useRef<string[]>([]);
-  const missRate = useRef<Record<string, number>>({});
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const order = useRef<string[]>([]);
   const focus = useFocus();
   // Learn mode (?learn=1): the answer is shown from the start and the learner copies it. Each right repetition counts.
   const learn = useSearchParams().get("learn") === "1";
+  // The card order: a few new symbols at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  const { review, ready } = useReview("recognize", "", { order: "pool" });
 
   useEffect(() => {
     loadData().then((d) => setRows(d.table));
-    api.summary().then((s) => {
-      missRate.current = Object.fromEntries(Object.entries(s.symbols_by_area?.recognize ?? s.symbols).map(([k, v]) => [k, (v.err + 1) / (v.n + 2)]));
-    }).catch(() => {});
     return () => { if (advanceTimer.current) clearTimeout(advanceTimer.current); };
   }, []);
 
@@ -61,8 +58,8 @@ export function RecognizeQuiz() {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
     const p = pool();
     if (!p.length) return;
-    const row = learn ? cycleNext(p, order.current, curRef.current?.sym) : pickWeighted(p, missRate.current, recent.current);
-    recent.current = [...recent.current, row.sym].slice(-Math.min(4, p.length - 1));
+    const id = review().next(p.map((r) => r.sym));
+    const row = p.find((r) => r.sym === id) ?? p[0];
     curRef.current = row;
     card.current = { revealed: learn, tries: 0, shown: now(), ms: undefined, units: [], done: false };
     setCur(row);
@@ -72,9 +69,9 @@ export function RecognizeQuiz() {
     setWrong(null);
     setHint("");
     input.current?.focus({ preventScroll: true });
-  }, [pool, learn]);
+  }, [pool, learn, review]);
 
-  useEffect(() => { if (rows.length) next(); }, [rows.length, set, focusSyms, learn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (rows.length && ready) next(); }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const finishCard = useCallback((ok: boolean) => {
     const row = curRef.current;
@@ -82,13 +79,14 @@ export function RecognizeQuiz() {
     if (!row || c.done) return;
     c.done = true;
     const firstTry = ok && !c.revealed && c.tries === 0;
-    missRate.current[row.sym] = updateMiss(missRate.current[row.sym], firstTry);
+    // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
+    review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
     setStats((s) => ({ cards: s.cards + 1, firstTry: s.firstTry + (firstTry ? 1 : 0), streak: firstTry ? s.streak + 1 : 0, right: s.right + (ok ? 1 : 0) }));
     // A skip without any try still says what happened: nothing was typed, and the answer was shown.
     const units: Unit[] = c.units.length ? c.units : [{ kind: "symbol", expected: row.sym, actual: "∅", ok: false, help: c.revealed }];
     api.event({ area: "recognize", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: c.tries + (ok ? 1 : 0), help: c.revealed, units,
       details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined } });
-  }, [set, focus, learn]);
+  }, [set, focus, learn, review]);
 
   const check = useCallback(() => {
     const row = curRef.current;
