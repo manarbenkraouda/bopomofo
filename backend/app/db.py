@@ -50,6 +50,16 @@ def current_user() -> str | None:
     return _user.get()
 
 
+@contextmanager
+def as_user(user_id: str | None):
+    """Run a block as this user, then go back to the user before."""
+    token = _user.set(user_id)
+    try:
+        yield
+    finally:
+        _user.reset(token)
+
+
 def spawn(fn, *args) -> threading.Thread:
     """Run fn in a background thread as the current user."""
     t = threading.Thread(target=contextvars.copy_context().run, args=(fn, *args), daemon=True)

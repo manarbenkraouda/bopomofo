@@ -7,6 +7,7 @@ import re
 import httpx
 import opencc
 
+from . import limits
 from .config import OPENROUTER_API_KEY, OPENROUTER_MODEL
 
 _s2tw = opencc.OpenCC("s2twp")
@@ -34,6 +35,7 @@ class LLMError(RuntimeError):
 
 async def _chat(messages: list[dict], temperature: float = 0.9, model: str | None = None, reasoning: bool = False,
                 timeout: float = 90) -> dict:
+    limits.check_ai()  # first: a user at the limit makes no call
     if not OPENROUTER_API_KEY:
         raise LLMError("OPENROUTER_API_KEY is not set in backend/.env")
     # Reasoning is off: on long prompts it used the full token limit and the reply had no JSON.
@@ -43,11 +45,17 @@ async def _chat(messages: list[dict], temperature: float = 0.9, model: str | Non
             "temperature": temperature}
     if not reasoning:
         body["reasoning"] = {"enabled": False}
-    async with httpx.AsyncClient(timeout=timeout) as c:
-        r = await c.post(URL, json=body, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://bopomofo.app", "X-Title": "bopomofo"})
-    if r.status_code != 200:
-        raise LLMError(f"OpenRouter error {r.status_code}: {r.text[:300]}")
-    data = r.json()
+    cost = None
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.post(URL, json=body, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://bopomofo.app", "X-Title": "bopomofo"})
+        if r.status_code != 200:
+            raise LLMError(f"OpenRouter error {r.status_code}: {r.text[:300]}")
+        data = r.json()
+        cost = (data.get("usage") or {}).get("cost")
+    finally:
+        # Every call counts for the daily limit, also a failed one: the provider can charge for it.
+        limits.record("ai", float(cost) if isinstance(cost, (int, float)) else None)
     choice = data["choices"][0]
     content = choice["message"].get("content") or ""
     start = content.find("{")

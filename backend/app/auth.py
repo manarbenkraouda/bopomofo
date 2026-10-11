@@ -13,8 +13,8 @@ from . import db
 from .config import CLERK_AUTHORIZED_PARTIES, CLERK_JWT_KEY, CLERK_SECRET_KEY
 
 # Open without sign-in. A valid token is still read, so /api/health can show the user's voice pitch.
-# /api/tts is open because <audio src> cannot send a token; it only reads text aloud.
-PUBLIC = {"/api/health", "/api/tts", "/api/tts/voices"}
+# /api/tts needs a sign-in: each user has their own audio cache, and the browser fetches the audio with the token.
+PUBLIC = {"/api/health", "/api/tts/voices"}
 
 _options = AuthenticateRequestOptions(secret_key=CLERK_SECRET_KEY or None, jwt_key=CLERK_JWT_KEY or None,
                                       authorized_parties=CLERK_AUTHORIZED_PARTIES or None)

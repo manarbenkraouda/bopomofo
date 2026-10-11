@@ -1,8 +1,9 @@
 """The API needs a Clerk sign-in, and each signed-in user reaches only their own data. Token checks are replaced by a fake."""
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, coach, db, main
+from app import auth, coach, db, main, tts
 
 A = {"Authorization": "Bearer token-a"}
 B = {"Authorization": "Bearer token-b"}
@@ -24,6 +25,22 @@ def test_sign_in_is_required(client):
     assert client.get("/api/profile", headers={"Authorization": "Bearer wrong"}).status_code == 401
     assert client.get("/api/health").status_code == 200 and client.get("/api/health").json()["speaker_hz"] is None
     assert client.get("/api/tts/voices").status_code == 200
+    assert client.get("/api/tts", params={"text": "你好"}).status_code == 401
+    assert client.post("/api/tts/cache/clear").status_code == 401
+
+
+def test_each_user_clears_only_their_own_audio(client, monkeypatch, tmp_path):
+    class Voice:
+        def generate(self, text, sid=0, speed=1.0):
+            return tts._Audio(np.full(2205, 0.1, np.float32), 22050)
+    monkeypatch.setattr(tts, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(tts, "_engines", {"kokoro": Voice(), "breeze2": Voice()})
+    for user in (A, B):
+        r = client.get("/api/tts", params={"text": "你好"}, headers=user)
+        assert r.status_code == 200 and r.headers["cache-control"].startswith("private")
+    assert client.post("/api/tts/cache/clear", headers=B).json()["files"] == 1
+    assert len(list((tmp_path / "tts" / "user_a").glob("*.wav"))) == 1  # A keeps their audio
+    assert not list((tmp_path / "tts" / "user_b").glob("*.wav"))
 
 
 def test_each_user_reaches_only_their_data(client):

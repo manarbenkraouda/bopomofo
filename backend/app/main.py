@@ -14,13 +14,18 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import auth, coach, db, llm, scoring, speaker, stats, symbols, tts
+from . import auth, coach, db, limits, llm, scoring, speaker, stats, symbols, tts
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .zhuyin import analyze_text
 
 # Every route needs a signed-in Clerk user, except auth.PUBLIC. Each user sees only their own data (see db.py).
 app = FastAPI(title="bopomofo API", dependencies=[Depends(auth.require_user)])
+
+
+@app.exception_handler(limits.LimitReached)
+async def limit_reached(request: Request, exc: limits.LimitReached):
+    return JSONResponse({"detail": str(exc)}, status_code=429)
 
 
 @app.middleware("http")
@@ -33,6 +38,60 @@ async def errors_as_json(request: Request, call_next):
         return JSONResponse({"detail": f"Server error: {type(e).__name__}: {e}"}, status_code=500)
 
 
+# Request size limits, so a large body is stopped before it is parsed or saved. This applies before the sign-in
+# check too. Audio uploads are at most 30 s; the app records 16 kHz mono WAV.
+UPLOAD_PATHS = {"/api/speech/analyze", "/api/symbols/check"}
+UPLOAD_LIMIT = 16 * 1024 * 1024
+BODY_LIMIT = 1024 * 1024
+TOO_LARGE = "The request is too large."
+
+
+class BodyLimit:
+    """With Content-Length, the server reads exactly that many bytes, so the declared size is checked.
+    A chunked body has no declared size: it is read here up to the limit, then given to the app."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        limit = UPLOAD_LIMIT if scope["path"] in UPLOAD_PATHS else BODY_LIMIT
+        headers = dict(scope["headers"])
+        too_large = JSONResponse({"detail": TOO_LARGE}, status_code=413)
+        declared = headers.get(b"content-length", b"")
+        if declared.isdigit() and int(declared) > limit:
+            return await too_large(scope, receive, send)
+        if declared or b"transfer-encoding" not in headers:
+            return await self.app(scope, receive, send)
+        parts, size = [], 0
+        while True:
+            message = await receive()
+            if message["type"] != "http.request":
+                return  # the client left
+            size += len(message.get("body", b""))
+            if size > limit:
+                return await too_large(scope, receive, send)
+            parts.append(message.get("body", b""))
+            if not message.get("more_body"):
+                break
+        body = b"".join(parts)
+        given = False
+
+        async def replay():
+            nonlocal given
+            if given:
+                return await receive()
+            given = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
+# Added after errors_as_json and before CORS, so CORS wraps it and a 413 still reaches the browser.
+app.add_middleware(BodyLimit)
+
+
 # Local and LAN addresses for development, plus the public site at bopomofo.app and its subdomains.
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?|https://([a-z0-9-]+\.)*bopomofo\.app", allow_methods=["*"], allow_headers=["*"])
 
@@ -40,6 +99,7 @@ app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\
 @app.on_event("startup")
 def startup():
     db.init()
+    tts.remove_shared_files()
     recognizer.load_async()
     tts.preload_async()
 
@@ -170,7 +230,7 @@ async def sentences_generate(body: GenerateIn, background: BackgroundTasks):
     # Make the audio after the response is sent, so Listen plays at once. Same rates as the pages use.
     jobs = [(s["hanzi"], r) for s in saved for r in (0, -35)]
     jobs += [(w["text"], r) for s in saved for w in s.get("words") or [] for r in (0, -10) if w.get("text")]
-    background.add_task(tts.pregenerate, jobs, body.voice or tts.DEFAULT_VOICE)
+    background.add_task(tts.pregenerate, jobs, body.voice or tts.DEFAULT_VOICE, db.current_user())
     return {"sentences": [with_items(s) for s in saved], "usage": usage}
 
 
@@ -201,13 +261,17 @@ def sentence_delete(sid: int):
 
 @app.get("/api/tts")
 async def tts_get(text: str, rate: int = 0, voice: str = tts.DEFAULT_VOICE):
+    """Audio of a text, from the cache of the signed-in user. The browser fetches it with the token (frontend/src/lib/audio.ts)."""
     if not text.strip() or len(text) > 400:
         raise HTTPException(400, "Text must be 1-400 characters.")
     try:
-        path = await run_in_threadpool(tts.speak, text, max(-60, min(40, rate)), voice)
+        path = await run_in_threadpool(tts.speak, text, max(-60, min(40, rate)), voice, db.current_user())
+    except limits.LimitReached:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"Text to speech failed: {e}") from e
-    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "public, max-age=31536000"})
+    # private: only the browser of this user keeps a copy, never a shared cache.
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "private, max-age=31536000"})
 
 
 @app.get("/api/tts/voices")
@@ -217,10 +281,24 @@ def tts_voices():
 
 @app.post("/api/tts/cache/clear")
 def tts_cache_clear():
-    return tts.clear_cache()
+    """Clear the audio of the signed-in user only."""
+    return tts.clear_cache(db.current_user())
+
+
+MAX_SECONDS = 30
 
 
 def read_audio(data: bytes) -> np.ndarray:
+    # Read the header first. A small compressed file (FLAC, OGG) can hold hours of audio: decoding all of it
+    # before the length check used about 1 GB for an 89 KB file. The decoder reads at most the frames in the header.
+    try:
+        info = sf.info(io.BytesIO(data))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, f"Could not read the audio: {e}") from e
+    if not (1 <= info.channels <= 2 and 8000 <= info.samplerate <= 96000):
+        raise HTTPException(400, "The recording is in a format the app does not read (mono or stereo, 8 to 96 kHz).")
+    if info.frames > info.samplerate * (MAX_SECONDS + 0.5):
+        raise HTTPException(400, f"The recording is too long ({MAX_SECONDS} s maximum).")
     try:
         a, sr = sf.read(io.BytesIO(data), dtype="float32")
     except Exception as e:  # noqa: BLE001
@@ -232,14 +310,14 @@ def read_audio(data: bytes) -> np.ndarray:
         a = np.interp(np.linspace(0, len(a) - 1, n), np.arange(len(a)), a).astype(np.float32)
     if len(a) < 16000 * 0.3:
         raise HTTPException(400, "The recording is too short.")
-    if len(a) > 16000 * 30:
-        raise HTTPException(400, "The recording is too long (30 s maximum).")
+    if len(a) > 16000 * MAX_SECONDS:
+        raise HTTPException(400, f"The recording is too long ({MAX_SECONDS} s maximum).")
     return a
 
 
 @app.post("/api/speech/analyze")
-def speech_analyze(audio: UploadFile = File(...), text: str = Form(...), mode: str = Form(""), step: str = Form(""),
-                   help: str = Form(""), try_n: str = Form("")):
+def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_length=400), mode: str = Form("", max_length=16),
+                   step: str = Form("", max_length=16), help: str = Form("", max_length=8), try_n: str = Form("", max_length=8)):
     if not recognizer.ready:
         raise HTTPException(503, recognizer.error or "The speech model is still loading. Try again in a few seconds.")
     a = read_audio(audio.file.read())
@@ -261,7 +339,7 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(...), mode: s
 
 
 @app.post("/api/symbols/check")
-def symbols_check(audio: UploadFile = File(...), symbol: str = Form(...)):
+def symbols_check(audio: UploadFile = File(...), symbol: str = Form(..., max_length=8)):
     """Reading quiz: did the learner say the name of this Bopomofo symbol?"""
     if not recognizer.ready:
         raise HTTPException(503, recognizer.error or "The speech model is still loading. Try again in a few seconds.")

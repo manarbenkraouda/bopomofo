@@ -139,7 +139,7 @@ export function apiBase(): string {
 }
 
 // Messages the learner can read as they are. Every other error gets a short, friendly message.
-const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story|Unknown time zone)/;
+const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story|Unknown time zone|You reached the daily|The request is too large)/;
 
 // The Clerk session token. <ApiAuth /> gives the getter while a user is signed in, and null when not.
 // Just after the sign-in redirect there is no token yet: requests wait for one (at most 10 s).
@@ -259,11 +259,36 @@ const audioVersion = () => (typeof window === "undefined" ? "" : localStorage.ge
 export const clearAudioCache = async () => {
   const r = await call<{ files: number; bytes: number }>("/api/tts/cache/clear", { method: "POST" });
   localStorage.setItem(AUDIO_V_KEY, String(Date.now()));
+  ttsBlobs.forEach((url) => URL.revokeObjectURL(url));
+  ttsBlobs.clear();
   return r;
 };
 
 export const ttsUrl = (text: string, rate = 0, voice = getVoice()) =>
   apiBase() + "/api/tts?text=" + encodeURIComponent(text) + "&rate=" + rate + (voice ? "&voice=" + encodeURIComponent(voice) : "") + (audioVersion() ? "&v=" + audioVersion() : "");
+
+// /api/tts needs the sign-in token, and <audio src> cannot send it. So the audio is fetched with the token
+// and played from a blob: URL. The last clips stay in memory, so a replay starts at once.
+const ttsBlobs = new Map<string, string>();
+const MAX_BLOBS = 200;
+
+/** The address the player can use for src: the same string, or a promise when the audio must be fetched first. */
+export function playableSrc(src: string): string | Promise<string> {
+  if (!src.startsWith(apiBase() + "/api/tts?")) return src;
+  const hit = ttsBlobs.get(src);
+  if (hit) return hit;
+  return send(src.slice(apiBase().length)).then(async (r) => {
+    if (!r.ok) throw new Error("Audio failed: " + r.status);
+    const url = URL.createObjectURL(await r.blob());
+    ttsBlobs.set(src, url);
+    if (ttsBlobs.size > MAX_BLOBS) {
+      const [oldest, old] = ttsBlobs.entries().next().value!;
+      URL.revokeObjectURL(old);
+      ttsBlobs.delete(oldest);
+    }
+    return url;
+  });
+}
 
 /** Download every answer as CSV. A plain link cannot send the sign-in token, so the file is fetched first. */
 export async function downloadExport() {

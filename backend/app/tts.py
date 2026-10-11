@@ -1,7 +1,14 @@
-"""Local, offline text to speech with open-source voices (sherpa-onnx). Results are cached on disk as WAV."""
+"""Local, offline text to speech with open-source voices (sherpa-onnx). Results are cached on disk as WAV.
+
+Each user has a separate cache folder, data/tts/<user id>. A user can clear only their own folder.
+A folder is kept under TTS_CACHE_MB_PER_USER: the clips used least recently are deleted first.
+New clips count for the daily limit of the user (app/limits.py); a replay from the cache does not.
+"""
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,7 +16,8 @@ from pathlib import Path
 import soundfile as sf
 import numpy as np
 
-from .config import DATA_DIR, MODEL_DIR
+from . import db, limits
+from .config import DATA_DIR, MODEL_DIR, TTS_CACHE_MB_PER_USER
 from .zhuyin import analyze_text
 
 
@@ -29,6 +37,7 @@ VOICES = [
 ]
 BY_ID = {v.id: v for v in VOICES}
 DEFAULT_VOICE = "kokoro-f"
+_USER_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # Clerk ids look like user_2abc...; anything else is not a folder name
 
 _engines: dict[str, object] = {}
 _locks = {"breeze2": threading.Lock(), "kokoro": threading.Lock()}
@@ -135,23 +144,64 @@ def _load(model: str):
     return so.OfflineTts(so.OfflineTtsConfig(model=cfg, rule_fsts=fsts))
 
 
-def speak(text: str, rate: int = 0, voice: str = DEFAULT_VOICE) -> Path:
+def user_cache(user: str | None) -> Path:
+    """The audio cache folder of one user."""
+    if not user or not _USER_ID.match(user):
+        raise ValueError("Text to speech needs a signed-in user.")
+    return DATA_DIR / "tts" / user
+
+
+def speak(text: str, rate: int, voice: str, user: str | None) -> Path:
     """Blocking. Call from a worker thread. rate is a percent change, e.g. -35 is slower."""
     v = BY_ID.get(voice) or BY_ID[DEFAULT_VOICE]
     key = hashlib.sha1(f"lvl2|{'bz3|' if v.model == 'breeze2' else ''}{v.id}|{rate}|{text}".encode()).hexdigest()
-    path = DATA_DIR / "tts" / f"{key}.wav"
+    path = user_cache(user) / f"{key}.wav"
     if path.exists() and path.stat().st_size > 0:
+        try:
+            os.utime(path)  # used now: the trim keeps it longer
+        except OSError:
+            pass
         return path
-    with _locks[v.model]:
-        if v.model not in _engines:
-            _engines[v.model] = _load(v.model)
-        audio = _engines[v.model].generate(text, sid=v.sid, speed=max(0.3, 1 + rate / 100))
+    with db.as_user(user):
+        limits.check_tts()
+        with _locks[v.model]:
+            if v.model not in _engines:
+                _engines[v.model] = _load(v.model)
+            audio = _engines[v.model].generate(text, sid=v.sid, speed=max(0.3, 1 + rate / 100))
+        limits.record("tts")
     if len(audio.samples) == 0:
         raise RuntimeError("The voice made no audio for this text.")
+    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".part")
     sf.write(str(tmp), level(audio.samples, audio.sample_rate), audio.sample_rate, format="WAV")
     tmp.replace(path)
+    _trim(path.parent, keep=path)
     return path
+
+
+def _trim(d: Path, keep: Path) -> None:
+    """Keep a user's folder under TTS_CACHE_MB_PER_USER. The clips used least recently go first, down to 90% of the limit."""
+    limit = TTS_CACHE_MB_PER_USER * 1024 * 1024
+    files = []
+    for p in d.glob("*.wav"):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        files.append((st.st_mtime, st.st_size, p))
+    total = sum(size for _, size, _ in files)
+    if total <= limit:
+        return
+    for _, size, p in sorted(files):
+        if total <= limit * 0.9:
+            break
+        if p == keep:
+            continue
+        try:
+            p.unlink()
+            total -= size
+        except OSError:
+            pass  # a file in use is skipped
 
 
 def preload_async(voice: str = DEFAULT_VOICE):
@@ -166,18 +216,22 @@ def preload_async(voice: str = DEFAULT_VOICE):
     threading.Thread(target=run, daemon=True).start()
 
 
-def pregenerate(jobs: list[tuple[str, int]], voice: str = DEFAULT_VOICE):
-    """Make and cache audio ahead of time. Runs in the background; errors only skip that clip."""
+def pregenerate(jobs: list[tuple[str, int]], voice: str, user: str | None):
+    """Make and cache audio ahead of time for one user. Runs in the background; errors only skip that clip."""
     for text, rate in dict.fromkeys(jobs):
         if text.strip() and len(text) <= 400:
             try:
-                speak(text, rate, voice)
+                speak(text, rate, voice, user)
+            except limits.LimitReached:
+                return  # the daily audio limit: the other clips are made when they are played, after the reset
             except Exception as e:  # noqa: BLE001
                 print(f"TTS pregenerate failed for {text!r}: {e}")
 
 
-def clear_cache() -> dict:
-    files = [p for p in (DATA_DIR / "tts").iterdir() if p.is_file()]
+def clear_cache(user: str | None) -> dict:
+    """Delete the audio of one user. The audio of other users stays."""
+    d = user_cache(user)
+    files = [p for p in d.iterdir() if p.is_file()] if d.is_dir() else []
     size = sum(p.stat().st_size for p in files)
     removed = 0
     for p in files:
@@ -187,3 +241,14 @@ def clear_cache() -> dict:
         except OSError:
             pass  # a file in use is skipped; it is replaced on the next clear
     return {"files": removed, "bytes": size}
+
+
+def remove_shared_files() -> None:
+    """Delete the files of the old shared cache (directly in data/tts). No code reads them since the cache is per user."""
+    d = DATA_DIR / "tts"
+    for p in d.iterdir() if d.is_dir() else []:
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass

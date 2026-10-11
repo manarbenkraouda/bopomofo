@@ -842,7 +842,7 @@ async def write_sentences(step: dict, d: dict, profile: str, run: str):
     del p["new"]
     if accepted and LIVE:
         from . import tts  # the audio is made in the background, so Listen plays at once
-        db.spawn(tts.pregenerate, [(c["hanzi"], r) for c in accepted for r in (0, -35)])
+        db.spawn(tts.pregenerate, [(c["hanzi"], r) for c in accepted for r in (0, -35)], tts.DEFAULT_VOICE, db.current_user())
 
 
 async def pick_deck(step: dict, findings: list[dict], hist: dict, run: str):

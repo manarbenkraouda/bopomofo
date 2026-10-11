@@ -22,6 +22,11 @@ CLERK_JWT_KEY = os.getenv("CLERK_JWT_KEY", "")
 CLERK_AUTHORIZED_PARTIES = [o.strip() for o in os.getenv("CLERK_AUTHORIZED_PARTIES", "").split(",") if o.strip()]
 # Keep the learner's last reading quiz clips on disk to tune the thresholds. Off unless set to 1.
 SAVE_QUIZ_CLIPS = os.getenv("SAVE_QUIZ_CLIPS", "") == "1"
+# Limits for each user in the last 24 hours (app/limits.py), so one account cannot use up the AI credit, CPU, or disk.
+AI_DAILY_LIMIT_USD = float(os.getenv("AI_DAILY_LIMIT_USD", "1"))  # AI spend: coach, sentences, translation
+AI_DAILY_CALLS = int(os.getenv("AI_DAILY_CALLS", "400"))  # AI calls, also when the provider gives no cost
+TTS_DAILY_CLIPS = int(os.getenv("TTS_DAILY_CLIPS", "3000"))  # new text-to-speech clips (a replay from the cache is free)
+TTS_CACHE_MB_PER_USER = float(os.getenv("TTS_CACHE_MB_PER_USER", "200"))  # audio cache; the clips used least recently go first
 MODEL_DIR = Path(os.getenv("MODEL_DIR", ROOT / "models"))
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
