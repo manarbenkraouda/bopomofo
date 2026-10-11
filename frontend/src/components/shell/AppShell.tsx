@@ -12,6 +12,7 @@ import { playSfx, setSfxEnabled, SFX_KEY } from "@/lib/sfx";
 import { Caps, Kbd } from "./Kbd";
 import { GotoOverlay, HelpOverlay, Palette, type Command } from "./Overlays";
 import { StepBanner } from "./StepBanner";
+import { AiEnergyBadge, AiEnergyWait, AiQuotaProvider } from "@/components/quota/AiQuota";
 
 type Overlay = null | "palette" | "help" | "goto";
 
@@ -33,7 +34,7 @@ export function Frame({ children }: { children: React.ReactNode }) {
       </main>
     );
   }
-  return <><OnboardingGate /><AppShell>{children}</AppShell></>;
+  return <AiQuotaProvider><OnboardingGate /><AppShell>{children}</AppShell></AiQuotaProvider>;
 }
 
 /** Sends a learner who has not finished the onboarding to it, and keeps the daily goal the same on every device. */
@@ -152,6 +153,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="min-h-0 overflow-x-hidden overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 py-3 pb-[calc(var(--ab-space,0px)+0.75rem)] md:px-6 md:py-5 lg:px-10">
           {lesson && <Suspense fallback={null}><StepBanner /></Suspense>}
+          {!lesson && path !== "/settings" && <AiEnergyWait />}
           {children}
         </div>
       </main>
@@ -215,13 +217,14 @@ function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, o
         </div>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2 text-sm">
+        <AiEnergyBadge />
         <span className="hud" title={status.tip}><i className={"inline-block h-2 w-2 rounded-full " + status.cls} />{status.label}</span>
-        <span className="hud" title="Days in a row with practice">🔥 <b className="tabular-nums">{dayStreak ?? "–"}</b> <span className="text-muted">days</span></span>
+        <span className="hud hud-optional" title="Days in a row with practice">🔥 <b className="tabular-nums">{dayStreak ?? "–"}</b> <span className="text-muted">days</span></span>
         <span className="hud" title={"Active practice today. Daily goal: " + goal + " minutes (change it in Settings)."}>
           <span className="relative h-1.5 w-20 overflow-hidden rounded-full bg-line"><span className={"absolute inset-y-0 left-0 rounded-full transition-all " + (today.goalHit ? "bg-ok" : "bg-accent")} style={{ width: pct + "%" }} /></span>
           <b className="tabular-nums">{minutes}</b><span className="text-muted">/{goal} min</span>{today.goalHit && <span className="text-ok">✓</span>}
         </span>
-        <span className="hud" title="Answers today, and how many were right">
+        <span className="hud hud-optional" title="Answers today, and how many were right">
           <b className="tabular-nums">{today.cards}</b> <span className="text-muted">{today.cards === 1 ? "card" : "cards"}</span>{acc !== null && <><span className="text-muted">·</span><b className="tabular-nums">{acc}%</b></>}
         </span>
         <span key={today.combo} className={"hud " + (today.combo >= 2 ? "zq-pop border-accent/60 text-accent" : "")} title={"Right answers in a row, on all screens. Best today: " + today.best}>
@@ -296,6 +299,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
           <span className="grid h-9 w-9 place-items-center"><UserButton /></span>
         </div>
       )}
+      <div className="flex justify-end border-t border-line px-4 py-1.5"><AiEnergyBadge /></div>
       {!status.ok && (
         <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-xs">
           <i className={"inline-block h-2 w-2 rounded-full " + status.cls} />

@@ -28,7 +28,7 @@ from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
-from . import db, llm, stats
+from . import db, limits, llm, stats
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
 from .zhuyin import analyze_text
 
@@ -717,6 +717,8 @@ async def call(stage: str, task: str, payload: dict, run: str, step_id: int | No
             if not isinstance(res["json"], dict):
                 raise llm.LLMError("The reply was not a JSON object.")
             return res["json"]
+        except limits.LimitReached:
+            raise  # a quota wait is not a model failure; another model must not retry it
         except Exception as e:  # noqa: BLE001
             _log(run, plan_id, step_id, stage, model, t0, None, False, f"{type(e).__name__}: {e}"[:400], None)
             last = e
@@ -1142,6 +1144,8 @@ def start_story(pid: int) -> bool:
     """Write the headline and story of a saved plan again, in the background. False when the coach is busy."""
     if not LIVE or not _plan_row(pid):
         return False
+    if limits.ai_quota()["blocked"]:
+        return False
     with _lock:
         if _g()["running"]:
             return False
@@ -1164,6 +1168,8 @@ def start_story(pid: int) -> bool:
 def start(reason: str, as_next: bool = False) -> bool:
     """Build a plan in the background. Returns False when one is already being built."""
     if not LIVE:
+        return False
+    if limits.ai_quota()["blocked"]:
         return False
     with _lock:
         if _g()["running"]:
@@ -1445,6 +1451,8 @@ def refresh(check: bool = True) -> dict:
     """Update steps and milestones from the answers. Starts checkpoints, debriefs, and the next plan when needed."""
     done_now, to_check = [], []
     finished = want_next = False
+    # Checkpoints and debriefs are AI calls. While AI energy is empty, a due checkpoint stays due until the refill.
+    ai_ready = LIVE and check and not limits.ai_quota()["blocked"]
     with _refresh_lock:
         plan = _plan_row()
         if plan:
@@ -1457,7 +1465,7 @@ def refresh(check: bool = True) -> dict:
                     if pr["progress"] >= s["target"]:
                         c.execute("UPDATE steps SET status='done', done_ts=? WHERE id=?", (now, s["id"]))
                         done_now.append(s["id"])
-                    elif check and pr["tried"] - (s["checked_n"] or 0) >= CHECK_EVERY and s["id"] not in _checking:
+                    elif ai_ready and pr["tried"] - (s["checked_n"] or 0) >= CHECK_EVERY and s["id"] not in _checking:
                         c.execute("UPDATE steps SET checked_n=? WHERE id=?", (pr["tried"], s["id"]))
                         to_check.append(s["id"])
                 left, total = c.execute("SELECT COUNT(*) FILTER (WHERE status='open'), COUNT(*) FROM steps WHERE plan_id=?", (plan["id"],)).fetchone()
@@ -1472,7 +1480,7 @@ def refresh(check: bool = True) -> dict:
                     c.execute("UPDATE milestones SET status='achieved', done_ts=? WHERE id=?", (time.time(), m["id"]))
         if finished and not _promote():
             start("The previous plan is finished. Build the next one from the new stats.")
-    if LIVE and check:
+    if ai_ready:
         for sid in done_now:
             _bg(debrief, sid)
         for sid in to_check:
@@ -1527,7 +1535,7 @@ def state() -> dict:
                  "writing_story": _g().get("story"),
                  "started": _g()["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
                  "next_ready": bool(_q("SELECT id FROM plans WHERE status='next'")), "coach_model": COACH_MODEL,
-                 "alphabet": alphabet_status(),
+                 "alphabet": alphabet_status(), "ai_quota": limits.ai_quota(),
                  "usage": {"calls": use["n"] or 0, "cost": round(use["cost"] or 0, 4), "today_calls": use["today_n"] or 0, "today_cost": round(use["today_cost"] or 0, 4)}}
     if plan:
         raw = json.loads(plan["raw"] or "{}")

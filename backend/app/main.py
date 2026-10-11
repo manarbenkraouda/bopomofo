@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import math
 import time
 import traceback
 from typing import Literal
@@ -25,7 +26,12 @@ app = FastAPI(title="bopomofo API", dependencies=[Depends(auth.require_user)])
 
 @app.exception_handler(limits.LimitReached)
 async def limit_reached(request: Request, exc: limits.LimitReached):
-    return JSONResponse({"detail": str(exc)}, status_code=429)
+    body = {"detail": str(exc)}
+    headers = {"Cache-Control": "no-store"}
+    if exc.ai_quota is not None:
+        body["ai_quota"] = exc.ai_quota
+        headers["Retry-After"] = str(max(1, math.ceil(exc.ai_quota["resets_at"] - exc.ai_quota["server_now"])))
+    return JSONResponse(body, status_code=429, headers=headers)
 
 
 @app.middleware("http")
@@ -128,7 +134,7 @@ def text_analyze(body: TextIn):
 @app.post("/api/text/translate")
 async def text_translate(body: TextIn):
     try:
-        return await llm.translate(body.text)
+        return {**await llm.translate(body.text), "ai_quota": limits.ai_quota()}
     except llm.LLMError as e:
         raise HTTPException(502, str(e)) from e
 
@@ -173,6 +179,12 @@ def me_state() -> dict:
 def me_get():
     """The signed-in learner's settings, and whether the onboarding is done."""
     return me_state()
+
+
+@app.get("/api/ai/quota")
+def ai_quota_get():
+    """Daily energy and the next midnight, for the signed-in learner's countdown. No AI work is started."""
+    return JSONResponse(limits.ai_quota(), headers={"Cache-Control": "no-store"})
 
 
 class OnboardingIn(BaseModel):
@@ -231,7 +243,7 @@ async def sentences_generate(body: GenerateIn, background: BackgroundTasks):
     jobs = [(s["hanzi"], r) for s in saved for r in (0, -35)]
     jobs += [(w["text"], r) for s in saved for w in s.get("words") or [] for r in (0, -10) if w.get("text")]
     background.add_task(tts.pregenerate, jobs, body.voice or tts.DEFAULT_VOICE, db.current_user())
-    return {"sentences": [with_items(s) for s in saved], "usage": usage}
+    return {"sentences": [with_items(s) for s in saved], "usage": usage, "ai_quota": limits.ai_quota()}
 
 
 def with_items(s: dict) -> dict:
@@ -462,6 +474,7 @@ class PlanIn(BaseModel):
 
 @app.post("/api/coach/plan")
 def coach_plan(body: PlanIn):
+    limits.check_ai()
     coach.start(body.reason.strip() or "The learner asked for a new plan now.")
     return coach.state()
 
@@ -480,6 +493,7 @@ def coach_story_write(pid: int):
     """Write the headline and story of a saved plan again (older plans, or after a failure). Runs in the background."""
     if not coach._plan_row(pid):
         raise HTTPException(404, "No such plan")
+    limits.check_ai()
     coach.start_story(pid)
     return coach.state()
 

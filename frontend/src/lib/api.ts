@@ -87,6 +87,7 @@ export type Milestone = {
   criterion: { area: string; unit: string; expected: string[]; min_acc: number; window: number }; n: number; value: number | null; reached: boolean;
 };
 export type CoachState = {
+  ai_quota: AiQuota;
   generating: boolean; stage: string; building_next: boolean; error: string | null; started: number; next_ready: boolean; coach_model: string;
   /** The plan whose story is being written now, or null. */
   writing_story: number | null;
@@ -131,6 +132,15 @@ export type Me = {
   reasons: Reason[]; sentence_level: "beginner" | "intermediate" | "advanced"; name: string;
 };
 export type Onboarding = { name: string; reasons: Reason[]; level: Level; bopomofo: BopomofoLevel; goal_min: number; timezone: string };
+
+export type AiQuota = {
+  user_id: string; blocked: boolean; calls: number; call_limit: number; cost: number; cost_limit: number;
+  remaining_percent: number; server_now: number; period_started_at: number; resets_at: number; timezone: string;
+};
+export const AI_QUOTA_EVENT = "zs:ai-quota";
+export function publishAiQuota(quota: AiQuota) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(AI_QUOTA_EVENT, { detail: quota }));
+}
 
 export function apiBase(): string {
   if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
@@ -177,19 +187,26 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!r.ok) {
     let detail = "";
-    try { const j = await r.json(); if (typeof j.detail === "string") detail = j.detail; } catch {}
+    try {
+      const j = await r.json();
+      if (typeof j.detail === "string") detail = j.detail;
+      if (j.ai_quota) publishAiQuota(j.ai_quota);
+    } catch {}
     const msg = SAFE_DETAIL.test(detail) ? detail
       : r.status === 401 ? "Please sign in again."
       : r.status === 503 ? "The speech check is getting ready. Try again in a few seconds."
       : "Something went wrong. Please try again in a moment.";
     throw new Error(msg);
   }
-  return r.json() as Promise<T>;
+  const data = await r.json();
+  if (data.ai_quota) publishAiQuota(data.ai_quota);
+  return data as T;
 }
 
 const json = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 export const api = {
+  aiQuota: () => call<AiQuota>("/api/ai/quota", { cache: "no-store" }),
   profile: () => call<Profile>("/api/profile"),
   saveProfile: (p: Profile) => call<Profile>("/api/profile", { ...json(p), method: "PUT" }),
   me: () => call<Me>("/api/me"),

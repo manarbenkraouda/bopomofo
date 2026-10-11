@@ -8,6 +8,7 @@ import { useViewport } from "@/lib/useFit";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Caps, Kbd } from "@/components/shell/Kbd";
 import { StoryPlayer } from "@/components/story/StoryPlayer";
+import { useAiQuota } from "@/components/quota/AiQuota";
 
 export const STEP_ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", write_symbols: "默", write_syllables: "寫" };
 const STEP_KIND: Record<string, string> = {
@@ -43,6 +44,7 @@ type More = "goals" | "alphabet" | "evidence" | "notes" | "history";
  * What the plan is based on (goals, alphabet, findings, notes, past plans) is one tabbed section below it.
  */
 export function Coach() {
+  const { quota, blocked: aiBlocked } = useAiQuota();
   const router = useRouter();
   const [st, setSt] = useState<CoachState | null>(null);
   const [err, setErr] = useState("");
@@ -75,13 +77,13 @@ export function Coach() {
   const open = cur?.status === "open";
   const start = (s?: CoachStep) => { if (s && s.status === "open") router.push(s.href); };
   const skip = (reason: keyof typeof SKIP) => { if (cur && open) api.skipStep(cur.id, reason).then(setSt).catch((e: Error) => setErr(e.message)); };
-  const newPlan = () => api.coachPlan("The learner asked for a new plan now.").then(setSt).catch((e: Error) => setErr(e.message));
+  const newPlan = () => { if (quota && !aiBlocked) api.coachPlan("The learner asked for a new plan now.").then(setSt).catch((e: Error) => setErr(e.message)); };
   const hasStory = !!st?.plan?.has_story;
   // "How do we know?": open the story, or write it first for a plan that has none.
   const story = () => {
     if (!st?.plan || st.generating) return;
     if (hasStory) setStoryOpen(true);
-    else api.writeStory(st.plan.id).then(setSt).catch((e: Error) => setErr(e.message));
+    else if (quota && !aiBlocked) api.writeStory(st.plan.id).then(setSt).catch((e: Error) => setErr(e.message));
   };
   const showMore = (m: More) => { setMore(m); requestAnimationFrame(() => moreRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); };
 
@@ -96,8 +98,8 @@ export function Coach() {
     { keys: ["KeyE"], label: "Too easy", run: () => skip("too_easy"), when: open },
     { keys: ["KeyN"], label: "Not now", run: () => skip("not_now"), when: open },
     { keys: ["KeyF"], label: "Show the evidence", run: () => showMore("evidence"), when: !!st?.plan?.findings.length, bar: false },
-    { keys: ["KeyP"], label: "New plan", run: newPlan, when: !!st && !st.generating },
-    { keys: ["KeyW"], label: hasStory ? "How do we know?" : "Write the story", run: story, when: !!st?.plan && !st.generating },
+    { keys: ["KeyP"], label: "New plan", run: newPlan, when: !!st && !st.generating && !!quota && !aiBlocked },
+    { keys: ["KeyW"], label: hasStory ? "How do we know?" : "Write the story", run: story, when: !!st?.plan && !st.generating && (hasStory || (!!quota && !aiBlocked)) },
   ], { active: !storyOpen });
 
   if (!st) return <div className="grid flex-1 place-items-center text-muted">{err || "Loading the coach…"}</div>;
@@ -152,7 +154,7 @@ export function Coach() {
         <div className="card flex flex-col items-start gap-3 p-6">
           <div className="font-semibold">No plan yet</div>
           <p className="text-sm text-muted">The coach reads your answers and builds a short plan of steps for you.</p>
-          <button className="btn btn-accent" onClick={newPlan}>Build my plan <Kbd className="max-md:!hidden">P</Kbd></button>
+          <button className="btn btn-accent" onClick={newPlan} disabled={!quota || aiBlocked}>{aiBlocked ? "AI is recharging" : "Build my plan"} <Kbd className="max-md:!hidden">P</Kbd></button>
         </div>
       )}
 
@@ -168,7 +170,7 @@ export function Coach() {
         ) : lead ? (
           <button className="btn btn-accent ab-primary" onClick={() => start(lead)}>Start: {lead.title}</button>
         ) : (
-          <button className="btn ab-primary" onClick={newPlan} disabled={st.generating}>{st.generating ? "Building your next plan…" : "New plan"}</button>
+          <button className="btn ab-primary" onClick={newPlan} disabled={st.generating || !quota || aiBlocked}>{aiBlocked ? "AI is recharging" : st.generating ? "Building your next plan…" : "New plan"}</button>
         )}
       </ActionBar>
     </div>
@@ -180,6 +182,7 @@ export function Coach() {
 function PlanHeader({ st, sel, onSelect, onStory, onNewPlan, writing }: {
   st: CoachState; sel: number; onSelect: (i: number) => void; onStory: () => void; onNewPlan: () => void; writing: boolean;
 }) {
+  const { quota, blocked: aiBlocked } = useAiQuota();
   const plan = st.plan!;
   const steps = st.steps;
   const done = steps.filter((s) => s.status === "done").length;
@@ -201,10 +204,10 @@ function PlanHeader({ st, sel, onSelect, onStory, onNewPlan, writing }: {
           </p>
         </div>
         <div className="order-3 flex flex-wrap items-center gap-2 lg:order-none lg:row-span-2 lg:flex-col lg:items-stretch">
-          <button onClick={onStory} disabled={st.generating} className="btn story-btn justify-center !rounded-xl !px-3 !py-2.5 font-semibold md:!px-4">
+          <button onClick={onStory} disabled={st.generating || (!plan.has_story && (!quota || aiBlocked))} className="btn story-btn justify-center !rounded-xl !px-3 !py-2.5 font-semibold md:!px-4">
             <span aria-hidden>✦</span> {writing ? "Writing the story…" : plan.has_story ? "How do we know?" : "Write the story"} <Kbd className="max-md:!hidden">W</Kbd>
           </button>
-          <button onClick={onNewPlan} disabled={st.generating} className="btn justify-center !rounded-xl !px-3 !py-2.5 md:!px-4">New plan <Kbd className="max-md:!hidden">P</Kbd></button>
+          <button onClick={onNewPlan} disabled={st.generating || !quota || aiBlocked} className="btn justify-center !rounded-xl !px-3 !py-2.5 md:!px-4">{aiBlocked ? "AI is recharging" : "New plan"} <Kbd className="max-md:!hidden">P</Kbd></button>
         </div>
         {steps.length > 0 && (
           <div className="max-w-3xl">

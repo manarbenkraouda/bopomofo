@@ -10,6 +10,7 @@ import { PlayButton } from "@/components/PlayButton";
 import { Kbd } from "@/components/shell/Kbd";
 import { ZhuyinText, type Annot } from "@/components/ZhuyinText";
 import { Segmented } from "@/components/stats/charts";
+import { AiEnergyCard, useAiQuota } from "@/components/quota/AiQuota";
 
 const TOPICS = ["Language exchange call", "Introducing myself", "Coffee shop", "Night market food", "MRT and buses", "Shopping", "Weather", "Hobbies", "Work", "Family", "Travel in Taiwan", "Making plans", "At the doctor", "Feelings", "Daily routine"];
 const LEVELS = [{ id: "beginner", label: "Beginner" }, { id: "intermediate", label: "Intermediate" }, { id: "advanced", label: "Advanced" }];
@@ -32,6 +33,7 @@ const hearSyllable = (items: TextItem[], i: number) => { const s = items.filter(
  * a side panel on a wide screen, a bottom sheet on a phone. New sentences are written in a composer sheet.
  */
 export function Sentences() {
+  const { quota, blocked: aiBlocked } = useAiQuota();
   const router = useRouter();
   const [library, setLibrary] = useState<Sentence[] | null>(null);
   const [fresh, setFresh] = useState<number[]>([]);
@@ -96,7 +98,7 @@ export function Sentences() {
   const select = (s: Sentence | undefined, open = true) => { if (!s) return; setSelId(s.id); if (open && !wide) setSheet(true); };
 
   const generate = async () => {
-    if (busy) return;
+    if (busy || !quota || aiBlocked) return;
     setBusy(true); setError("");
     try {
       const r = await api.generate(custom.trim() || topic, level, count, useProfile);
@@ -119,7 +121,7 @@ export function Sentences() {
       setLooked({ text: t, items: r.items });
       setQuery(""); // the look-up card holds the text; the whole library shows again under it
       playAudio(ttsUrl(t));
-      api.translate(t).then((tr) => setLooked((c) => (c?.text === t ? { ...c, ...tr } : c))).catch(() => {});
+      if (quota && !aiBlocked) api.translate(t).then((tr) => setLooked((c) => (c?.text === t ? { ...c, ...tr } : c))).catch(() => {});
     } catch (e) { setError((e as Error).message); }
   };
   const remove = (s: Sentence) => {
@@ -145,7 +147,7 @@ export function Sentences() {
     { keys: ["Slash", "KeyL"], label: "Search or look up", run: () => searchRef.current?.focus(), when: !composer, bar: false },
     { keys: ["Delete"], label: "Delete", run: () => cur && remove(cur), when: !!cur && !composer, bar: false },
     { keys: ["Escape"], label: "Close", run: () => { setComposer(false); setSheet(false); }, when: composer || sheet, input: true },
-    { keys: ["Ctrl+Enter"], label: "Write them", run: generate, when: composer && !busy, input: true },
+    { keys: ["Ctrl+Enter"], label: "Write them", run: generate, when: composer && !busy && !!quota && !aiBlocked, input: true },
     { keys: ["KeyZ"], label: "Bopomofo, Pinyin, or none", run: () => setAnnot(ANNOTS[(ANNOTS.indexOf(annot) + 1) % ANNOTS.length]), bar: false },
     { keys: ["KeyE"], label: showEn ? "Hide English" : "Show English", run: () => setShowEn(!showEn), bar: false },
     ...(composer ? cycleKeys("Topic", TOPICS, topic, (t) => { setTopic(t); setCustom(""); }) : cycleKeys("Filter", filters, filter, setFilter)),
@@ -213,9 +215,10 @@ export function Sentences() {
               </label>
             </div>
             {error && <div className="text-sm text-bad">{error}</div>}
-            <button className="btn btn-accent justify-center !py-3 text-base" onClick={generate} disabled={busy}>
+            {aiBlocked && <AiEnergyCard compact />}
+            <button className="btn btn-accent justify-center !py-3 text-base" onClick={generate} disabled={busy || !quota || aiBlocked}>
               {busy ? <><span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> Writing {count} sentences about {custom.trim() || topic}…</>
-                : <>Write {count} sentences <Kbd className="max-md:!hidden">Ctrl</Kbd><Kbd className="max-md:!hidden">Enter</Kbd></>}
+                : aiBlocked ? "AI is recharging" : !quota ? "Checking AI energy…" : <>Write {count} sentences <Kbd className="max-md:!hidden">Ctrl</Kbd><Kbd className="max-md:!hidden">Enter</Kbd></>}
             </button>
           </section>
         </>

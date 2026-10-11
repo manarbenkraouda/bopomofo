@@ -4,7 +4,7 @@ All 3 kept findings and F04 are fixed in the code after this review. The fixes a
 
 - F01: `/api/tts` needs a sign-in. Each user has an audio folder, `data/tts/<user id>`, kept under 200 MB (the clips used least recently go first). A user can make 3,000 new clips in 24 hours. TTS responses are `Cache-Control: private`.
 - F02: the API refuses bodies above 1 MB (16 MB for audio uploads) before it parses them, also without sign-in. It reads the audio header before it decodes, and refuses more than 30 seconds, more than 2 channels, or a sample rate outside 8 to 96 kHz. Upload text fields have length limits.
-- F03: each user can spend at most $1 and make at most 400 AI calls in 24 hours. The count includes coach, story, sentence, and translation calls, and failed calls. At the limit, direct requests get 429, and the coach builds its plan by rules.
+- F03: each user can spend at most $1 and make at most 400 AI calls per local day. The count includes coach, story, sentence, and translation calls, and failed calls. At the limit, requests get 429 with the refill time, the app shows a countdown to midnight in the learner's time zone, and the coach starts no new AI work until the server confirms the refill.
 - F04: "Clear audio cache" deletes only the folder of the signed-in user.
 - The limits are environment variables (README, Configuration). The usage is in a new table, `usage_log`, with the same row-level security as the other tables.
 - At startup, the backend deletes the files of the old shared cache. No code reads them now.
@@ -70,7 +70,7 @@ Code: [limits.py](backend/app/limits.py), `_chat` in [llm.py](backend/app/llm.py
 
 - The coach builds one plan at a time for each user. There is no daily limit, and there is no limit on the number of accounts.
 - Fix:
-  - Done in code: every AI call goes through `llm._chat`. It checks the user's spend and call count of the last 24 hours before the call, and records the call with its cost after it. Limits: `AI_DAILY_LIMIT_USD` ($1) and `AI_DAILY_CALLS` (400).
+  - Done in code: every AI call goes through `llm._chat`. It checks the user's spend and call count since local midnight before the call, and records the call with its cost after it. Limits: `AI_DAILY_LIMIT_USD` ($1) and `AI_DAILY_CALLS` (400). `/api/ai/quota` returns the server time and the next refill time for the countdown.
   - To do in the OpenRouter dashboard: set a credit limit on the key. This caps the total of all accounts.
   - To do in the Clerk dashboard: if the app is only for you, restrict sign-up.
 - Check: tests show 429 at the cost limit and at the call limit, and show that another user is not limited. No test calls the provider.
