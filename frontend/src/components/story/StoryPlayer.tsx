@@ -7,8 +7,9 @@ import { createPortal } from "react-dom";
 import { api } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
 import { Kbd } from "@/components/shell/Kbd";
+import { BoboFace, BoboPose, type Pose } from "@/components/mascot/Bobo";
 import { Block } from "./registry";
-import type { Mood, Story } from "./types";
+import type { Mood, Story, StoryCard } from "./types";
 
 const MOOD: Record<Mood, { bg: string; blob: string }> = {
   warm: { bg: "linear-gradient(160deg,#c24a2c 0%,#6a2131 52%,#1d1019 100%)", blob: "#ff9a6b" },
@@ -17,6 +18,36 @@ const MOOD: Record<Mood, { bg: string; blob: string }> = {
   deep: { bg: "linear-gradient(160deg,#7134c4 0%,#3b1b72 55%,#120a25 100%)", blob: "#cf9bff" },
   win: { bg: "linear-gradient(160deg,#17a06a 0%,#0f5c46 55%,#07201a 100%)", blob: "#86ffc8" },
 };
+
+/** Choose Bobo's pose from the exact data and practice modes shown on this story card. */
+export function storyPose(card: StoryCard, ctx: Story["context"]): Pose {
+  const types = new Set(card.blocks.map((b) => b.type));
+  const copy = card.blocks.map((b) => JSON.stringify(b.props)).join(" ").toLowerCase();
+
+  if (types.has("confusion") || /mix.?up|confus|instead|mistake/.test(copy)) return "mixup";
+  if (types.has("symbol_grid")) return /dictat|writ|stroke|write_symbols|write_syllables/.test(copy) ? "writing" : "symbol";
+  if (/listen_tones|tone|pitch|contour/.test(copy)) return "tones";
+  if (/listen_sounds|listening|hear|ear|sound/.test(copy)) return "sound";
+  if (/speak_sentences|speak_sounds|speaking|record|voice/.test(copy)) return "speaking";
+  if (/write_symbols|write_syllables|dictat|stroke|writing/.test(copy)) return "writing";
+  if (/read_symbols|recognize_symbols|reading|alphabet|symbol/.test(copy)) return "symbol";
+  if (types.has("steps") || /step|practice plan|next practice/.test(copy)) {
+    const exercise = ctx.steps.map((s) => s.type).join(" ").toLowerCase();
+    if (/listen_tones/.test(exercise)) return "tones";
+    if (/listen_sounds/.test(exercise)) return "sound";
+    if (/speak_/.test(exercise)) return "speaking";
+    if (/write_/.test(exercise)) return "writing";
+    if (/read_symbols|recognize_symbols/.test(exercise)) return "symbol";
+    return "plan";
+  }
+  if (types.has("calendar") || types.has("sparkline") || types.has("bars") || types.has("versus") ||
+      types.has("ring") || types.has("big_number")) return "stats";
+  if (types.has("cta") || card.mood === "win") return "celebrate";
+  if (card.mood === "bright") return "tones";
+  if (card.mood === "calm") return "listening";
+  if (card.mood === "deep") return "investigate";
+  return "welcome";
+}
 
 export function StoryPlayer({ planId, onClose, onStart }: { planId: number; onClose: () => void; onStart: () => void }) {
   const [story, setStory] = useState<Story | null>(null);
@@ -122,7 +153,7 @@ export function StoryPlayer({ planId, onClose, onStart }: { planId: number; onCl
               ))}
             </div>
             <div className="mt-3 flex items-center gap-2 text-white">
-              <span className="cjk grid h-8 w-8 place-items-center rounded-xl bg-white/15 text-base">練</span>
+              <BoboFace size={32} className="!shadow-none" />
               <span className="text-sm font-semibold">How do we know?</span>
               <span className="text-xs text-white/60">{story ? idx + 1 + " / " + n : ""}</span>
               <button onClick={() => setPaused((p) => !p)} onPointerDown={(e) => e.stopPropagation()} onPointerUp={(e) => e.stopPropagation()}
@@ -138,10 +169,15 @@ export function StoryPlayer({ planId, onClose, onStart }: { planId: number; onCl
           <div className="absolute inset-0 z-10" onPointerDown={down} onPointerUp={up} onPointerCancel={cancel} onPointerLeave={cancel}>
             <AnimatePresence mode="wait">
               {card ? (
-                <motion.div key={card.id} className="flex h-full flex-col gap-4 overflow-hidden px-6 pb-[max(48px,env(safe-area-inset-bottom))] pt-24 [justify-content:safe_center] md:gap-5 md:px-9"
+                <motion.div key={card.id} className="relative flex h-full flex-col gap-4 overflow-hidden px-6 pb-[max(48px,env(safe-area-inset-bottom))] pt-24 [justify-content:safe_center] md:gap-5 md:px-9"
                   initial={{ opacity: 0, y: 30, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -24, scale: 0.97 }}
                   transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}>
-                  {card.blocks.map((b, i) => <Block key={card.id + i} b={b} i={i} ctx={story!.context} onAction={act} />)}
+                  <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-[7%] z-0 flex justify-end">
+                    <BoboPose pose={storyPose(card, story!.context)} className="w-[46%] opacity-80" />
+                  </div>
+                  <div className="relative z-10 flex min-h-0 flex-col gap-4 [justify-content:safe_center] md:gap-5">
+                    {card.blocks.map((b, i) => <Block key={card.id + i} b={b} i={i} ctx={story!.context} onAction={act} />)}
+                  </div>
                 </motion.div>
               ) : (
                 <div className="grid h-full place-items-center px-8 text-center text-white/80">{err || "Opening your story…"}</div>

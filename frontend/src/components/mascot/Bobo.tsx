@@ -48,7 +48,7 @@ export function routeIcon(r: RouteInfo, size: number): ReactNode {
 }
 
 /** Bobo in a scene. Every pose keeps the white V collar visible. */
-export type Pose = "welcome" | "thinking" | "celebrate" | "listening" | "speaking" | "reading" | "writing" | "sleeping" | "encourage" | "investigate" | "bubbletea";
+export type Pose = "welcome" | "thinking" | "celebrate" | "listening" | "speaking" | "reading" | "writing" | "sleeping" | "encourage" | "investigate" | "bubbletea" | "tones" | "symbol" | "sound" | "mixup" | "stats" | "plan";
 
 const POSE_ALT: Record<Pose, string> = {
   welcome: "Bobo waves hello with a red lantern",
@@ -62,12 +62,19 @@ const POSE_ALT: Record<Pose, string> = {
   encourage: "Bobo gives a thumbs-up",
   investigate: "Bobo looks through a magnifying glass",
   bubbletea: "Bobo drinks a bubble tea",
+  tones: "Bobo conducts five colored tone contours",
+  symbol: "Bobo sorts Bopomofo symbol tiles",
+  sound: "Bobo listens for Mandarin sounds",
+  mixup: "Bobo solves a Bopomofo mix-up",
+  stats: "Bobo presents a learner progress chart",
+  plan: "Bobo guides the learner along a path",
 };
 
 export function BoboPose({ pose, className = "", priority = false, bob = false }: { pose: Pose; className?: string; priority?: boolean; bob?: boolean }) {
   return (
     <span className={"relative inline-block shrink-0 " + (bob ? "bobo-bob " : "") + className}>
-      <Image src={"/mascot/bobo-" + pose + ".webp"} alt={POSE_ALT[pose]} width={560} height={587} priority={priority} className="h-auto w-full drop-shadow-lg" />
+      <Image src={pose.startsWith("tones") || ["symbol", "sound", "mixup", "stats", "plan"].includes(pose) ? "/mascot/bobo-story-" + pose + ".webp" : "/mascot/bobo-" + pose + ".webp"}
+        alt={POSE_ALT[pose]} width={560} height={587} priority={priority} className="h-auto w-full drop-shadow-lg" />
     </span>
   );
 }
