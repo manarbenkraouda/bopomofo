@@ -2,6 +2,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Unit } from "@/lib/api";
+import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { useShellAboveKeyboard } from "@/lib/keyboard";
@@ -10,7 +11,7 @@ import { inSet, SET_LABEL, type SymbolSet } from "@/lib/quiz";
 import { useReview } from "@/lib/review";
 import { playSfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
-import { loadData, type MoeRow } from "@/lib/zhuyin";
+import { loadData, symbolAudio, type MoeRow } from "@/lib/zhuyin";
 import { FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Feedback";
 import { Kbd } from "@/components/shell/Kbd";
 
@@ -19,7 +20,7 @@ const SETS = Object.keys(SET_LABEL) as SymbolSet[];
 const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
 /**
- * Recognize: a symbol is shown, the learner types its pinyin. Silent: no microphone, no audio.
+ * Recognize: a symbol is shown, the learner types its pinyin. Its pronunciation plays after a correct answer.
  * Every checked try is saved as a symbol unit whose "actual" is the symbol the typed pinyin stands for (ㄓ typed as "z" = ㄗ),
  * so the stats show which symbols are taken for which. Text that is the pinyin of no symbol is refused and not counted.
  */
@@ -111,7 +112,7 @@ export function RecognizeQuiz() {
     if (ok) {
       setStatus("right");
       setWrong(null);
-      playSfx("right");
+      void playAudio(symbolAudio(row));
       finishCard(true);
       advanceTimer.current = setTimeout(next, learn ? 700 : 1100);
       return;
