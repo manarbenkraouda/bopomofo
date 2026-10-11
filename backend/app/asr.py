@@ -5,6 +5,7 @@ import json
 import os
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 import onnxruntime as ort
@@ -18,11 +19,22 @@ SR = 16000
 class Recognizer:
     def __init__(self):
         self.session: ort.InferenceSession | None = None
+        self.model_path = self._model_path()
         self.vocab: dict[int, str] = {}
         self.error: str | None = None
         self.load_seconds: float | None = None
         self._lock = threading.Lock()
         self._loading = False
+
+    @staticmethod
+    def _model_path():
+        """Use FP32 for accuracy when present; int8 is the lower-memory fallback."""
+        configured = os.getenv("ASR_MODEL_FILE")
+        if configured:
+            path = Path(configured)
+            return path if path.is_absolute() else MODEL_DIR / path
+        float_model = MODEL_DIR / "wav2vec2-cmn-phonetic.onnx"
+        return float_model if float_model.is_file() else MODEL_DIR / "wav2vec2-cmn-phonetic.int8.onnx"
 
     @property
     def ready(self) -> bool:
@@ -40,9 +52,12 @@ class Recognizer:
             v = json.loads((MODEL_DIR / "vocab.json").read_text(encoding="utf-8"))
             self.vocab = {i: tok for tok, i in v.items()}
             so = ort.SessionOptions()
-            so.intra_op_num_threads = os.cpu_count() or 4
+            so.intra_op_num_threads = max(1, int(os.getenv("ASR_NUM_THREADS", str(min(4, os.cpu_count() or 4)))))
+            so.inter_op_num_threads = 1
             so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-            self.session = ort.InferenceSession(str(MODEL_DIR / "wav2vec2-cmn-phonetic.onnx"), so, providers=["CPUExecutionProvider"])
+            if not self.model_path.is_file():
+                raise FileNotFoundError(f"Speech model not found: {self.model_path}")
+            self.session = ort.InferenceSession(str(self.model_path), so, providers=["CPUExecutionProvider"])
             # Vocabulary ids per tone digit (tokens like "ㄚ3", "ㄭ+2", "r4").
             self.tone_ids = {d: np.array([i for i, t in self.vocab.items() if t[-1:] == str(d)]) for d in range(1, 6)}
             # Warm-up run so the first real request is fast.
