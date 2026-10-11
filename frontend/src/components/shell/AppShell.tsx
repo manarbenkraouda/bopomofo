@@ -6,6 +6,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { api, type Health } from "@/lib/api";
 import { capsOf, keyCaps, useHotkeys, useLayers, type Hotkey } from "@/lib/hotkeys";
 import { setTheme, THEME_KEY, usePref } from "@/lib/prefs";
+import { missingFacts, useProfile } from "@/lib/profile";
 import { LAST_KEY, ROUTES, routeFor, type RouteInfo } from "@/lib/routes";
 import { goalMinutes, markActive, setGoalMinutes, tick, useToday, type Today } from "@/lib/session";
 import { playSfx, setSfxEnabled, SFX_KEY } from "@/lib/sfx";
@@ -62,6 +63,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const theme = usePref(THEME_KEY, "dark");
   const today = useToday();
   const layers = useLayers();
+  const profile = useProfile();
+  const profileGaps = profile ? missingFacts(profile).length : 0;
   const todayRef = useRef(today);
   useEffect(() => { todayRef.current = today; }, [today]);
 
@@ -146,7 +149,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="shell">
-      <Rail path={path} />
+      <Rail path={path} profileGaps={profileGaps} />
       <TopBar route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} full={full}
         onSfx={toggleSfx} onFull={toggleFull} onHelp={() => setOverlay("help")} onPalette={() => setOverlay("palette")} />
       <MobileTop route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} onSfx={toggleSfx} lesson={lesson} />
@@ -158,7 +161,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
       <ControlsBar />
-      {!lesson && <BottomNav path={path} />}
+      {!lesson && <BottomNav path={path} profileGaps={profileGaps} />}
       {overlay === "goto" && <GotoOverlay onGo={go} onClose={close} />}
       {overlay === "palette" && <Palette commands={commands} onClose={close} />}
       {overlay === "help" && <HelpOverlay route={route} onClose={close} />}
@@ -167,13 +170,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Rail({ path }: { path: string }) {
+/** The blinking dot under a tab while the profile is not complete. */
+function NudgeDot({ gaps }: { gaps: number }) {
+  return <><i className="nudge-dot" aria-hidden="true" /><span className="sr-only">: {gaps} profile facts missing</span></>;
+}
+
+function Rail({ path, profileGaps }: { path: string; profileGaps: number }) {
   const item = (r: RouteInfo) => {
     const active = r.href === "/" ? path === "/" : path.startsWith(r.href);
+    const nudge = r.href === "/profile" && profileGaps > 0;
     return (
-      <Link key={r.href} href={r.href} data-active={active} className="rail-item" title={r.label + " (G then " + keyCaps(r.key).join("") + ")"}>
+      <Link key={r.href} href={r.href} data-active={active} className="rail-item"
+        title={nudge ? "Complete your profile: " + profileGaps + " facts missing (G then P)" : r.label + " (G then " + keyCaps(r.key).join("") + ")"}>
         <span className="cjk text-[21px] leading-none">{r.icon}</span>
         <span className="text-[10px] leading-none">{r.label}</span>
+        {nudge && <NudgeDot gaps={profileGaps} />}
       </Link>
     );
   };
@@ -312,8 +323,8 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
 
 const TABS = ["/", "/coach", "/stats", "/symbols", "/sentences", "/settings"];
 
-/** Phone bottom tab bar (hidden inside practice modes, where ✕ leads back to Home). */
-function BottomNav({ path }: { path: string }) {
+/** Phone bottom tab bar (hidden inside practice modes, where ✕ leads back to Home). The profile is inside Settings on a phone. */
+function BottomNav({ path, profileGaps }: { path: string; profileGaps: number }) {
   return (
     <nav className="grid grid-cols-6 border-t border-line bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
       {TABS.map((href) => {
@@ -323,6 +334,7 @@ function BottomNav({ path }: { path: string }) {
           <Link key={href} href={href} data-active={active} className="tab">
             <span className="tab-icon cjk">{r.icon}</span>
             {r.label}
+            {href === "/settings" && profileGaps > 0 && <NudgeDot gaps={profileGaps} />}
           </Link>
         );
       })}

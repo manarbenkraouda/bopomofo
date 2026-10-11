@@ -1526,9 +1526,10 @@ def _calls(plan_id: int) -> dict:
 
 def state() -> dict:
     plan = _plan_row() or (_q("SELECT * FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 1") or [None])[0]
-    # The first plan waits for the onboarding, so it can use the learner's level, goal, and reasons.
-    if not plan and not _g()["running"] and db.get_settings().get("onboarded_at"):
-        start("First plan for this learner.")
+    # The first plan waits for the onboarding and the full profile, so its sentences use the learner's real life.
+    # A learner who does not want to wait asks for it on Home (POST /api/coach/plan).
+    if not plan and not _g()["running"] and db.get_settings().get("onboarded_at") and not llm.profile_missing(db.get_profile()):
+        start("First plan for this learner, with the full profile.")
     midnight = db.day_start(db.local_today())
     use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, COUNT(*) FILTER (WHERE ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
     out: dict = {"generating": _g()["running"], "stage": _g()["stage"], "building_next": _g()["running"] and _g()["next"], "error": _g()["error"],

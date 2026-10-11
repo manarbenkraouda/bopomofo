@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type CoachState, type CoachStep, type Finding, type Milestone } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
+import { missingFacts, useProfile } from "@/lib/profile";
 import { useViewport } from "@/lib/useFit";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Caps, Kbd } from "@/components/shell/Kbd";
@@ -45,6 +46,8 @@ type More = "goals" | "alphabet" | "evidence" | "notes" | "history";
  */
 export function Coach() {
   const { quota, blocked: aiBlocked } = useAiQuota();
+  const profile = useProfile();
+  const profileGaps = profile ? missingFacts(profile).length : 0;
   const router = useRouter();
   const [st, setSt] = useState<CoachState | null>(null);
   const [err, setErr] = useState("");
@@ -154,6 +157,12 @@ export function Coach() {
         <div className="card flex flex-col items-start gap-3 p-6">
           <div className="font-semibold">No plan yet</div>
           <p className="text-sm text-muted">The coach reads your answers and builds a short plan of steps for you.</p>
+          {profileGaps > 0 && (
+            <p className="text-sm text-muted">
+              Your first plan waits for your profile, so its sentences talk about your life.{" "}
+              <Link href="/profile" className="text-accent hover:underline">Complete your profile ({profileGaps} facts missing)</Link>
+            </p>
+          )}
           <button className="btn btn-accent" onClick={newPlan} disabled={!quota || aiBlocked}>{aiBlocked ? "AI is recharging" : "Build my plan"} <Kbd className="max-md:!hidden">P</Kbd></button>
         </div>
       )}

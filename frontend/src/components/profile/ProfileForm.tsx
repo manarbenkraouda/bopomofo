@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type Profile, type Sentence, type Summary, type Totals } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
+import { missingFacts, setProfileCache } from "@/lib/profile";
+import { playSfx } from "@/lib/sfx";
 import { Kbd } from "@/components/shell/Kbd";
 
 type Field = { key: string; label: string; hint: string; long?: boolean };
@@ -40,6 +42,7 @@ const SECTIONS: Section[] = [
 const FIELDS = SECTIONS.flatMap((s) => s.fields);
 const LABEL = Object.fromEntries(FIELDS.map((f) => [f.key, f.label]));
 const filled = (p: Profile, k: string) => !!(p[k] ?? "").trim();
+const COMPLETE = "Profile complete! Your coach knows you now.";
 
 // Words that say nothing about the learner, so they do not count as a match in a sentence.
 const STOP = new Set("with from that this have want going last next month year years bigger smaller older younger couple about their there where which when what into also very much more some like just been them they will would could should than then only other each".split(" "));
@@ -86,12 +89,21 @@ export function ProfileForm() {
   const say = (text: string, bad = false) => setToast((t) => ({ text, bad, id: (t?.id ?? 0) + 1 }));
 
   useEffect(() => {
-    api.profile().then((r) => { setP(r); setLoaded(true); }).catch((e) => { setLoaded(true); setToast({ text: e.message, bad: true, id: 1 }); });
+    api.profile().then((r) => {
+      setP(r); setLoaded(true); setProfileCache(r);
+      // A link from Home (/profile?fact=job) opens that fact at once.
+      const k = new URLSearchParams(window.location.search).get("fact");
+      const i = FIELDS.findIndex((f) => f.key === k);
+      if (k && i >= 0) {
+        setEditing(k); setDraft(r[k] ?? ""); setSel(i);
+        setTimeout(() => rows.current[k]?.scrollIntoView({ block: "center", behavior: "smooth" }), 60);
+      }
+    }).catch((e) => { setLoaded(true); setToast({ text: e.message, bad: true, id: 1 }); });
     api.summary().then(setSummary).catch(() => {});
     api.stats(0).then((s) => setTotals(s.overview)).catch(() => {});
     api.sentences().then((r) => setSentences(r.sentences)).catch(() => {});
   }, []);
-  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.bad ? 4000 : 1600); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(null), toast.bad ? 4000 : toast.text === COMPLETE ? 3200 : 1600); return () => clearTimeout(t); }, [toast]);
 
   const open = (k: string) => {
     setEditing(k);
@@ -106,9 +118,14 @@ export function ProfileForm() {
     const k = editing, v = draft.trim();
     if (v !== (p[k] ?? "").trim()) {
       const next = { ...p, [k]: v };
+      const wasComplete = !missingFacts(p).length;
       setP(next);
       say("Saving…");
-      api.saveProfile(next).then((r) => { setP(r); say(v ? "Saved" : LABEL[k] + " removed"); }).catch((e) => say("Not saved: " + e.message, true));
+      api.saveProfile(next).then((r) => {
+        setP(r); setProfileCache(r);
+        if (!wasComplete && !missingFacts(r).length) { playSfx("right"); say(COMPLETE); }
+        else say(v ? "Saved" : LABEL[k] + " removed");
+      }).catch((e) => say("Not saved: " + e.message, true));
     }
     if (then) open(then); else close();
   };
@@ -271,7 +288,7 @@ export function ProfileForm() {
 
       {toast && (
         <div key={toast.id} role="status" className={"app-toast fixed left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm font-medium shadow-lg " + (toast.bad ? "bg-bad text-white" : "bg-ink text-bg")}>
-          {!toast.bad && toast.text === "Saved" && "✓ "}{toast.text}
+          {!toast.bad && (toast.text === "Saved" || toast.text === COMPLETE) && "✓ "}{toast.text}
         </div>
       )}
     </div>

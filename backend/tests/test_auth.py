@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from app import auth, coach, db, main, tts
+from app import auth, coach, db, llm, main, tts
 
 A = {"Authorization": "Bearer token-a"}
 B = {"Authorization": "Bearer token-b"}
@@ -89,11 +89,22 @@ def test_days_follow_the_learner_time_zone(pg):
         assert c.execute("SELECT day FROM events").fetchone()[0] == "2026-10-10"  # saved with the zone of that moment
 
 
-def test_first_plan_waits_for_the_onboarding(pg, monkeypatch):
+def test_first_plan_waits_for_the_onboarding_and_the_full_profile(pg, monkeypatch):
     started = []
     monkeypatch.setattr(coach, "start", lambda reason, as_next=False: started.append(reason) or False)
     coach.state()
     assert started == []
     db.save_settings({"onboarded_at": 1.0})
+    db.set_profile({"name": "Ana", "level": "I am new to Mandarin."})
     coach.state()
-    assert started == ["First plan for this learner."]
+    assert started == []  # the profile is not complete: Home asks for it first
+    db.set_profile({k: "x" for k in llm.PROFILE_LABELS})
+    coach.state()
+    assert started == ["First plan for this learner, with the full profile."]
+
+
+def test_onboarding_does_not_start_a_plan(client, monkeypatch):
+    started = []
+    monkeypatch.setattr(coach, "start", lambda reason, as_next=False: started.append(reason) or False)
+    assert client.post("/api/onboarding", json=ONBOARD, headers=A).json()["onboarded"]
+    assert started == []

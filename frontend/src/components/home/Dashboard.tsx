@@ -2,9 +2,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, type Challenge, type CoachState, type Summary } from "@/lib/api";
+import { api, type Challenge, type CoachState, type Profile, type Summary } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
 import { usePref } from "@/lib/prefs";
+import { missingFacts, PROFILE_KEYS, PROFILE_LABELS, useProfile } from "@/lib/profile";
 import { LAST_KEY, MODES, routeFor, type RouteInfo } from "@/lib/routes";
 import { goalMinutes, useToday } from "@/lib/session";
 import { Caps, Kbd } from "@/components/shell/Kbd";
@@ -21,6 +22,9 @@ export function Dashboard() {
   const [sum, setSum] = useState<Summary | null>(null);
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [coach, setCoach] = useState<CoachState | null>(null);
+  const [building, setBuilding] = useState(false);
+  const [buildError, setBuildError] = useState("");
+  const profile = useProfile();
   useEffect(() => {
     api.summary().then(setSum).catch(() => {});
     api.challenges().then((r) => setChallenges(r.challenges)).catch(() => {});
@@ -33,12 +37,23 @@ export function Dashboard() {
     return () => clearTimeout(t);
   }, [coach]);
   const step = coach?.steps.find((s) => s.status === "open") ?? null;
-  const coachShown = !!coach && (!!step || coach.generating);
-  const row1 = coachShown ? " lg:row-start-2" : " lg:row-start-1";
+  // A new learner without a plan, and with facts still missing: welcome them and ask for the rest of the profile first.
+  const gaps = profile ? missingFacts(profile) : [];
+  const welcome = !!coach && !coach.plan && !coach.generating && gaps.length > 0;
+  const coachShown = !welcome && !!coach && (!!step || coach.generating);
+  const row1 = coachShown || welcome ? " lg:row-start-2" : " lg:row-start-1";
+  const fillProfile = () => router.push("/profile" + (gaps[0] ? "?fact=" + gaps[0] : ""));
+  const buildNow = () => {
+    setBuilding(true); setBuildError("");
+    api.coachPlan("First plan for this learner. They chose to start before the profile was complete.")
+      .then(setCoach).catch((e: Error) => setBuildError(e.message)).finally(() => setBuilding(false));
+  };
 
   useHotkeys("home", [
+    { keys: ["Enter"], label: "Complete my profile", run: fillProfile, when: welcome },
+    { keys: ["KeyB"], label: "Build my plan now", run: buildNow, when: welcome && !building },
     { keys: ["Enter"], label: "Coach step: " + (step?.title ?? ""), run: () => step && router.push(step.href), when: !!step },
-    { keys: step ? ["KeyC"] : ["Enter", "KeyC"], label: "Continue: " + last.label, run: () => router.push(last.href) },
+    { keys: step || welcome ? ["KeyC"] : ["Enter", "KeyC"], label: "Continue: " + last.label, run: () => router.push(last.href) },
     ...MODES.map((m, i) => ({ keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]], label: m.label, run: () => router.push(m.href), bar: false })),
     { keys: [], label: "Open a mode", show: ["1–" + MODES.length] },
     ...challenges.map((c, i) => ({ keys: [["KeyQ", "KeyW", "KeyE", "KeyR"][i]], label: "Challenge: " + c.title, run: () => router.push(c.href), bar: false })),
@@ -56,6 +71,7 @@ export function Dashboard() {
   return (
     // Phone: goal and Continue first, then the modes, then the stats. Desktop: goal and stats side by side above the modes.
     <div className="grid flex-1 content-start gap-5 md:gap-6 lg:grid-cols-[1.25fr_1fr]">
+      {welcome && profile && <WelcomeCard profile={profile} building={building} error={buildError} onFill={fillProfile} onBuild={buildNow} />}
       {coach && coachShown && <CoachCard st={coach} />}
         <div className={"card relative flex flex-col items-center gap-5 overflow-hidden p-5 sm:flex-row sm:gap-7 md:p-6 lg:col-start-1" + row1}>
           <div className="pointer-events-none absolute -bottom-16 -right-4 select-none cjk text-[170px] leading-none text-accent opacity-[.06]">注音</div>
@@ -73,8 +89,8 @@ export function Dashboard() {
                 <Stat value={"×" + today.best} label="best combo" icon="⚡" />
               </div>
             </div>
-            <button onClick={() => router.push(last.href)} className={"btn w-full justify-center !rounded-xl !px-5 !py-3.5 text-base font-semibold active:translate-y-[3px] active:shadow-none sm:w-fit " + (step ? "" : "btn-accent shadow-[0_4px_0_color-mix(in_srgb,var(--accent)_60%,#000)]")}>
-              <span className="cjk">{last.icon}</span> Continue: {last.label} <Kbd className="max-md:!hidden">{step ? "C" : "Enter"}</Kbd>
+            <button onClick={() => router.push(last.href)} className={"btn w-full justify-center !rounded-xl !px-5 !py-3.5 text-base font-semibold active:translate-y-[3px] active:shadow-none sm:w-fit " + (step || welcome ? "" : "btn-accent shadow-[0_4px_0_color-mix(in_srgb,var(--accent)_60%,#000)]")}>
+              <span className="cjk">{last.icon}</span> Continue: {last.label} <Kbd className="max-md:!hidden">{step || welcome ? "C" : "Enter"}</Kbd>
             </button>
           </div>
         </div>
@@ -191,6 +207,84 @@ function Ring({ pct, done, children }: { pct: number; done: boolean; children: R
     </div>
   );
 }
+
+// Example sentences of the welcome card. The learner's facts fill the blanks; a missing fact shows as a dashed blank to fill.
+const SAMPLES: (string | { key: string; blank: string })[][] = [
+  ["My name is ", { key: "name", blank: "your name" }, ", and I live in ", { key: "lives_in", blank: "your city" }, "."],
+  ["I work as ", { key: "job", blank: "your job" }, ", and I love ", { key: "food", blank: "your favorite food" }, "."],
+  ["I come from ", { key: "hometown", blank: "your hometown" }, ", and I speak ", { key: "languages", blank: "your languages" }, "."],
+];
+const short = (v: string) => (v.length > 28 ? v.slice(0, 27).trimEnd() + "…" : v);
+
+/** The first screen after the onboarding: a warm welcome, why the profile matters, and the way to complete it before the first plan. */
+function WelcomeCard({ profile, building, error, onFill, onBuild }: {
+  profile: Profile; building: boolean; error: string; onFill: () => void; onBuild: () => void;
+}) {
+  const gaps = missingFacts(profile);
+  const total = PROFILE_KEYS.length, have = total - gaps.length;
+  const name = (profile.name ?? "").trim().split(/\s+/)[0];
+  const shown = gaps.slice(0, 6);
+  return (
+    <section className="card relative overflow-hidden border-accent/50 p-5 md:p-7 lg:col-span-2 lg:row-start-1">
+      <div className="pointer-events-none absolute -bottom-14 left-[30%] select-none cjk text-[150px] leading-none text-accent opacity-[.05]">歡迎</div>
+      <div className="relative grid gap-6 md:grid-cols-[1.3fr_1fr] md:gap-10">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold uppercase tracking-wide text-accent">Welcome to bopomofo</div>
+          <h2 className="mt-2 text-2xl font-semibold leading-tight md:text-3xl">
+            {name ? "Welcome, " + name + "!" : "Welcome!"} <span className="cjk text-accent">歡迎</span>
+          </h2>
+          <p className="mt-2 max-w-xl text-[15px] text-muted">
+            Your coach writes your practice sentences about your own life: your city, your work, the people you love.
+            Tell it a little more about you, and it builds your first plan around you.
+          </p>
+          <div className="mt-4 flex flex-col gap-1.5 rounded-xl bg-bg/60 p-3.5 text-[15px] leading-relaxed">
+            <div className="text-xs text-muted">Soon you will say sentences like these in Mandarin:</div>
+            {SAMPLES.map((parts, i) => (
+              <div key={i}>
+                {parts.map((x, j) => {
+                  if (typeof x === "string") return <span key={j}>{x}</span>;
+                  const v = (profile[x.key] ?? "").trim();
+                  return v
+                    ? <mark key={j} className="rounded bg-accent-soft px-1 text-accent">{short(v)}</mark>
+                    : <Link key={j} href={"/profile?fact=" + x.key} className="rounded border border-dashed border-accent/60 px-1.5 text-accent hover:bg-accent-soft">{x.blank}</Link>;
+                })}
+              </div>
+            ))}
+          </div>
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button onClick={onFill} className="btn btn-accent w-full justify-center !rounded-xl !px-5 !py-3.5 text-base font-semibold shadow-[0_4px_0_color-mix(in_srgb,var(--accent)_60%,#000)] active:translate-y-[3px] active:shadow-none sm:w-fit">
+              Complete my profile <Kbd className="max-md:!hidden">Enter</Kbd>
+            </button>
+            <button onClick={onBuild} disabled={building} className="btn w-full justify-center !rounded-xl !px-4 !py-3 sm:w-fit">
+              {building ? "Starting your plan…" : "Build my plan now"} <Kbd className="max-md:!hidden">B</Kbd>
+            </button>
+          </div>
+          {error && <p className="mt-2 text-sm text-bad">{error}</p>}
+        </div>
+        <div className="flex min-w-0 flex-col gap-3 md:border-l md:border-line md:pl-8">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-semibold">Your profile</span>
+            <span className="text-sm tabular-nums text-muted">{have} of {total} facts</span>
+          </div>
+          <div className="flex gap-1" aria-hidden="true">
+            {PROFILE_KEYS.map((k) => <span key={k} className={"h-2 flex-1 rounded-full " + (gaps.includes(k) ? "bg-line" : "bg-accent")} />)}
+          </div>
+          <p className="text-sm text-muted">Your first plan waits for these facts. It takes a few minutes, and you can change any fact later.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {shown.map((k) => (
+              <Link key={k} href={"/profile?fact=" + k} className="chip flex items-center gap-1 !border-dashed text-sm hover:!border-accent hover:text-accent">
+                <span className="text-accent">+</span> {PROFILE_LABELS[k]}
+              </Link>
+            ))}
+            {gaps.length > shown.length && <span className="self-center text-sm text-muted">and {gaps.length - shown.length} more</span>}
+          </div>
+          <p className="mt-auto text-xs text-muted">Nothing is invented about you: the coach uses only the facts you write.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 
 /** The coach's next step, first on Home: what to practice now and why. */
 function CoachCard({ st }: { st: CoachState }) {

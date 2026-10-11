@@ -211,7 +211,7 @@ def onboarding(body: OnboardingIn):
     db.set_profile({k: str(v)[:1000] for k, v in p.items() if k in llm.PROFILE_LABELS})
     db.save_settings({"timezone": tz, "goal_min": body.goal_min, "level": body.level, "bopomofo": body.bopomofo,
                       "reasons": list(dict.fromkeys(body.reasons)), "onboarded_at": time.time()})
-    coach.start("First plan for this learner, right after the onboarding.")
+    # No plan yet: Home first asks for the rest of the profile, then the coach builds the first plan.
     return me_state()
 
 

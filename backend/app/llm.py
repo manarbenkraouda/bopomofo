@@ -88,6 +88,11 @@ PROFILE_LABELS = {
 }
 
 
+def profile_missing(profile: dict | None) -> list[str]:
+    """The profile facts that are still empty. An empty list means the profile is complete."""
+    return [k for k in PROFILE_LABELS if not str((profile or {}).get(k, "")).strip()]
+
+
 def profile_text(profile: dict | None) -> str:
     lines = [f"- {label}: {str(profile.get(k, '')).strip()}" for k, label in PROFILE_LABELS.items() if profile and str(profile.get(k, "")).strip()]
     if not lines:
