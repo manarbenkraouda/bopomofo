@@ -1,0 +1,95 @@
+{
+  "database": {
+    "host": "127.0.0.1",
+    "name": "bopomofo",
+    "role": "bopomofo_app",
+    "superuser": false,
+    "bypassrls": false,
+    "tables": [
+      [
+        "coach_calls",
+        true,
+        true
+      ],
+      [
+        "coach_notes",
+        true,
+        true
+      ],
+      [
+        "days",
+        true,
+        true
+      ],
+      [
+        "events",
+        true,
+        true
+      ],
+      [
+        "meta",
+        true,
+        true
+      ],
+      [
+        "milestones",
+        true,
+        true
+      ],
+      [
+        "plans",
+        true,
+        true
+      ],
+      [
+        "profile",
+        true,
+        true
+      ],
+      [
+        "schema_migrations",
+        false,
+        false
+      ],
+      [
+        "sentences",
+        true,
+        true
+      ],
+      [
+        "steps",
+        true,
+        true
+      ],
+      [
+        "units",
+        true,
+        true
+      ]
+    ],
+    "remaining_audit_schemas": []
+  },
+  "auth": {
+    "backend_key_kind": "test",
+    "frontend_key_kind": "test",
+    "authorized_parties": ""
+  },
+  "frontend_api_url_set": false,
+  "rls_bypass_enabled": false,
+  "quiz_recording_retention_enabled": false,
+  "installed_backend_packages": {
+    "fastapi": "0.143.0",
+    "starlette": "1.7.0",
+    "uvicorn": "0.54.0",
+    "python-multipart": "0.0.32",
+    "clerk-backend-api": "7.0.0",
+    "PyJWT": "2.15.1",
+    "cryptography": "46.0.3",
+    "pg8000": "1.31.5",
+    "httpx": "0.28.1",
+    "numpy": "2.5.3",
+    "soundfile": "0.14.0",
+    "onnxruntime": "1.30.0",
+    "sherpa-onnx": "1.13.8"
+  }
+}

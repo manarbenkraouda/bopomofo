@@ -1,0 +1,25 @@
+{
+  "note": "Static React rendering and an isolated dependency probe; no browser XSS execution test.",
+  "probes": [
+    {
+      "name": "LLM story text",
+      "status": "PASS",
+      "html": "<p class=\"text-lg leading-snug text-white/85 md:text-xl\" style=\"opacity:0;filter:blur(6px);transform:translateY(24px)\">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt;</p>"
+    },
+    {
+      "name": "LLM chips",
+      "status": "PASS",
+      "html": "<div class=\"flex flex-wrap gap-2\"><span class=\"cjk rounded-full border border-white/25 bg-white/10 px-3.5 py-1.5 text-base font-semibold text-white\" style=\"opacity:0;transform:scale(0.4)\">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt;</span></div>"
+    },
+    {
+      "name": "LLM CTA label",
+      "status": "PASS",
+      "html": "<button class=\"mt-2 inline-flex items-center gap-3 self-start rounded-full bg-white px-6 py-3.5 text-lg font-bold text-black shadow-xl\" tabindex=\"0\" style=\"opacity:0;filter:blur(6px);transform:translateY(24px)\">&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&lt;script&gt;alert(2)&lt;/script&gt; <span class=\"rounded-md bg-black/10 px-1.5 py-0.5 text-xs font-semibold max-md:hidden\">Enter</span></button>"
+    },
+    {
+      "name": "braces deeply nested pattern",
+      "status": "PASS",
+      "html": "No exception for the selected input; advisory remains applicable."
+    }
+  ]
+}

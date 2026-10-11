@@ -1,0 +1,906 @@
+{
+  "commit": "e604cc2c293d4b6272eb60f8661f9beb2b6df5a2",
+  "test_database": "bopomofo_test",
+  "temporary_schema_removed": true,
+  "summary": {
+    "PASS": 38,
+    "FINDING": 28
+  },
+  "probes": [
+    {
+      "name": "Existing auth, tracking, coach and story regression suite",
+      "status": "PASS",
+      "scope": "isolated PostgreSQL schema",
+      "evidence": {
+        "exit_code": 0,
+        "log": "existing-tests.txt"
+      }
+    },
+    {
+      "name": "Anonymous access rejected on every protected operation",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": [
+        {
+          "method": "POST",
+          "path": "/api/text/analyze",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/text/translate",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/profile",
+          "status": 401
+        },
+        {
+          "method": "PUT",
+          "path": "/api/profile",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/me",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/onboarding",
+          "status": 401
+        },
+        {
+          "method": "PUT",
+          "path": "/api/settings",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/sentences/generate",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/sentences",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/sentences/1",
+          "status": 401
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sentences/1",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/tts/cache/clear",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/speech/analyze",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/symbols/check",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/progress/attempt",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/progress/event",
+          "status": 401
+        },
+        {
+          "method": "PUT",
+          "path": "/api/progress/day",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/progress/summary",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/stats",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/stats/challenges",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/stats/export.csv",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/coach",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/alphabet",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/coach/plan",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/coach/plan/1/story",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/coach/plan/1/story",
+          "status": 401
+        },
+        {
+          "method": "POST",
+          "path": "/api/coach/step/1/skip",
+          "status": 401
+        },
+        {
+          "method": "GET",
+          "path": "/api/coach/step/1",
+          "status": 401
+        }
+      ]
+    },
+    {
+      "name": "JWT malformed rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT truncated rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT expired rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT future rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT unsigned rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT hmac rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT wrong_signature rejected",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "JWT from an unapproved token origin rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{}"
+      }
+    },
+    {
+      "name": "Explicit token origin allowlist blocks wrong azp",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "Missing auth configuration fails closed",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 503,
+        "detail": "{\"detail\":\"Sign-in is not configured on the server (CLERK_SECRET_KEY).\"}"
+      }
+    },
+    {
+      "name": "Profile field allowlist prevents mass assignment",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "name": "Audit Alice"
+      }
+    },
+    {
+      "name": "Profile isolated between users",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {}
+    },
+    {
+      "name": "Other user's object denied: /api/sentences/1",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 404,
+        "detail": "{\"detail\":\"Not found\"}"
+      }
+    },
+    {
+      "name": "Other user's object denied: /api/coach/step/4",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 404,
+        "detail": "{\"detail\":\"No such step\"}"
+      }
+    },
+    {
+      "name": "Other user's object denied: /api/coach/plan/2/story",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 404,
+        "detail": "{\"detail\":\"This plan has no story yet\"}"
+      }
+    },
+    {
+      "name": "Other user cannot delete a sentence",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "delete_status": 200,
+        "owner_read_status": 200
+      }
+    },
+    {
+      "name": "Other user cannot skip a step",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"generating\":false,\"stage\":\"\",\"building_next\":false,\"error\":null,\"writing_story\":null,\"started\":0.0,\"plan\":null,\"steps\":[],\"milestones\":[],\"history\":[],\"notes\":[],\"next_ready\":false,\"coach_model\":\"typesafe/jev-router\",\"alphabet\":{\"known_count\":0,\"known\":\"\",\"learning\":\"\",\"new\":\"ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ\",\"next_group\":[\"ㄅ\",\"ㄆ\",\"ㄇ\",\"ㄈ\"],\""
+      }
+    },
+    {
+      "name": "Other user cannot rewrite a plan story",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 404,
+        "detail": "{\"detail\":\"No such plan\"}"
+      }
+    },
+    {
+      "name": "Valid event accepted",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"ok\":true,\"id\":1}"
+      }
+    },
+    {
+      "name": "History export isolated between users",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "SQL injection in stats area stays a parameter",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"range\":{\"days\":30,\"since\":\"2026-09-11\",\"area\":\"'; DROP TABLE events;--\"},\"overview\":{\"cards\":0,\"ok\":0,\"acc\":null,\"minutes\":0,\"days\":0,\"ms\":null,\"prev\":{\"cards\":0,\"ok\":0,\"acc\":null,\"minutes\":0,\"days\":0,\"ms\":null}},\"daily\":[{\"day\":\"2026-09-11\",\"cards\":0,\"ok\":0,\"minutes\":0.0,\"areas\":{},\"acc\":null,\"ms\":null},{\"day\":\"2026-09-12\",\"cards\":0,\"ok\":0,\"minu"
+      }
+    },
+    {
+      "name": "SQL injection in profile stays data",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"name\":\"'; DROP TABLE profile;--\"}"
+      }
+    },
+    {
+      "name": "Pooled connection resets identity for anonymous users",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "visible_rows": 0
+      }
+    },
+    {
+      "name": "Ordinary user cannot clear another user's audio cache",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"files\":1,\"bytes\":18}",
+        "cache_exists": false
+      }
+    },
+    {
+      "name": "Public TTS has authentication or a request quota",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "requests": 16,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "synthesis_calls": 16,
+        "note": "Synthesis stubbed; this proves unrestricted admission, not load capacity."
+      }
+    },
+    {
+      "name": "Personal audio is not marked for shared caching",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "cache_control": "public, max-age=31536000"
+      }
+    },
+    {
+      "name": "TTS rejects text above 400 characters",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 400,
+        "detail": "{\"detail\":\"Text must be 1-400 characters.\"}"
+      }
+    },
+    {
+      "name": "Voice input cannot select a file path",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "note": "Route passes voice to the TTS function; BY_ID uses an allowlist and falls back."
+      }
+    },
+    {
+      "name": "Internal exception detail not disclosed",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 500,
+        "detail": "{\"detail\":\"Server error: RuntimeError: AUDIT_INTERNAL_PRIVATE_MARKER\"}"
+      }
+    },
+    {
+      "name": "Public health response hides internal model errors",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"ok\":true,\"speech_model\":\"error\",\"speech_error\":\"AUDIT_PRIVATE_MODEL_PATH\",\"speech_load_seconds\":null,\"llm_model\":\"deepseek/deepseek-v4.1-flash\",\"llm_configured\":true,\"speaker_hz\":null}"
+      }
+    },
+    {
+      "name": "API discovery route protected: /docs",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "API discovery route protected: /redoc",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "API discovery route protected: /openapi.json",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "CORS restricts origin https://attacker.example",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 400,
+        "allow_origin": null
+      }
+    },
+    {
+      "name": "CORS restricts origin https://unused.bopomofo.app",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "allow_origin": "https://unused.bopomofo.app"
+      }
+    },
+    {
+      "name": "CORS restricts origin http://192.168.1.42:9999",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "allow_origin": "http://192.168.1.42:9999"
+      }
+    },
+    {
+      "name": "Unknown Host rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Cookie-only CSRF cannot mutate a profile",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "detail": "{\"detail\":\"Please sign in.\"}"
+      }
+    },
+    {
+      "name": "CSV formula input is neutralized",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "event_status": 200,
+        "raw_formula_exported": true
+      }
+    },
+    {
+      "name": "Oversized nested event and invalid metric rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "details_bytes": 1100000,
+        "score": -999,
+        "tries": -10,
+        "area": "evil"
+      }
+    },
+    {
+      "name": "Invalid date and daily goal rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 200,
+        "detail": "{\"ok\":true}"
+      }
+    },
+    {
+      "name": "Out-of-range stats window rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 500,
+        "detail": "{\"detail\":\"Server error: OverflowError: date value out of range\"}"
+      }
+    },
+    {
+      "name": "Audio duration checked before resampling allocation",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 400,
+        "resampled_before_reject": true,
+        "allocated_samples": [
+          496000
+        ]
+      }
+    },
+    {
+      "name": "Upload text bound enforced before model readiness: /api/speech/analyze",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 503,
+        "field_length": 100000
+      }
+    },
+    {
+      "name": "Upload text bound enforced before model readiness: /api/symbols/check",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 503,
+        "field_length": 100000
+      }
+    },
+    {
+      "name": "Unauthorized file rejected before upload parsing",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 401,
+        "parsed_file_sizes": [
+          3000000
+        ]
+      }
+    },
+    {
+      "name": "Invalid symbol rejected before speech inference",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 400,
+        "inference_calls": 1,
+        "inference_stubbed": true
+      }
+    },
+    {
+      "name": "Non-finite audio samples rejected",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "accepted_nan_samples": 8000
+      }
+    },
+    {
+      "name": "Remote database TLS verifies the server with documented sslmode=require",
+      "status": "FINDING",
+      "scope": "real connection configuration, network stubbed",
+      "evidence": {
+        "verify_mode": 0,
+        "check_hostname": false
+      }
+    },
+    {
+      "name": "Database pool caps active connection count",
+      "status": "FINDING",
+      "scope": "real local PostgreSQL connections",
+      "evidence": {
+        "declared_pool_size": 10,
+        "observed_active_connections": 12
+      }
+    },
+    {
+      "name": "Concurrent identical TTS cache writes succeed",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "outcomes": [
+          "ok",
+          "ok"
+        ],
+        "engine_stubbed": true,
+        "filesystem_real": true
+      }
+    },
+    {
+      "name": "Paid translation has a per-user request quota",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "requests": 16,
+        "statuses": [
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200,
+          200
+        ],
+        "provider_calls": 16,
+        "provider_stubbed": true
+      }
+    },
+    {
+      "name": "Text analysis length limited",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "status": 422
+      }
+    },
+    {
+      "name": "LLM sentence output length limited",
+      "status": "FINDING",
+      "scope": "real output validator",
+      "evidence": {
+        "accepted_hanzi_length": 10000
+      }
+    },
+    {
+      "name": "LLM story rejects unknown component types",
+      "status": "PASS",
+      "scope": "real output validator",
+      "evidence": {
+        "unknown_component_rejected": true
+      }
+    },
+    {
+      "name": "LLM output has a hard token budget",
+      "status": "FINDING",
+      "scope": "isolated API",
+      "evidence": {
+        "max_tokens": null,
+        "provider_stubbed": true
+      }
+    },
+    {
+      "name": "Concurrent requests retain user isolation",
+      "status": "PASS",
+      "scope": "isolated API",
+      "evidence": {
+        "users": 10,
+        "isolated": 10
+      }
+    },
+    {
+      "name": "Live service header inventory",
+      "status": "PASS",
+      "scope": "running local HTTP services",
+      "evidence": [
+        {
+          "port": 8765,
+          "path": "/api/health",
+          "status": 200,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 8765,
+          "path": "/api/profile",
+          "status": 401,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 8765,
+          "path": "/docs",
+          "status": 200,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 8765,
+          "path": "/openapi.json",
+          "status": 200,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/",
+          "status": 307,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/profile",
+          "status": 307,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/stats",
+          "status": 307,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/sign-in",
+          "status": 200,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": "s-maxage=31536000"
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/.env",
+          "status": 307,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        },
+        {
+          "port": 3210,
+          "path": "/_next/../.env",
+          "status": 307,
+          "headers": {
+            "content-security-policy": null,
+            "x-frame-options": null,
+            "x-content-type-options": null,
+            "referrer-policy": null,
+            "permissions-policy": null,
+            "cache-control": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Next proxy bypass header blocked: /profile",
+      "status": "PASS",
+      "scope": "running local Next server",
+      "evidence": {
+        "status": 307
+      }
+    },
+    {
+      "name": "Next proxy bypass header blocked: /stats",
+      "status": "PASS",
+      "scope": "running local Next server",
+      "evidence": {
+        "status": 307
+      }
+    },
+    {
+      "name": "Next proxy bypass header blocked: /coach",
+      "status": "PASS",
+      "scope": "running local Next server",
+      "evidence": {
+        "status": 307
+      }
+    },
+    {
+      "name": "Next proxy bypass header blocked: /sentences",
+      "status": "PASS",
+      "scope": "running local Next server",
+      "evidence": {
+        "status": 307
+      }
+    },
+    {
+      "name": "Next proxy bypass header blocked: /onboarding",
+      "status": "PASS",
+      "scope": "running local Next server",
+      "evidence": {
+        "status": 307
+      }
+    },
+    {
+      "name": "Real public TTS requires authentication",
+      "status": "FINDING",
+      "scope": "running local API, real TTS inference",
+      "evidence": {
+        "status": 200,
+        "bytes": 46636,
+        "content_type": "audio/wav",
+        "cache_control": "public, max-age=31536000"
+      }
+    }
+  ]
+}

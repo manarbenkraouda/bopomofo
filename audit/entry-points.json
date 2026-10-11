@@ -1,0 +1,207 @@
+{
+  "api_operations": [
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "line": 52,
+      "handler": "health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/text/analyze",
+      "line": 63,
+      "handler": "text_analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/api/text/translate",
+      "line": 68,
+      "handler": "text_translate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/profile",
+      "line": 84,
+      "handler": "profile_get"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/profile",
+      "line": 89,
+      "handler": "profile_put"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me",
+      "line": 112,
+      "handler": "me_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/onboarding",
+      "line": 127,
+      "handler": "onboarding"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/settings",
+      "line": 149,
+      "handler": "settings_put"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sentences/generate",
+      "line": 163,
+      "handler": "sentences_generate"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sentences",
+      "line": 181,
+      "handler": "sentences_list"
+    },
+    {
+      "method": "GET",
+      "path": "/api/sentences/{sid}",
+      "line": 188,
+      "handler": "sentence_get"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/sentences/{sid}",
+      "line": 196,
+      "handler": "sentence_delete"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tts",
+      "line": 202,
+      "handler": "tts_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/tts/voices",
+      "line": 213,
+      "handler": "tts_voices"
+    },
+    {
+      "method": "POST",
+      "path": "/api/tts/cache/clear",
+      "line": 218,
+      "handler": "tts_cache_clear"
+    },
+    {
+      "method": "POST",
+      "path": "/api/speech/analyze",
+      "line": 240,
+      "handler": "speech_analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/api/symbols/check",
+      "line": 263,
+      "handler": "symbols_check"
+    },
+    {
+      "method": "POST",
+      "path": "/api/progress/attempt",
+      "line": 285,
+      "handler": "progress_attempt"
+    },
+    {
+      "method": "POST",
+      "path": "/api/progress/event",
+      "line": 324,
+      "handler": "progress_event"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/progress/day",
+      "line": 342,
+      "handler": "progress_day"
+    },
+    {
+      "method": "GET",
+      "path": "/api/progress/summary",
+      "line": 348,
+      "handler": "progress_summary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats",
+      "line": 353,
+      "handler": "stats_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/challenges",
+      "line": 358,
+      "handler": "stats_challenges"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/export.csv",
+      "line": 363,
+      "handler": "stats_export"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coach",
+      "line": 369,
+      "handler": "coach_get"
+    },
+    {
+      "method": "GET",
+      "path": "/api/alphabet",
+      "line": 375,
+      "handler": "alphabet_get"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coach/plan",
+      "line": 385,
+      "handler": "coach_plan"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coach/plan/{pid}/story",
+      "line": 391,
+      "handler": "coach_story"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coach/plan/{pid}/story",
+      "line": 400,
+      "handler": "coach_story_write"
+    },
+    {
+      "method": "POST",
+      "path": "/api/coach/step/{sid}/skip",
+      "line": 413,
+      "handler": "coach_skip"
+    },
+    {
+      "method": "GET",
+      "path": "/api/coach/step/{sid}",
+      "line": 418,
+      "handler": "coach_step"
+    }
+  ],
+  "frontend_pages": [
+    "/",
+    "/coach",
+    "/dictation",
+    "/listening",
+    "/onboarding",
+    "/profile",
+    "/reading",
+    "/sentences",
+    "/settings",
+    "/sign-in",
+    "/sign-up",
+    "/speaking",
+    "/stats",
+    "/symbols",
+    "/writing"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "node_version": "v24.20.0",
+  "package_version": "3.0.3",
+  "probes": [
+    {
+      "depth": 4900,
+      "input_length": 9801,
+      "status": "PASS",
+      "result": "accepted"
+    }
+  ]
+}
