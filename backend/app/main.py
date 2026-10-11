@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from . import auth, coach, db, limits, llm, scoring, speaker, stats, symbols, tts
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
+from .runtime import RUNTIME
 from .zhuyin import analyze_text
 
 # Every route needs a signed-in Clerk user, except auth.PUBLIC. Each user sees only their own data (see db.py).
@@ -104,6 +105,7 @@ app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\
 
 @app.on_event("startup")
 def startup():
+    print(f"Speech runtime {RUNTIME.describe()}", flush=True)
     db.init()
     tts.remove_shared_files()
     recognizer.load_async()

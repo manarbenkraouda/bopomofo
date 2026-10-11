@@ -15,8 +15,8 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=HOME=/var/lib/bopomofo
 Environment=MODEL_DIR=/opt/bopomofo/shared/models
 Environment=DATA_DIR=/var/lib/bopomofo/data
-Environment=ASR_NUM_THREADS=4
-Environment=TTS_NUM_THREADS=4
+# The ARM VPS profile: at most 4 threads for speech and 4 for voices (backend/app/runtime.py).
+Environment=SPEECH_RUNTIME=vps
 ExecStart=/opt/bopomofo/current/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --workers 1
 Restart=on-failure
 RestartSec=5

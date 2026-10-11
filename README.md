@@ -141,7 +141,18 @@ backend/models/ must contain wav2vec2-cmn-phonetic.onnx, wav2vec2-cmn-phonetic.o
     .venv-export/bin/python tools/export_model.py
     .venv-export/bin/python tools/quantize_model.py
 
-On Windows, use `.venv-export\Scripts\python.exe` in place of `.venv-export/bin/python`. The export environment uses the CPU-only PyTorch wheel, including on ARM64 Linux. Dynamic int8 quantization writes `wav2vec2-cmn-phonetic.int8.onnx` plus its weights file; The API uses FP32 when present for better quiet-microphone accuracy, and falls back to int8 if FP32 is absent; set `ASR_MODEL_FILE` to choose explicitly. On this ARM VPS, int8 was about 3× faster and 75% smaller, but failed the quiet-microphone threshold (10 misses vs 5 allowed), while FP32 passed. Set `ASR_NUM_THREADS` and `TTS_NUM_THREADS` to tune CPU use (both default to at most 4 threads).
+On Windows, use `.venv-export\Scripts\python.exe` in place of `.venv-export/bin/python` (the pinned CPU PyTorch wheel exists for Windows ARM64, Windows x64, and ARM64 Linux). The quantize step is optional: it writes `wav2vec2-cmn-phonetic.int8.onnx` plus its weights file. The API uses FP32 when present, for better accuracy on quiet microphones, and int8 only when FP32 is absent; `ASR_MODEL_FILE` chooses explicitly. On the ARM VPS, int8 was about 3× faster and 75% smaller, but failed the quiet-microphone threshold (10 misses vs 5 allowed), while FP32 passed. You can delete .venv-export after the export.
+
+## Speech and voice runtime
+
+The speech model and the voices run on ONNX Runtime on the CPU on both machines; only the tuning differs. backend/app/runtime.py holds the two profiles, and the backend prints the active one when it starts ("Speech runtime local: …").
+
+| SPEECH_RUNTIME | Where | Speech model | Voices |
+|---|---|---|---|
+| local | this laptop (Windows ARM64, Snapdragon X2 Elite); start.cmd sets it | FP32 on every core | 8 threads |
+| vps | the ARM production server; deploy/vps/bopomofo-api.service sets it | FP32 on at most 4 threads | at most 4 threads |
+
+Without SPEECH_RUNTIME, Linux uses vps and every other system uses local. ASR_NUM_THREADS, TTS_NUM_THREADS, and ASR_MODEL_FILE change one value of the profile. The NPU (QNN) was not reliable for the full speech model on this laptop, so both profiles use the CPU.
 
 ## Tests
 

@@ -18,6 +18,7 @@ import numpy as np
 
 from . import db, limits
 from .config import DATA_DIR, MODEL_DIR, TTS_CACHE_MB_PER_USER
+from .runtime import RUNTIME
 from .zhuyin import analyze_text
 
 
@@ -37,7 +38,7 @@ VOICES = [
 ]
 BY_ID = {v.id: v for v in VOICES}
 DEFAULT_VOICE = "kokoro-f"
-TTS_NUM_THREADS = max(1, int(os.getenv("TTS_NUM_THREADS", str(min(4, os.cpu_count() or 4)))))
+TTS_NUM_THREADS = RUNTIME.tts_threads  # 8 on the laptop, at most 4 on the VPS (app/runtime.py)
 _USER_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # Clerk ids look like user_2abc...; anything else is not a folder name
 
 _engines: dict[str, object] = {}
