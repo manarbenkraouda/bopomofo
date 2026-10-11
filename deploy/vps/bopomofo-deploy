@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# Continuous deployment of the bopomofo API on the VPS.
+#
+#   bopomofo-deploy poll          deploy the newest commit of main if the API files changed (the timer runs this every minute)
+#   bopomofo-deploy deploy REF    deploy a commit, branch or tag now, for example origin/main or a SHA
+#   bopomofo-deploy rollback      go back to the release that ran before the current one
+#   bopomofo-deploy status        show what runs now and what was seen last
+#
+# A deploy copies the API files of the commit (RELEASE_PATHS, in the same layout as the repository) into
+# /opt/bopomofo/releases/<time>-<sha>, links a Python environment for backend/requirements.txt, and runs the tests
+# that need no speech model on the test database. Then it points /opt/bopomofo/current at the new release,
+# restarts bopomofo-api, and waits until the speech model is ready, a request without a token gets 401, and the
+# public URL answers. If a check fails, the previous release comes back. Database migrations run when the API
+# starts; a rollback does not undo them.
+set -Eeuo pipefail
+umask 022
+
+if [[ -r /etc/bopomofo/deploy.env ]]; then source /etc/bopomofo/deploy.env; fi
+DEPLOY_BRANCH=${DEPLOY_BRANCH:-main}
+REPO_SSH=${REPO_SSH:-git@github.com:manarbenkraouda/bopomofo.git}
+GITHUB_REPO=${GITHUB_REPO:-manarbenkraouda/bopomofo}
+PYTHON=${PYTHON:-/opt/uv-python/cpython-3.12.13-linux-aarch64-gnu/bin/python3.12}
+UV=${UV:-/usr/local/bin/uv}
+PUBLIC_HEALTH_URL=${PUBLIC_HEALTH_URL:-https://api.bopomofo.app/api/health}
+HEALTH_TIMEOUT=${HEALTH_TIMEOUT:-300}
+KEEP_RELEASES=${KEEP_RELEASES:-5}
+GITHUB_STATUS=${GITHUB_STATUS:-1}
+TEST_DATABASE_URL=${TEST_DATABASE_URL:-}
+
+BASE=/opt/bopomofo
+SRC=$BASE/src
+RELEASES=$BASE/releases
+VENVS=$BASE/venvs
+MODELS=$BASE/shared/models
+CURRENT=$BASE/current
+DEPLOY_USER=bopomofo-deploy
+DEPLOY_HOME=/var/lib/bopomofo-deploy
+STATE=$DEPLOY_HOME/state
+SERVICE=bopomofo-api
+LOCAL_URL=http://127.0.0.1:8765
+# The API reads the syllables of the coach from frontend/public/data, next to backend/.
+RELEASE_PATHS=(backend frontend/public/data)
+
+log() { printf '%s\n' "$*"; }
+# Run as the deploy user, without a PAM session (runuser would log two lines per call). Native packages without
+# an ARM wheel (praat-parselmouth) compile on every core.
+as_deploy() {
+  setpriv --reuid="$DEPLOY_USER" --regid="$DEPLOY_USER" --init-groups --reset-env -- \
+    env HOME="$DEPLOY_HOME" UV_CACHE_DIR="$DEPLOY_HOME/uv-cache" CMAKE_BUILD_PARALLEL_LEVEL="$(nproc)" "$@"
+}
+git_src() { as_deploy git -C "$SRC" "$@"; }
+state() { cat "$STATE/$1" 2>/dev/null || true; }
+set_state() { printf '%s\n' "$2" >"$STATE/$1"; }
+switch_to() { ln -sfn -- "$1" "$CURRENT.new" && mv -T -- "$CURRENT.new" "$CURRENT"; }
+revision_of() { cat "$1/REVISION" 2>/dev/null || echo "unknown (installed before CD)"; }
+
+# Best effort: show the result next to the commit on GitHub, with root's gh login.
+gh_status() {
+  [[ $GITHUB_STATUS == 1 ]] && command -v gh >/dev/null || return 0
+  gh api -X POST "repos/$GITHUB_REPO/statuses/$1" -f state="$2" -f context="deploy/api" \
+    -f description="$3" >/dev/null 2>&1 || true
+}
+
+fetch() {
+  if [[ ! -d $SRC/.git ]]; then
+    as_deploy git clone --quiet --no-checkout "$REPO_SSH" "$SRC"
+  fi
+  git_src fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*'
+}
+
+# Build the release for commit $1 in directory $2. Every step checks its own result, because errexit is off
+# inside a function that runs as an if condition.
+build() {
+  local sha=$1 rel=$2 tmp="$2.tmp" req_hash venv data rc=0
+  rm -rf -- "$tmp"
+  install -d -o "$DEPLOY_USER" -g "$DEPLOY_USER" "$tmp" || return 1
+  as_deploy bash -c 'set -o pipefail; git -C "$1" archive "$2" "${@:4}" | tar -x -C "$3"' \
+    _ "$SRC" "$sha" "$tmp" "${RELEASE_PATHS[@]}" || return 1
+  printf '%s\n' "$sha" | as_deploy tee "$tmp/REVISION" >/dev/null || return 1
+
+  req_hash=$({ cat "$tmp/backend/requirements.txt" && "$PYTHON" -V; } | sha256sum | cut -c1-16) || return 1
+  venv=$VENVS/$req_hash
+  if [[ ! -f $venv/.complete ]]; then
+    log "building the Python environment $req_hash"
+    rm -rf -- "$venv"
+    as_deploy "$UV" venv --quiet --python "$PYTHON" "$venv" || return 1
+    as_deploy "$UV" pip install --quiet --python "$venv/bin/python" -r "$tmp/backend/requirements.txt" || return 1
+    as_deploy touch "$venv/.complete" || return 1
+  fi
+  as_deploy ln -s "$venv" "$tmp/backend/.venv" || return 1
+
+  [[ -n $TEST_DATABASE_URL ]] || log "warning: TEST_DATABASE_URL is not set, so the database tests are skipped"
+  log "running the tests"
+  data=$(as_deploy mktemp -d) || return 1
+  as_deploy env -C "$tmp/backend" TEST_DATABASE_URL="$TEST_DATABASE_URL" DATABASE_URL= OPENROUTER_API_KEY= \
+    DATA_DIR="$data" MODEL_DIR="$MODELS" PYTHONDONTWRITEBYTECODE=1 \
+    "$tmp/backend/.venv/bin/python" -m pytest -q -p no:cacheprovider tests \
+    --ignore=tests/test_speech.py --ignore=tests/test_symbols.py \
+    --deselect tests/test_llm.py::test_generate_sentences || rc=1
+  rm -rf -- "$data"
+  ((rc == 0)) || return 1
+  mv -T -- "$tmp" "$rel"
+}
+
+# The API runs, has loaded the speech model, refuses requests without a token, and answers on the public URL.
+healthy() {
+  local deadline=$((SECONDS + HEALTH_TIMEOUT)) pid body speech code
+  pid=$(systemctl show -p MainPID --value "$SERVICE")
+  while :; do
+    if ((SECONDS >= deadline)); then log "the API was not ready after ${HEALTH_TIMEOUT}s"; return 1; fi
+    if [[ $(systemctl show -p MainPID --value "$SERVICE") != "$pid" || $pid == 0 ]]; then
+      log "the API process exited while starting"; return 1
+    fi
+    if body=$(curl -fsS --max-time 5 "$LOCAL_URL/api/health" 2>/dev/null); then
+      speech=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("speech_model"))' 2>/dev/null || echo unknown)
+      [[ $speech == ready ]] && break
+      if [[ $speech == error ]]; then log "the speech model failed to load: $body"; return 1; fi
+    fi
+    sleep 3
+  done
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_URL/api/me" || true)
+  if [[ $code != 401 ]]; then log "GET /api/me without a token returned $code, expected 401"; return 1; fi
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_HEALTH_URL" || true)
+  if [[ $code != 200 ]]; then log "$PUBLIC_HEALTH_URL returned $code, expected 200"; return 1; fi
+  log "healthy: speech model ready, sign-in enforced, $PUBLIC_HEALTH_URL answers"
+}
+
+# Keep the newest releases plus the current and previous ones, and the Python environments they use.
+prune() {
+  local cur prev r v n=0
+  cur=$(readlink -f "$CURRENT" || true)
+  prev=$(state previous)
+  while IFS= read -r r; do
+    n=$((n + 1))
+    [[ $r == "$cur" || $r == "$prev" ]] && continue
+    if ((n > KEEP_RELEASES)); then rm -rf -- "$r"; fi
+  done < <(find "$RELEASES" -mindepth 1 -maxdepth 1 -type d ! -name '*.tmp' | sort -r)
+  declare -A used=()
+  for r in "$RELEASES"/*/backend/.venv "$cur/backend/.venv" "$prev/backend/.venv"; do
+    if [[ -L $r ]]; then used[$(readlink -f "$r")]=1; fi
+  done
+  for v in "$VENVS"/*; do
+    if [[ -d $v && -z ${used[$v]:-} ]]; then rm -rf -- "$v"; fi
+  done
+  return 0
+}
+
+deploy() {
+  local sha=$1 short=${1:0:7} rel prev
+  log "deploying $short: $(git_src log -1 --format=%s "$sha")"
+  gh_status "$sha" pending "Deploying the API to the VPS"
+  rm -rf -- "$RELEASES"/*.tmp # left by an interrupted deploy; the lock means none is running now
+  rel=$RELEASES/$(date -u +%Y%m%d-%H%M%S)-$short
+  if ! build "$sha" "$rel"; then
+    rm -rf -- "$rel.tmp"
+    log "the build or the tests failed for $short; the running API was not touched"
+    set_state failed "$sha"
+    gh_status "$sha" failure "Build or tests failed; the API was not changed"
+    return 1
+  fi
+  prev=$(readlink -f "$CURRENT" || true)
+  switch_to "$rel"
+  log "restarting $SERVICE on $(basename "$rel")"
+  systemctl restart "$SERVICE"
+  if healthy; then
+    set_state deployed "$sha"
+    if [[ -n $prev ]]; then set_state previous "$prev"; fi
+    if [[ $(state failed) == "$sha" ]]; then set_state failed ""; fi
+    prune
+    log "deployed $short"
+    gh_status "$sha" success "Running on the VPS"
+    return 0
+  fi
+  log "the new release failed its checks; recent API log:"
+  journalctl -u "$SERVICE" -n 30 --no-pager -o cat || true
+  if [[ -n $prev ]]; then
+    log "going back to $(basename "$prev")"
+    switch_to "$prev"
+    systemctl restart "$SERVICE"
+    healthy || log "WARNING: the previous release is not healthy either"
+  fi
+  rm -rf -- "$rel"
+  set_state failed "$sha"
+  gh_status "$sha" failure "Failed its checks after the restart; rolled back"
+  return 1
+}
+
+poll() {
+  local sha deployed rc=0
+  fetch
+  sha=$(git_src rev-parse --verify "origin/$DEPLOY_BRANCH^{commit}")
+  [[ $sha == "$(state last_seen)" ]] && return 0
+  deployed=$(state deployed)
+  if [[ -n $deployed ]] && git_src cat-file -e "$deployed^{commit}" 2>/dev/null &&
+    git_src diff --quiet "$deployed" "$sha" -- "${RELEASE_PATHS[@]}"; then
+    log "$DEPLOY_BRANCH is at ${sha:0:7}; the API files match the running ${deployed:0:7}, so the API keeps running"
+    set_state last_seen "$sha"
+    return 0
+  fi
+  deploy "$sha" || rc=$?
+  set_state last_seen "$sha" # one attempt per commit; after a failure, push a fix or run a manual deploy
+  return "$rc"
+}
+
+rollback() {
+  local cur prev
+  cur=$(readlink -f "$CURRENT" || true)
+  prev=$(state previous)
+  if [[ -z $prev || ! -d $prev ]]; then log "there is no previous release to go back to"; return 1; fi
+  log "rolling back from $(basename "$cur") to $(basename "$prev")"
+  switch_to "$prev"
+  systemctl restart "$SERVICE"
+  healthy || return 1
+  set_state previous "$cur"
+  set_state deployed "$(revision_of "$prev")"
+  log "running $(basename "$prev") again"
+}
+
+status() {
+  local cur
+  cur=$(readlink -f "$CURRENT" || true)
+  log "running release: ${cur:-none}"
+  log "running commit:  $(revision_of "$cur")"
+  log "previous:        $(state previous)"
+  log "last seen $DEPLOY_BRANCH: $(state last_seen)"
+  log "last failed:     $(state failed)"
+  systemctl list-timers bopomofo-deploy.timer --no-pager | head -2
+}
+
+usage() { sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+
+[[ $EUID == 0 ]] || { echo "run bopomofo-deploy as root" >&2; exit 1; }
+install -d -m 700 -o root -g root "$STATE"
+case ${1:-poll} in
+  status) status; exit 0 ;;
+  poll | deploy | rollback) ;;
+  *) usage ;;
+esac
+exec 9>/run/lock/bopomofo-deploy.lock
+flock -n 9 || { log "another deploy is running"; exit 0; }
+case ${1:-poll} in
+  poll) poll ;;
+  deploy)
+    [[ -n ${2:-} ]] || usage
+    fetch
+    deploy "$(git_src rev-parse --verify "$2^{commit}")"
+    ;;
+  rollback) rollback ;;
+esac

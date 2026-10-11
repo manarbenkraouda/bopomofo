@@ -1,9 +1,9 @@
 """Export Chuatury/wav2vec2-mms-1b-cmn-phonetic to ONNX (one external data file) for the backend.
 
-Run once, in a separate environment with requirements-export.txt:
-    uv venv -p cpython-3.12-windows-aarch64 .venv-export
-    uv pip install -p .venv-export\Scripts\python.exe -r tools\requirements-export.txt
-    .venv-export\Scripts\python tools\export_model.py
+Run once, in an isolated Python 3.12 environment:
+    uv venv .venv-export --python 3.12
+    uv pip install --python .venv-export/bin/python -r tools/requirements-export.txt
+    .venv-export/bin/python tools/export_model.py
 License of the model: CC-BY-NC-4.0 (personal, non-commercial use).
 """
 import json

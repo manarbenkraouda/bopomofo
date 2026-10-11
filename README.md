@@ -59,7 +59,7 @@ Keyboard: G then a letter = go to a page (G H Home, G C Coach, G T Stats, G R Re
 - **Symbol names (Reading):** free transcription is weak on one short sound, so the backend asks a narrower question: which of the 37 symbol names fits the audio best (backend/app/symbols.py). Each name gets a CTC score from the speech model, without tones, and the best name wins. The browser listens hands-free and sends each utterance with 0.3 s of audio before and after it.
 - **Tones on single syllables:** the model labels many Taiwan-style low-falling tone 3 syllables as tone 4. The backend learns your pitch range from your sentence recordings and corrects these cases. Measured on 198 isolated syllables (two Taiwan TTS voices): 161 correct (81%). Most remaining errors are TTS tone-1 clips that fall in pitch. Record one sentence before single-syllable practice.
 - **Bopomofo for text:** pypinyin with Taiwan (MOE) corrections for common words (星期 ㄑㄧˊ, 垃圾 ㄌㄜˋ ㄙㄜˋ, 誰 ㄕㄟˊ...), and neutral-tone dots in front (˙ㄇㄚ). Some readings can still follow mainland usage.
-- **Audio:** open-source voices that run offline with sherpa-onnx: Kokoro v1.1-zh (female, default, and male) and MediaTek Breeze2-VITS (Taiwan accent). Choose one in Settings. On test sentences the speech model scored Kokoro 93-100 and Breeze2 87-100 (average 93). Breeze2 runs directly on ONNX Runtime with the app's own Zhuyin analyzer, because the sherpa-onnx text front end merged and dropped its syllables. setup.cmd downloads the voices (backend/tools/download_voices.py) into backend/models. Audio is cached per user in backend/data/tts/<user id>; "Clear audio cache" in Settings deletes only your own clips.
+- **Audio:** offline voices: Kokoro v1.1-zh (female, default, and male) and MediaTek Breeze2-VITS (Taiwan accent). Kokoro's downloaded model includes its Apache-2.0 license. The Breeze2 ONNX model card currently has no license metadata; verify the weight terms before commercial deployment. Choose a voice in Settings. On test sentences the speech model scored Kokoro 93-100 and Breeze2 87-100 (average 93). Breeze2 runs directly on ONNX Runtime with the app's own Zhuyin analyzer, because the sherpa-onnx text front end merged and dropped its syllables. setup.cmd downloads the voices (backend/tools/download_voices.py) into backend/models. Audio is cached per user in backend/data/tts/<user id>; "Clear audio cache" in Settings deletes only your own clips.
 - **Writing data:** stroke outlines and centerlines from the Taiwan Ministry of Education 國語注音符號手冊; stroke counts match the handbook for all 37 symbols.
 - **Data:** PostgreSQL (DATABASE_URL): sentences, practice history, coach plans, profile, settings, and your pitch reference, per user. backend/data keeps only the audio cache. Git ignores this folder.
 - **Time zone:** each learner's settings (meta key "settings": time zone, daily goal, level, onboarding answers) set where their day starts. The day of each answer, the streak, "today" in the stats and the coach, the hours chart, and the CSV times use it. Change it in Settings. A learner without one uses DEFAULT_TIMEZONE (UTC).
@@ -118,16 +118,30 @@ It copies everything in one transaction, with new row ids and every link between
 
 Clerk app: bopomofo.app (app_3KWA4ktlOfTZ3w6bU2m7u62MJkC), linked with `clerk link`. `clerk env pull --file frontend/.env.local` writes the development keys; rename CLERK_PUBLISHABLE_KEY to NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY if the CLI did not detect Next.js. For production, run `clerk deploy`, use the production keys (`clerk env pull --instance prod`), and set CLERK_AUTHORIZED_PARTIES. frontend/src/proxy.ts sends signed-out visitors to /sign-in.
 
+## Production
+
+The frontend runs on Vercel (project bopomofo, team the-tech-nation), connected to this repository with frontend/ as the root directory: every push to main deploys it. The API runs on the VPS as the systemd service bopomofo-api, behind Caddy at https://api.bopomofo.app, with its settings in /etc/bopomofo/api.env.
+
+New commits on main also deploy the API. Every minute, bopomofo-deploy.timer runs `bopomofo-deploy poll`, which fetches the repository with a read-only deploy key. When backend/ or frontend/public/data/ (the syllables the coach reads) changed, it copies both into /opt/bopomofo/releases, installs backend/requirements.txt in a Python environment (reused while the file stays the same), and runs the tests on bopomofo_test, without the speech tests and the live OpenRouter test. Then it points /opt/bopomofo/current at the new release, restarts the API, and waits until the speech model is ready, a request without a token gets 401, and https://api.bopomofo.app answers. If the build or the tests fail, the running API is not touched; if a check after the restart fails, the previous release comes back. Either way the commit gets a failed "deploy/api" status on GitHub. After a restart the API answers within seconds and speech recognition is ready about 45 s later. A rollback does not undo database migrations, so keep them compatible with the previous code.
+
+    sudo bopomofo-deploy status                  # running commit, previous release, last commit seen
+    sudo bopomofo-deploy deploy origin/main      # deploy now (also a branch or a SHA)
+    sudo bopomofo-deploy rollback                # back to the previous release
+    journalctl -u bopomofo-deploy -f             # deploy log
+
+To set this up on a new VPS, run `sudo deploy/vps/install.sh` and follow what it prints. The speech and voice models stay in /opt/bopomofo/shared/models, outside the releases.
+
 ## Speech model
 
 backend/models/ must contain wav2vec2-cmn-phonetic.onnx, wav2vec2-cmn-phonetic.onnx.data (3.6 GB), and vocab.json. vocab.json is in the repository. To create the two ONNX files (downloads about 4 GB from Hugging Face, takes some minutes):
 
     cd backend
-    uv venv -p cpython-3.12-windows-aarch64 .venv-export
-    uv pip install -p .venv-export\Scripts\python.exe -r tools\requirements-export.txt
-    .venv-export\Scripts\python tools\export_model.py
+    uv venv .venv-export --python 3.12
+    uv pip install --python .venv-export/bin/python -r tools/requirements-export.txt
+    .venv-export/bin/python tools/export_model.py
+    .venv-export/bin/python tools/quantize_model.py
 
-You can delete .venv-export after the export.
+On Windows, use `.venv-export\Scripts\python.exe` in place of `.venv-export/bin/python`. The export environment uses the CPU-only PyTorch wheel, including on ARM64 Linux. Dynamic int8 quantization writes `wav2vec2-cmn-phonetic.int8.onnx` plus its weights file; The API uses FP32 when present for better quiet-microphone accuracy, and falls back to int8 if FP32 is absent; set `ASR_MODEL_FILE` to choose explicitly. On this ARM VPS, int8 was about 3× faster and 75% smaller, but failed the quiet-microphone threshold (10 misses vs 5 allowed), while FP32 passed. Set `ASR_NUM_THREADS` and `TTS_NUM_THREADS` to tune CPU use (both default to at most 4 threads).
 
 ## Tests
 

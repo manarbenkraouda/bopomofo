@@ -37,6 +37,7 @@ VOICES = [
 ]
 BY_ID = {v.id: v for v in VOICES}
 DEFAULT_VOICE = "kokoro-f"
+TTS_NUM_THREADS = max(1, int(os.getenv("TTS_NUM_THREADS", str(min(4, os.cpu_count() or 4)))))
 _USER_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")  # Clerk ids look like user_2abc...; anything else is not a folder name
 
 _engines: dict[str, object] = {}
@@ -102,7 +103,7 @@ class Breeze2:
                 sym, i = line.rsplit(" ", 1)
                 self.tok[sym or " "] = int(i)
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 8
+        opts.intra_op_num_threads = TTS_NUM_THREADS
         self.sess = ort.InferenceSession(str(d / "breeze2-vits.onnx"), opts, providers=["CPUExecutionProvider"])
 
     def ids(self, text: str) -> list[int]:
@@ -139,7 +140,7 @@ def _load(model: str):
     cfg = so.OfflineTtsModelConfig(kokoro=so.OfflineTtsKokoroModelConfig(
         model=str(d / "model.onnx"), voices=str(d / "voices.bin"), tokens=str(d / "tokens.txt"),
         data_dir=str(d / "espeak-ng-data"), dict_dir=str(d / "dict"),
-        lexicon=f"{d / 'lexicon-us-en.txt'},{d / 'lexicon-zh.txt'}"), num_threads=8)
+        lexicon=f"{d / 'lexicon-us-en.txt'},{d / 'lexicon-zh.txt'}"), num_threads=TTS_NUM_THREADS)
     fsts = ",".join(str(d / f) for f in ("date-zh.fst", "phone-zh.fst", "number-zh.fst"))
     return so.OfflineTts(so.OfflineTtsConfig(model=cfg, rule_fsts=fsts))
 
