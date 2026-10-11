@@ -118,6 +118,19 @@ It copies everything in one transaction, with new row ids and every link between
 
 Clerk app: bopomofo.app (app_3KWA4ktlOfTZ3w6bU2m7u62MJkC), linked with `clerk link`. `clerk env pull --file frontend/.env.local` writes the development keys; rename CLERK_PUBLISHABLE_KEY to NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY if the CLI did not detect Next.js. For production, run `clerk deploy`, use the production keys (`clerk env pull --instance prod`), and set CLERK_AUTHORIZED_PARTIES. frontend/src/proxy.ts sends signed-out visitors to /sign-in.
 
+## Production
+
+The frontend runs on Vercel (project bopomofo, team the-tech-nation), connected to this repository with frontend/ as the root directory: every push to main deploys it. The API runs on the VPS as the systemd service bopomofo-api, behind Caddy at https://api.bopomofo.app, with its settings in /etc/bopomofo/api.env.
+
+New commits on main also deploy the API. Every minute, bopomofo-deploy.timer runs `bopomofo-deploy poll`, which fetches the repository with a read-only deploy key. When backend/ or frontend/public/data/ (the syllables the coach reads) changed, it copies both into /opt/bopomofo/releases, installs backend/requirements.txt in a Python environment (reused while the file stays the same), and runs the tests on bopomofo_test, without the speech tests and the live OpenRouter test. Then it points /opt/bopomofo/current at the new release, restarts the API, and waits until the speech model is ready, a request without a token gets 401, and https://api.bopomofo.app answers. If the build or the tests fail, the running API is not touched; if a check after the restart fails, the previous release comes back. Either way the commit gets a failed "deploy/api" status on GitHub. After a restart the API answers within seconds and speech recognition is ready about 45 s later. A rollback does not undo database migrations, so keep them compatible with the previous code.
+
+    sudo bopomofo-deploy status                  # running commit, previous release, last commit seen
+    sudo bopomofo-deploy deploy origin/main      # deploy now (also a branch or a SHA)
+    sudo bopomofo-deploy rollback                # back to the previous release
+    journalctl -u bopomofo-deploy -f             # deploy log
+
+To set this up on a new VPS, run `sudo deploy/vps/install.sh` and follow what it prints. The speech and voice models stay in /opt/bopomofo/shared/models, outside the releases.
+
 ## Speech model
 
 backend/models/ must contain wav2vec2-cmn-phonetic.onnx, wav2vec2-cmn-phonetic.onnx.data (3.6 GB), and vocab.json. vocab.json is in the repository. To create the two ONNX files (downloads about 4 GB from Hugging Face, takes some minutes):
