@@ -1,0 +1,38 @@
+[Unit]
+Description=Bopomofo API
+After=network-online.target postgresql.service
+Wants=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=bopomofo-api
+Group=bopomofo-api
+# bopomofo-deploy points /opt/bopomofo/current at the release to run.
+WorkingDirectory=/opt/bopomofo/current/backend
+EnvironmentFile=/etc/bopomofo/api.env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=HOME=/var/lib/bopomofo
+Environment=MODEL_DIR=/opt/bopomofo/shared/models
+Environment=DATA_DIR=/var/lib/bopomofo/data
+Environment=ASR_NUM_THREADS=4
+Environment=TTS_NUM_THREADS=4
+ExecStart=/opt/bopomofo/current/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --workers 1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/bopomofo
+
+[Install]
+WantedBy=multi-user.target

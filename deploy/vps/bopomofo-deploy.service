@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy new bopomofo API commits from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/bopomofo-deploy poll
+# gh reads root's login from here to post the deploy result as a commit status.
+Environment=HOME=/root
+TimeoutStartSec=30min
+Nice=10
