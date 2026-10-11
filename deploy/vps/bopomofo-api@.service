@@ -1,5 +1,5 @@
 [Unit]
-Description=Bopomofo API
+Description=Bopomofo API on port %i
 After=network-online.target postgresql.service
 Wants=network-online.target postgresql.service
 
@@ -7,8 +7,9 @@ Wants=network-online.target postgresql.service
 Type=simple
 User=bopomofo-api
 Group=bopomofo-api
-# bopomofo-deploy points /opt/bopomofo/current at the release to run.
-WorkingDirectory=/opt/bopomofo/current/backend
+# Two slots, bopomofo-api@8765 and bopomofo-api@8766, so a new release starts next to the running one.
+# bopomofo-deploy points /opt/bopomofo/slots/<port> at the release a slot runs, and Caddy at the port that serves.
+WorkingDirectory=/opt/bopomofo/slots/%i/backend
 EnvironmentFile=/etc/bopomofo/api.env
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
@@ -17,7 +18,9 @@ Environment=MODEL_DIR=/opt/bopomofo/shared/models
 Environment=DATA_DIR=/var/lib/bopomofo/data
 # The ARM VPS profile: at most 4 threads for speech and 4 for voices (backend/app/runtime.py).
 Environment=SPEECH_RUNTIME=vps
-ExecStart=/opt/bopomofo/current/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8765 --workers 1
+# On stop, uvicorn finishes the requests in progress (at most 60 s, enough for a speech upload) before it exits.
+ExecStart=/opt/bopomofo/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1 --timeout-graceful-shutdown 60
+TimeoutStopSec=75
 Restart=on-failure
 RestartSec=5
 UMask=0077

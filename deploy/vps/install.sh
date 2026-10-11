@@ -11,6 +11,7 @@ USER_HOME=/var/lib/bopomofo-deploy
 id bopomofo-deploy &>/dev/null ||
   useradd --system --home-dir "$USER_HOME" --create-home --shell /usr/sbin/nologin bopomofo-deploy
 install -d -m 755 -o bopomofo-deploy -g bopomofo-deploy "$BASE/src" "$BASE/releases" "$BASE/venvs"
+install -d -m 755 "$BASE/slots"
 install -d -m 755 "$BASE/shared"
 install -d -m 700 "$USER_HOME/state"
 [[ -x /usr/local/bin/uv ]] || install -m 755 "$(command -v uv)" /usr/local/bin/uv
@@ -43,9 +44,28 @@ echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH
 chown bopomofo-deploy:bopomofo-deploy "$ssh_dir/known_hosts"
 
 install -m 755 "$here/bopomofo-deploy" /usr/local/sbin/bopomofo-deploy
-install -m 644 "$here/bopomofo-api.service" "$here/bopomofo-deploy.service" "$here/bopomofo-deploy.timer" /etc/systemd/system/
+install -m 644 "$here/bopomofo-api@.service" "$here/bopomofo-deploy.service" "$here/bopomofo-deploy.timer" /etc/systemd/system/
 [[ -f /etc/bopomofo/deploy.env ]] || install -m 600 "$here/deploy.env.example" /etc/bopomofo/deploy.env
 systemctl daemon-reload
+
+# Caddy reads the serving port from a file that bopomofo-deploy rewrites. Until the first deploy with slots,
+# the API keeps running as bopomofo-api.service on 8765, so the file starts there.
+caddyfile=/etc/caddy/Caddyfile
+upstream=/etc/caddy/bopomofo-api-upstream
+[[ -f $upstream ]] || install -m 644 /dev/stdin "$upstream" <<<'reverse_proxy 127.0.0.1:8765'
+if ! grep -q "import $upstream" "$caddyfile"; then
+  cp -p "$caddyfile" "$caddyfile.before-slots-$(date -u +%Y%m%dT%H%MZ)"
+  awk -v imp="import $upstream" '
+    /^api\.bopomofo\.app[[:space:]]*\{/ { in_api = 1 }
+    in_api && /^[[:space:]]*reverse_proxy[[:space:]]+127\.0\.0\.1:8765[[:space:]]*$/ { sub(/reverse_proxy.*/, imp); done = 1 }
+    in_api && /^\}/ { in_api = 0 }
+    { print }
+    END { if (!done) exit 1 }
+  ' "$caddyfile" >"$caddyfile.new" || { rm -f "$caddyfile.new"; echo "edit the api.bopomofo.app block of $caddyfile by hand: import $upstream" >&2; exit 1; }
+  caddy validate --config "$caddyfile.new" --adapter caddyfile >/dev/null
+  chmod --reference="$caddyfile" "$caddyfile.new" && mv -T "$caddyfile.new" "$caddyfile"
+  systemctl reload caddy
+fi
 
 cat <<EOF
 Next:

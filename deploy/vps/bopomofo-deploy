@@ -8,10 +8,12 @@
 #
 # A deploy copies the API files of the commit (RELEASE_PATHS, in the same layout as the repository) into
 # /opt/bopomofo/releases/<time>-<sha>, links a Python environment for backend/requirements.txt, and runs the tests
-# that need no speech model on the test database. Then it points /opt/bopomofo/current at the new release,
-# restarts bopomofo-api, and waits until the speech model is ready, a request without a token gets 401, and the
-# public URL answers. If a check fails, the previous release comes back. Database migrations run when the API
-# starts; a rollback does not undo them.
+# that need no speech model on the test database. Then it starts the release in the idle slot (bopomofo-api@8765
+# or bopomofo-api@8766) while the running slot keeps serving, and waits until the speech model is ready and a
+# request without a token gets 401. Caddy then reloads with the new port (a reload keeps the requests in
+# progress), the public URL must answer, and the old slot stops after finishing its requests. If a check fails,
+# the new slot stops and the old one keeps serving, so users never see the API down. Database migrations run when
+# the new release starts, while the old one still serves: keep them compatible with the previous code.
 set -Eeuo pipefail
 umask 022
 
@@ -33,11 +35,16 @@ RELEASES=$BASE/releases
 VENVS=$BASE/venvs
 MODELS=$BASE/shared/models
 CURRENT=$BASE/current
+SLOTS=$BASE/slots
 DEPLOY_USER=bopomofo-deploy
 DEPLOY_HOME=/var/lib/bopomofo-deploy
 STATE=$DEPLOY_HOME/state
-SERVICE=bopomofo-api
-LOCAL_URL=http://127.0.0.1:8765
+# Caddy imports this file in the api.bopomofo.app block; it names the port that serves.
+UPSTREAM=/etc/caddy/bopomofo-api-upstream
+# The single service that ran the API before the two slots; the first deploy with slots replaces it.
+LEGACY_UNIT=bopomofo-api.service
+# Seconds between the Caddy switch and stopping the old slot, for requests that reached it just before.
+DRAIN_SECONDS=${DRAIN_SECONDS:-5}
 # The API reads the syllables of the coach from frontend/public/data, next to backend/.
 RELEASE_PATHS=(backend frontend/public/data)
 
@@ -53,6 +60,18 @@ state() { cat "$STATE/$1" 2>/dev/null || true; }
 set_state() { printf '%s\n' "$2" >"$STATE/$1"; }
 switch_to() { ln -sfn -- "$1" "$CURRENT.new" && mv -T -- "$CURRENT.new" "$CURRENT"; }
 revision_of() { cat "$1/REVISION" 2>/dev/null || echo "unknown (installed before CD)"; }
+
+slot_unit() { echo "bopomofo-api@$1.service"; }
+active_port() { local p; p=$(state port); echo "${p:-8765}"; }
+other_port() { if [[ $1 == 8765 ]]; then echo 8766; else echo 8765; fi; }
+# The unit serving on a port: the legacy service until the first deploy with slots, then the slot.
+port_unit() {
+  if [[ -z $(state port) && $1 == 8765 ]] && systemctl is-active --quiet "$LEGACY_UNIT"; then
+    echo "$LEGACY_UNIT"
+  else
+    slot_unit "$1"
+  fi
+}
 
 # Best effort: show the result next to the commit on GitHub, with root's gh login.
 gh_status() {
@@ -102,27 +121,75 @@ build() {
   mv -T -- "$tmp" "$rel"
 }
 
-# The API runs, has loaded the speech model, refuses requests without a token, and answers on the public URL.
+# The API on port $1 (unit $2) runs, has loaded the speech model, and refuses requests without a token.
 healthy() {
-  local deadline=$((SECONDS + HEALTH_TIMEOUT)) pid body speech code
-  pid=$(systemctl show -p MainPID --value "$SERVICE")
+  local url=http://127.0.0.1:$1 unit=$2 deadline=$((SECONDS + HEALTH_TIMEOUT)) pid body speech code
+  pid=$(systemctl show -p MainPID --value "$unit")
   while :; do
     if ((SECONDS >= deadline)); then log "the API was not ready after ${HEALTH_TIMEOUT}s"; return 1; fi
-    if [[ $(systemctl show -p MainPID --value "$SERVICE") != "$pid" || $pid == 0 ]]; then
+    if [[ $(systemctl show -p MainPID --value "$unit") != "$pid" || $pid == 0 ]]; then
       log "the API process exited while starting"; return 1
     fi
-    if body=$(curl -fsS --max-time 5 "$LOCAL_URL/api/health" 2>/dev/null); then
+    if body=$(curl -fsS --max-time 5 "$url/api/health" 2>/dev/null); then
       speech=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("speech_model"))' 2>/dev/null || echo unknown)
       [[ $speech == ready ]] && break
       if [[ $speech == error ]]; then log "the speech model failed to load: $body"; return 1; fi
     fi
     sleep 3
   done
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$LOCAL_URL/api/me" || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url/api/me" || true)
   if [[ $code != 401 ]]; then log "GET /api/me without a token returned $code, expected 401"; return 1; fi
+  log "port $1 is ready: speech model loaded, sign-in enforced"
+}
+
+public_ok() {
+  local code
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$PUBLIC_HEALTH_URL" || true)
   if [[ $code != 200 ]]; then log "$PUBLIC_HEALTH_URL returned $code, expected 200"; return 1; fi
-  log "healthy: speech model ready, sign-in enforced, $PUBLIC_HEALTH_URL answers"
+  log "$PUBLIC_HEALTH_URL answers"
+}
+
+# Send the public traffic to port $1. A Caddy reload is graceful: requests in progress finish on the old port.
+route_to() {
+  local before
+  before=$(cat "$UPSTREAM" 2>/dev/null || true)
+  printf 'reverse_proxy 127.0.0.1:%s\n' "$1" >"$UPSTREAM.new" && chmod 644 "$UPSTREAM.new" && mv -T -- "$UPSTREAM.new" "$UPSTREAM" || return 1
+  systemctl reload caddy && return 0
+  log "Caddy did not reload with port $1"
+  if [[ -n $before ]]; then printf '%s\n' "$before" >"$UPSTREAM"; fi
+  return 1
+}
+
+# Run release $1 without downtime: start it in the idle slot, check it, move Caddy to it, then stop the old slot.
+# On failure the old slot keeps serving and the new one stops.
+release_to() {
+  local rel=$1 old_port old_unit new_port new_unit
+  old_port=$(active_port)
+  old_unit=$(port_unit "$old_port")
+  new_port=$(other_port "$old_port")
+  new_unit=$(slot_unit "$new_port")
+  log "starting $(basename "$rel") on port $new_port; port $old_port keeps serving"
+  ln -sfn -- "$rel" "$SLOTS/$new_port.new" && mv -T -- "$SLOTS/$new_port.new" "$SLOTS/$new_port" || return 1
+  systemctl reset-failed "$new_unit" 2>/dev/null || true
+  if ! systemctl restart "$new_unit" || ! healthy "$new_port" "$new_unit"; then
+    log "the new release failed its checks; recent log of port $new_port:"
+    journalctl -u "$new_unit" -n 30 --no-pager -o cat || true
+    systemctl stop "$new_unit" || true
+    return 1
+  fi
+  if ! route_to "$new_port"; then systemctl stop "$new_unit" || true; return 1; fi
+  if ! public_ok; then
+    log "going back to port $old_port"
+    route_to "$old_port" || log "WARNING: Caddy could not go back to port $old_port"
+    systemctl stop "$new_unit" || true
+    return 1
+  fi
+  set_state port "$new_port"
+  switch_to "$rel"
+  systemctl enable --quiet "$new_unit"
+  log "Caddy sends requests to port $new_port; stopping port $old_port once its requests finish"
+  sleep "$DRAIN_SECONDS"
+  systemctl disable --now --quiet "$old_unit" || log "WARNING: could not stop $old_unit"
 }
 
 # Keep the newest releases plus the current and previous ones, and the Python environments they use.
@@ -159,10 +226,7 @@ deploy() {
     return 1
   fi
   prev=$(readlink -f "$CURRENT" || true)
-  switch_to "$rel"
-  log "restarting $SERVICE on $(basename "$rel")"
-  systemctl restart "$SERVICE"
-  if healthy; then
+  if release_to "$rel"; then
     set_state deployed "$sha"
     if [[ -n $prev ]]; then set_state previous "$prev"; fi
     if [[ $(state failed) == "$sha" ]]; then set_state failed ""; fi
@@ -171,17 +235,9 @@ deploy() {
     gh_status "$sha" success "Running on the VPS"
     return 0
   fi
-  log "the new release failed its checks; recent API log:"
-  journalctl -u "$SERVICE" -n 30 --no-pager -o cat || true
-  if [[ -n $prev ]]; then
-    log "going back to $(basename "$prev")"
-    switch_to "$prev"
-    systemctl restart "$SERVICE"
-    healthy || log "WARNING: the previous release is not healthy either"
-  fi
   rm -rf -- "$rel"
   set_state failed "$sha"
-  gh_status "$sha" failure "Failed its checks after the restart; rolled back"
+  gh_status "$sha" failure "Failed its checks; the running API was not changed"
   return 1
 }
 
@@ -208,9 +264,7 @@ rollback() {
   prev=$(state previous)
   if [[ -z $prev || ! -d $prev ]]; then log "there is no previous release to go back to"; return 1; fi
   log "rolling back from $(basename "$cur") to $(basename "$prev")"
-  switch_to "$prev"
-  systemctl restart "$SERVICE"
-  healthy || return 1
+  release_to "$prev" || return 1
   set_state previous "$cur"
   set_state deployed "$(revision_of "$prev")"
   log "running $(basename "$prev") again"
@@ -221,6 +275,7 @@ status() {
   cur=$(readlink -f "$CURRENT" || true)
   log "running release: ${cur:-none}"
   log "running commit:  $(revision_of "$cur")"
+  log "serving port:    $(active_port) ($(port_unit "$(active_port)"))"
   log "previous:        $(state previous)"
   log "last seen $DEPLOY_BRANCH: $(state last_seen)"
   log "last failed:     $(state failed)"
