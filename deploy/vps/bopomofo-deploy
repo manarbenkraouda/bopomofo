@@ -187,9 +187,10 @@ release_to() {
   set_state port "$new_port"
   switch_to "$rel"
   systemctl enable --quiet "$new_unit"
-  log "Caddy sends requests to port $new_port; stopping port $old_port once its requests finish"
+  log "Caddy sends requests to port $new_port; stopping port $old_port once its requests and coach work finish"
   sleep "$DRAIN_SECONDS"
   systemctl disable --now --quiet "$old_unit" || log "WARNING: could not stop $old_unit"
+  log "port $old_port stopped"
 }
 
 # Keep the newest releases plus the current and previous ones, and the Python environments they use.

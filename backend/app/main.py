@@ -103,6 +103,11 @@ app.add_middleware(BodyLimit)
 app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?|https://([a-z0-9-]+\.)*bopomofo\.app", allow_methods=["*"], allow_headers=["*"])
 
 
+# On stop, wait at most this long for coach work in progress (a plan takes about a minute, each AI call at most 90 s).
+# deploy/vps/bopomofo-api@.service gives the process enough time for this.
+BACKGROUND_DRAIN_SECONDS = 600
+
+
 @app.on_event("startup")
 def startup():
     print(f"Speech runtime {RUNTIME.describe()}", flush=True)
@@ -114,6 +119,11 @@ def startup():
 
 @app.on_event("shutdown")
 def shutdown():
+    # A deploy stops the old process after Caddy sends new requests to the new one. Coach plans and stories still
+    # being written here finish and save first; the new process shows their progress from the coach_jobs table.
+    left = db.wait_background(BACKGROUND_DRAIN_SECONDS)
+    if left:
+        print(f"Stopping with {left} background jobs unfinished after {BACKGROUND_DRAIN_SECONDS}s", flush=True)
     db.close_pool()
 
 

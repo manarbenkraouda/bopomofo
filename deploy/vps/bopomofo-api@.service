@@ -18,9 +18,10 @@ Environment=MODEL_DIR=/opt/bopomofo/shared/models
 Environment=DATA_DIR=/var/lib/bopomofo/data
 # The ARM VPS profile: at most 4 threads for speech and 4 for voices (backend/app/runtime.py).
 Environment=SPEECH_RUNTIME=vps
-# On stop, uvicorn finishes the requests in progress (at most 60 s, enough for a speech upload) before it exits.
+# On stop, uvicorn finishes the requests in progress (at most 60 s, enough for a speech upload), then the coach work
+# in progress (at most 600 s, BACKGROUND_DRAIN_SECONDS in backend/app/main.py) before it exits.
 ExecStart=/opt/bopomofo/slots/%i/backend/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port %i --workers 1 --timeout-graceful-shutdown 60
-TimeoutStopSec=75
+TimeoutStopSec=720
 Restart=on-failure
 RestartSec=5
 UMask=0077

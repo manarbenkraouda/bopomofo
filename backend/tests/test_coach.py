@@ -184,3 +184,35 @@ def test_alphabet_comes_first_until_the_symbols_are_known(tmpdb, monkeypatch):
     coach.build("known", run_pipeline=fake([{"type": "listen_sounds", "syms": ["ㄓ", "ㄗ"]}]))
     assert [s["type"] for s in coach.state()["steps"]] == ["listen_sounds"]
 
+
+
+def test_a_coach_job_is_shared_by_every_api_process(tmpdb, monkeypatch):
+    # During a deploy the old process builds the plan while the new one answers the app: both read coach_jobs.
+    from app import llm
+    monkeypatch.setattr(coach, "LIVE", True)
+    ran = []
+    monkeypatch.setattr(coach, "_run_job", ran.append)
+    db.save_settings({"onboarded_at": 1.0})
+    db.set_profile({k: "x" for k in llm.PROFILE_LABELS})
+    assert coach.start("new plan") is True
+    assert coach.start("again") is False and coach.start_story(1) is False
+    coach._stage("Choosing your next steps")
+    st = coach.state()  # no plan yet, but the first plan is being built: no second one starts
+    assert st["generating"] and st["stage"] == "Choosing your next steps" and len(ran) == 1
+    with db.conn() as c:  # the process building it died: no beat for JOB_STALE seconds
+        c.execute("UPDATE coach_jobs SET beat=?", (time.time() - coach.JOB_STALE - 1,))
+    st = coach.state()
+    assert st["generating"] and st["stage"] == "Starting" and len(ran) == 2  # the first plan starts again
+
+
+def test_the_api_waits_for_coach_work_before_it_stops(tmpdb, monkeypatch):
+    import threading
+    monkeypatch.setattr(coach, "LIVE", True)
+    gate = threading.Event()
+    monkeypatch.setattr(coach, "build", lambda reason, as_next=False: gate.wait(5) and 1 / 0)
+    assert coach.start("new plan")
+    assert db.wait_background(0.3) == 1 and coach.state()["generating"]
+    gate.set()
+    assert db.wait_background(5) == 0
+    st = coach.state()
+    assert not st["generating"] and st["error"] == "ZeroDivisionError: division by zero"

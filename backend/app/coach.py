@@ -17,6 +17,7 @@ If the model fails, a plan is built by rules from the weak spots.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import re
 import threading
@@ -70,15 +71,70 @@ VISIBLE_NOTES = "(kind LIKE 'checkpoint:%' OR kind='debrief:learner')"
 LEARN_REPS = 10
 MAX_LEARNING = 8  # no new symbols while this many symbols are seen but not known yet
 
-_lock = threading.Lock()
 _refresh_lock = threading.RLock()
-# What the coach is doing in the background, per user (db.current_user()).
-_gens: dict[str | None, dict] = {}
-
-
-def _g() -> dict:
-    return _gens.setdefault(db.current_user(), {"running": False, "error": None, "started": 0.0, "stage": "", "next": False, "story": None})
 _checking: set[int] = set()
+
+# What the coach builds in the background, per user, is in the coach_jobs table, so every API process sees it: during a
+# deploy the old process finishes the job while the new one answers the app. A running job writes a beat every
+# JOB_BEAT seconds; without a beat for JOB_STALE seconds it died with its process, and a new job may start.
+JOB_BEAT = 20
+JOB_STALE = 90
+JOB_LOST = "The coach stopped before it finished. Ask again for a new plan."
+_IDLE = {"running": False, "stage": "", "error": None, "started": 0.0, "next": False, "story": None}
+
+
+def _job() -> dict:
+    """The background job of the current user, as any API process sees it."""
+    if not db.current_user():
+        return dict(_IDLE)
+    with db.conn() as c:
+        r = c.execute("SELECT running, stage, error, started, next, story, beat FROM coach_jobs").fetchone()
+    if not r:
+        return dict(_IDLE)
+    j = {k: r[k] for k in _IDLE}
+    if j["running"] and r["beat"] < time.time() - JOB_STALE:
+        j.update(running=False, stage="", story=None, error=JOB_LOST)
+    return j
+
+
+def _claim(stage: str, as_next: bool = False, story: int | None = None) -> bool:
+    """Mark a job as running for the current user. False when one already runs, in this process or another."""
+    now = time.time()
+    with db.conn() as c:
+        r = c.execute("INSERT INTO coach_jobs(running, stage, error, started, next, story, beat) VALUES (true, ?, NULL, ?, ? = 1, ?, ?) "
+                      "ON CONFLICT (user_id) DO UPDATE SET running=true, stage=excluded.stage, error=NULL, started=excluded.started, "
+                      "next=excluded.next, story=excluded.story, beat=excluded.beat "
+                      "WHERE NOT coach_jobs.running OR coach_jobs.beat < ? RETURNING user_id",
+                      (stage, now, int(as_next), story, now, now - JOB_STALE)).fetchone()
+    return r is not None
+
+
+def _run_job(fn) -> None:
+    """Run a claimed job in the background with a beat, then mark it finished, with its error if it failed."""
+    def run():
+        stop = threading.Event()
+
+        def beat():
+            while not stop.wait(JOB_BEAT):
+                try:
+                    with db.conn() as c:
+                        c.execute("UPDATE coach_jobs SET beat=? WHERE running", (time.time(),))
+                except Exception:  # noqa: BLE001
+                    traceback.print_exc()
+
+        threading.Thread(target=contextvars.copy_context().run, args=(beat,), daemon=True).start()
+        error = None
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            traceback.print_exc()
+            error = f"{type(e).__name__}: {e}"
+        finally:
+            stop.set()
+            with db.conn() as c:
+                c.execute("UPDATE coach_jobs SET running=false, stage='', story=NULL, error=?, beat=?", (error, time.time()))
+
+    db.spawn(run)
 
 
 def _q(sql: str, args=()) -> list[dict]:
@@ -86,7 +142,8 @@ def _q(sql: str, args=()) -> list[dict]:
 
 
 def _stage(text: str):
-    _g()["stage"] = text
+    with db.conn() as c:
+        c.execute("UPDATE coach_jobs SET stage=?, beat=? WHERE running", (text, time.time()))
 
 
 # ---------- small validators ----------
@@ -1163,22 +1220,14 @@ def start_story(pid: int) -> bool:
         return False
     if limits.ai_quota()["blocked"]:
         return False
-    with _lock:
-        if _g()["running"]:
-            return False
-        _g().update(running=True, error=None, started=time.time(), stage="Writing your story", next=False, story=pid)
+    if not _claim("Writing your story", story=pid):
+        return False
 
     def run():
-        try:
-            from . import story
-            story.write(pid)
-        except Exception as e:  # noqa: BLE001
-            traceback.print_exc()
-            _g()["error"] = f"{type(e).__name__}: {e}"
-        finally:
-            _g().update(running=False, stage="", story=None)
+        from . import story
+        story.write(pid)
 
-    db.spawn(run)
+    _run_job(run)
     return True
 
 
@@ -1188,21 +1237,9 @@ def start(reason: str, as_next: bool = False) -> bool:
         return False
     if limits.ai_quota()["blocked"]:
         return False
-    with _lock:
-        if _g()["running"]:
-            return False
-        _g().update(running=True, error=None, started=time.time(), stage="Starting", next=as_next, story=None)
-
-    def run():
-        try:
-            build(reason, as_next=as_next)
-        except Exception as e:  # noqa: BLE001
-            traceback.print_exc()
-            _g()["error"] = f"{type(e).__name__}: {e}"
-        finally:
-            _g().update(running=False, stage="")
-
-    db.spawn(run)
+    if not _claim("Starting", as_next=as_next):
+        return False
+    _run_job(lambda: build(reason, as_next=as_next))
     return True
 
 
@@ -1546,13 +1583,15 @@ def state() -> dict:
     plan = _plan_row() or (_q("SELECT * FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 1") or [None])[0]
     # The first plan waits for the onboarding and the full profile, so its sentences use the learner's real life.
     # A learner who does not want to wait asks for it on Home (POST /api/coach/plan).
-    if not plan and not _g()["running"] and db.get_settings().get("onboarded_at") and not llm.profile_missing(db.get_profile()):
+    job = _job()
+    if not plan and not job["running"] and db.get_settings().get("onboarded_at") and not llm.profile_missing(db.get_profile()):
         start("First plan for this learner, with the full profile.")
+        job = _job()
     midnight = db.day_start(db.local_today())
     use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, COUNT(*) FILTER (WHERE ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
-    out: dict = {"generating": _g()["running"], "stage": _g()["stage"], "building_next": _g()["running"] and _g()["next"], "error": _g()["error"],
-                 "writing_story": _g().get("story"),
-                 "started": _g()["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
+    out: dict = {"generating": job["running"], "stage": job["stage"], "building_next": job["running"] and job["next"], "error": job["error"],
+                 "writing_story": job["story"],
+                 "started": job["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
                  "next_ready": bool(_q("SELECT id FROM plans WHERE status='next'")), "coach_model": COACH_MODEL,
                  "alphabet": alphabet_status(), "ai_quota": limits.ai_quota(),
                  "usage": {"calls": use["n"] or 0, "cost": round(use["cost"] or 0, 4), "today_calls": use["today_n"] or 0, "today_cost": round(use["today_cost"] or 0, 4)}}
@@ -1585,7 +1624,8 @@ def step_state(step_id: int) -> dict | None:
     if not nxt and plan["status"] != "active":
         cur = _plan_row()
         nxt = next((x for x in _steps(cur["id"]) if x["status"] == "open"), None) if cur else None
+    job = _job()
     return {"step": _step_view(s), "plan": {"id": plan["id"], "status": plan["status"]}, "count": len(steps),
             "done": sum(1 for x in steps if x["status"] != "open"), "next": _step_view(nxt) if nxt else None,
-            "generating": _g()["running"], "stage": _g()["stage"]}
+            "generating": job["running"], "stage": job["stage"]}
 

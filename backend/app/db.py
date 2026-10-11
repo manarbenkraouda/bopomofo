@@ -60,11 +60,39 @@ def as_user(user_id: str | None):
         _user.reset(token)
 
 
+_background: set[threading.Thread] = set()
+_background_lock = threading.Lock()
+
+
 def spawn(fn, *args) -> threading.Thread:
-    """Run fn in a background thread as the current user."""
-    t = threading.Thread(target=contextvars.copy_context().run, args=(fn, *args), daemon=True)
+    """Run fn in a background thread as the current user. wait_background() waits for it before the API stops."""
+    ctx = contextvars.copy_context()
+
+    def run():
+        try:
+            ctx.run(fn, *args)
+        finally:
+            with _background_lock:
+                _background.discard(threading.current_thread())
+
+    t = threading.Thread(target=run, daemon=True)
+    with _background_lock:
+        _background.add(t)
     t.start()
     return t
+
+
+def wait_background(timeout: float) -> int:
+    """Wait until the background work (coach plans, stories, checkpoints, voices) is done, at most timeout seconds.
+    Work started meanwhile is waited for too. Returns how many threads still run."""
+    deadline = time.monotonic() + timeout
+    while True:
+        with _background_lock:
+            running = [t for t in _background if t.is_alive()]
+        left = deadline - time.monotonic()
+        if not running or left <= 0:
+            return len(running)
+        running[0].join(min(left, 1.0))
 
 
 # ---------- connections ----------
