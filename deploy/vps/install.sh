@@ -62,7 +62,10 @@ if ! grep -q "import $upstream" "$caddyfile"; then
     { print }
     END { if (!done) exit 1 }
   ' "$caddyfile" >"$caddyfile.new" || { rm -f "$caddyfile.new"; echo "edit the api.bopomofo.app block of $caddyfile by hand: import $upstream" >&2; exit 1; }
-  caddy validate --config "$caddyfile.new" --adapter caddyfile >/dev/null
+  if ! out=$(caddy validate --config "$caddyfile.new" --adapter caddyfile 2>&1); then
+    printf '%s\n' "$out" >&2
+    exit 1
+  fi
   chmod --reference="$caddyfile" "$caddyfile.new" && mv -T "$caddyfile.new" "$caddyfile"
   systemctl reload caddy
 fi
