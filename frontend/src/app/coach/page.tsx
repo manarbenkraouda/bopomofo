@@ -1,6 +1,6 @@
 import { Coach } from "@/components/coach/Coach";
 
-export const metadata = { title: "Coach · bopomofo" };
+export const metadata = { title: "Bobo, your coach · bopomofo" };
 
 export default function Page() {
   return (

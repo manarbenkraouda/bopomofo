@@ -13,6 +13,8 @@ import { playSfx, setSfxEnabled, SFX_KEY } from "@/lib/sfx";
 import { Caps, Kbd } from "./Kbd";
 import { GotoOverlay, HelpOverlay, Palette, type Command } from "./Overlays";
 import { StepBanner } from "./StepBanner";
+import { BoboPose, routeIcon } from "@/components/mascot/Bobo";
+import Image from "next/image";
 import { AiEnergyBadge, AiEnergyWait, AiQuotaProvider } from "@/components/quota/AiQuota";
 
 type Overlay = null | "palette" | "help" | "goto";
@@ -26,10 +28,14 @@ export function Frame({ children }: { children: React.ReactNode }) {
   if (path.startsWith("/onboarding")) return <div className="h-full">{children}</div>;
   if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
     return (
-      <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto p-4">
-        <div className="flex items-center gap-3">
-          <span className="cjk grid h-11 w-11 place-items-center rounded-2xl bg-accent text-xl text-white shadow">注</span>
-          <span className="text-xl font-semibold">bopomofo</span>
+      <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto p-4 lg:flex-row lg:gap-16">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex items-center gap-3">
+            <Image src="/icon-192.png" alt="" width={44} height={44} className="rounded-2xl shadow" priority />
+            <span className="text-xl font-semibold">bopomofo</span>
+          </div>
+          <BoboPose pose="welcome" className="w-32 md:w-40 lg:w-72" priority />
+          <p className="max-w-xs text-sm text-muted max-lg:hidden"><b className="text-ink">歡迎!</b> I&apos;m Bobo, a Formosan black bear. Sign in and I&apos;ll coach you through Bopomofo, one tone at a time.</p>
         </div>
         {children}
       </main>
@@ -182,7 +188,7 @@ function Rail({ path, profileGaps }: { path: string; profileGaps: number }) {
     return (
       <Link key={r.href} href={r.href} data-active={active} className="rail-item"
         title={nudge ? "Complete your profile: " + profileGaps + " facts missing (G then P)" : r.label + " (G then " + keyCaps(r.key).join("") + ")"}>
-        <span className="cjk text-[21px] leading-none">{r.icon}</span>
+        <span className="cjk text-[21px] leading-none">{routeIcon(r, 26)}</span>
         <span className="text-[10px] leading-none">{r.label}</span>
         {nudge && <NudgeDot gaps={profileGaps} />}
       </Link>
@@ -221,7 +227,7 @@ function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, o
   return (
     <header className="hidden min-w-0 items-center gap-4 border-b border-line bg-card px-5 md:flex">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-lg text-accent">{route.icon}</span>
+        <span className="cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-lg text-accent">{routeIcon(route, 36)}</span>
         <div className="min-w-0">
           <div className="font-semibold leading-tight">{route.label}</div>
           <div className="truncate text-xs text-muted">{route.desc}</div>
@@ -291,7 +297,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
       {lesson ? (
         <div className="flex h-14 items-center gap-3 px-3">
           <Link href="/" aria-label="Back to Home" className="icon-btn !h-10 !w-10 text-xl">✕</Link>
-          <span className="cjk text-lg text-accent" aria-label={route.label}>{route.icon}</span>
+          <span className="cjk text-lg text-accent" aria-label={route.label}>{routeIcon(route, 28)}</span>
           <div className="relative h-3.5 flex-1 overflow-hidden rounded-full bg-line" title={"Daily goal: " + minutes + " of " + goal + " minutes"}>
             <div className={"absolute inset-y-0 left-0 rounded-full transition-all duration-500 " + (today.goalHit ? "bg-ok" : "bg-accent")} style={{ width: Math.max(4, pct) + "%" }} />
             <div className="absolute inset-x-2 top-[3px] h-1 rounded-full bg-white/25" style={{ width: "calc(" + Math.max(4, pct) + "% - 1rem)" }} />
@@ -302,7 +308,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
         </div>
       ) : (
         <div className="flex h-14 items-center gap-2.5 px-4">
-          <span className={"cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg " + (route.area === "home" ? "bg-accent text-white" : "bg-accent-soft text-accent")}>{route.area === "home" ? "注" : route.icon}</span>
+          <span className={"cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg " + (route.area === "home" ? "bg-accent text-white" : "bg-accent-soft text-accent")}>{route.area === "home" ? "注" : routeIcon(route, 36)}</span>
           <div className="min-w-0 flex-1 truncate font-semibold">{route.area === "home" ? "bopomofo" : route.label}</div>
           <span className="hud !h-8 !px-2.5" title="Days in a row with practice">🔥<b className="tabular-nums">{dayStreak ?? "–"}</b></span>
           <span className="hud !h-8 !px-2.5">{combo}</span>
@@ -332,7 +338,7 @@ function BottomNav({ path, profileGaps }: { path: string; profileGaps: number })
         const active = href === "/" ? path === "/" : path.startsWith(href);
         return (
           <Link key={href} href={href} data-active={active} className="tab">
-            <span className="tab-icon cjk">{r.icon}</span>
+            <span className="tab-icon cjk">{routeIcon(r, 24)}</span>
             {r.label}
             {href === "/settings" && profileGaps > 0 && <NudgeDot gaps={profileGaps} />}
           </Link>

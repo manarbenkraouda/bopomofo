@@ -7,6 +7,7 @@ import { api, type StepState } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
 import { playSfx } from "@/lib/sfx";
 import { Caps } from "./Kbd";
+import { BoboFace, BoboPose } from "@/components/mascot/Bobo";
 
 const FOCUS_KEYS = ["tones", "syms", "items", "ids", "learn"];
 
@@ -54,8 +55,8 @@ export function StepBanner() {
   return (
     <div className={"sticky top-0 z-20 -mx-4 -mt-3 mb-3 border-b px-4 py-2.5 backdrop-blur md:-mx-6 md:-mt-5 md:mb-4 md:px-6 lg:-mx-10 lg:px-10 " + (done ? "border-ok/50 bg-ok/10" : "border-line bg-card/95")}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link href="/coach" className="shrink-0 rounded-lg bg-accent-soft px-2 py-1 text-xs font-semibold text-accent" title="Open the plan (G then C)">
-          <span className="cjk">練</span> {step.pos + 1}/{s.count}
+        <Link href="/coach" className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent-soft py-0.5 pl-0.5 pr-2.5 text-xs font-semibold text-accent" title="Open Bobo's plan (G then C)">
+          {done ? <BoboPose pose="celebrate" className="w-6" /> : <BoboFace size={24} />} {step.pos + 1}/{s.count}
         </Link>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{done ? "✓ Step done: " : ""}{step.title}</div>
@@ -70,13 +71,13 @@ export function StepBanner() {
           </button>
         )}
         {done && !next && (
-          <Link href="/coach" className="btn shrink-0 max-md:w-full max-md:justify-center">{s.generating ? "Plan done · the next plan is being built…" : "Plan done · open the coach"}</Link>
+          <Link href="/coach" className="btn shrink-0 max-md:w-full max-md:justify-center">{s.generating ? "Plan done · the next plan is being built…" : "Plan done · back to Bobo"}</Link>
         )}
       </div>
-      {step.note && !done && <div className="mt-1.5 text-xs text-muted"><b className="text-accent">Coach:</b> {step.note.text}</div>}
+      {step.note && !done && <div className="mt-1.5 flex items-center gap-1.5 text-xs text-muted"><BoboFace size={18} /><span><b className="text-accent">Bobo:</b> {step.note.text}</span></div>}
       {changed && (
         <button onClick={() => router.replace(step.href)} className="chip mt-1.5 flex items-center gap-1.5 !border-accent text-xs text-accent">
-          The coach changed the focus of this step. Apply <Caps caps={["Shift", "U"]} className="max-md:!hidden" />
+          Bobo changed the focus of this step. Apply <Caps caps={["Shift", "U"]} className="max-md:!hidden" />
         </button>
       )}
     </div>

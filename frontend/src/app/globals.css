@@ -183,3 +183,13 @@ button, a, label { touch-action: manipulation; }
 .app-toast { bottom: 56px; animation: toast-in .2s cubic-bezier(.2, .8, .3, 1); }
 @media (max-width: 767px) { .app-toast { bottom: calc(84px + env(safe-area-inset-bottom)); } }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* Bobo, the Formosan black bear coach. The bear is near black: a warm light disc keeps it visible in both themes. */
+.bobo-disc { background: radial-gradient(circle at 50% 38%, #fffaf1 0%, #f6e3d6 70%, #eccab8 100%); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.bobo-glow::before { content: ""; position: absolute; inset: 8% 4% 2%; border-radius: 9999px; background: radial-gradient(circle, color-mix(in srgb, #fff3e3 55%, transparent) 0%, color-mix(in srgb, var(--accent) 18%, transparent) 50%, transparent 72%); }
+/* Bobo's white V collar, the mark of the brand, used large and faint behind cards. */
+.v-mark { aspect-ratio: 1.35; background: var(--ink); opacity: .06; clip-path: polygon(0 0, 24% 0, 50% 58%, 76% 0, 100% 0, 50% 100%); }
+.bobo-bob { animation: bobo-bob 1.6s ease-in-out infinite; }
+@keyframes bobo-bob { 0%, 100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-3px) rotate(-4deg); } 75% { transform: translateY(-3px) rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .bobo-bob { animation: none; } }
+

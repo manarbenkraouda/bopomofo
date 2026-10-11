@@ -79,7 +79,7 @@ _checking: set[int] = set()
 # JOB_BEAT seconds; without a beat for JOB_STALE seconds it died with its process, and a new job may start.
 JOB_BEAT = 20
 JOB_STALE = 90
-JOB_LOST = "The coach stopped before it finished. Ask again for a new plan."
+JOB_LOST = "Bobo stopped before finishing the plan. Ask again for a new plan."
 _IDLE = {"running": False, "stage": "", "error": None, "started": 0.0, "next": False, "story": None}
 
 
@@ -607,6 +607,7 @@ def digest() -> dict:
 # ---------- model calls ----------
 
 COMMON = """You are part of the coach inside bopomofo, a private app for one adult who learns Taiwan Mandarin and Bopomofo (Zhuyin).
+The learner knows the coach as Bobo (波波), a cute Formosan black bear. When learner text names the coach, call it Bobo.
 The app saves every answer down to each tone, initial, final, symbol, and stroke, with what the learner produced instead.
 The coach is a pipeline of small decisions. You make one of them. Rules for every decision:
 - Data first. Base every claim on the numbers you get, and quote them (counts, percentages, what was produced instead, the context).
@@ -1123,7 +1124,7 @@ def rules_plan(d: dict) -> dict:
             {"type": "write_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Write the first symbols", "why": "A first try at writing them."},
             {"type": "speak_sounds", "unit": "tone", "tones": [1, 2, 3, 4], "source": "syllable", "target": 10, "title": "Say single syllables", "why": "A first look at how you say the tones."},
         ]
-    return {"diagnosis": "Built by rules from your weak spots, because the coach model was not available.", "steps": steps[:6], "milestones": None}
+    return {"diagnosis": "Built by rules from your weak spots, because Bobo's planner was not available.", "steps": steps[:6], "milestones": None}
 
 
 def _run_pipeline(d: dict, reason: str, run: str) -> dict:

@@ -11,6 +11,7 @@ import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
 import { Burst } from "@/components/quiz/Feedback";
 import { TimezonePicker } from "@/components/settings/TimezonePicker";
+import { BoboPose } from "@/components/mascot/Bobo";
 
 /**
  * The onboarding after sign-up: one question per screen, a progress bar, Back, and a fixed Continue bar on a phone.
@@ -341,7 +342,7 @@ function Welcome({ email, onSignOut }: { email?: string; onSignOut: () => void }
           <motion.span key={f.s} aria-hidden className="cjk absolute text-3xl text-accent/70" style={{ left: "calc(50% + " + f.x + ")", top: "calc(50% + " + f.y + ")" }}
             animate={{ y: [0, -8, 0] }} transition={{ duration: 3.2, delay: f.d, repeat: Infinity, ease: "easeInOut" }}>{f.s}</motion.span>
         ))}
-        <span className="cjk zq-pop grid h-28 w-28 place-items-center rounded-[32px] bg-accent text-6xl text-white shadow-2xl ring-8 ring-accent-soft">注</span>
+        <BoboPose pose="welcome" className="zq-pop h-full w-auto [&_img]:h-full [&_img]:w-auto" priority />
       </div>
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold leading-tight md:text-4xl">Learn Mandarin<br />the Taiwan way</h1>
@@ -424,12 +425,12 @@ function Done({ d, mic }: { d: Draft; mic: Mic }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 py-4 text-center">
       <div className="relative inline-flex items-center justify-center">
-        <span className="cjk zq-pop grid h-24 w-24 place-items-center rounded-3xl bg-accent text-5xl text-white shadow-2xl ring-8 ring-accent-soft">注</span>
+        <BoboPose pose="celebrate" className="zq-pop w-44 md:w-52" priority />
         <Burst />
       </div>
       <div className="flex flex-col gap-1.5">
         <h1 className="text-2xl font-bold md:text-3xl">You&apos;re all set, {d.name.trim()}!</h1>
-        <p className="mx-auto max-w-sm text-muted">Your coach is writing your first plan from your answers. It is ready in about a minute.</p>
+        <p className="mx-auto max-w-sm text-muted">I’m Bobo (波波), your coach. I’m writing your first plan from your answers. It is ready in about a minute.</p>
       </div>
       <div className="card w-full divide-y divide-line overflow-hidden text-left">
         {rows.map(([icon, label, value]) => (

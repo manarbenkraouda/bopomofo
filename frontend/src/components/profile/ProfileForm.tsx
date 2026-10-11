@@ -42,7 +42,7 @@ const SECTIONS: Section[] = [
 const FIELDS = SECTIONS.flatMap((s) => s.fields);
 const LABEL = Object.fromEntries(FIELDS.map((f) => [f.key, f.label]));
 const filled = (p: Profile, k: string) => !!(p[k] ?? "").trim();
-const COMPLETE = "Profile complete! Your coach knows you now.";
+const COMPLETE = "Profile complete! Bobo knows you now.";
 
 // Words that say nothing about the learner, so they do not count as a match in a sentence.
 const STOP = new Set("with from that this have want going last next month year years bigger smaller older younger couple about their there where which when what into also very much more some like just been them they will would could should than then only other each".split(" "));
@@ -197,7 +197,7 @@ export function ProfileForm() {
               <Ring value={count} total={FIELDS.length} />
               <div className="min-w-0">
                 <div className="font-semibold">{count === FIELDS.length ? "Profile complete" : count + " of " + FIELDS.length + " facts"}</div>
-                <p className="text-sm text-muted">Your sentences and coach plans use these facts. Nothing is invented about you.</p>
+                <p className="text-sm text-muted">Your sentences and Bobo’s plans use these facts. Nothing is invented about you.</p>
               </div>
             </div>
             {missing.length > 0 && (

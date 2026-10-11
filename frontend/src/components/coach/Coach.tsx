@@ -10,6 +10,7 @@ import { ActionBar } from "@/components/shell/ActionBar";
 import { Caps, Kbd } from "@/components/shell/Kbd";
 import { StoryPlayer } from "@/components/story/StoryPlayer";
 import { useAiQuota } from "@/components/quota/AiQuota";
+import { BoboFace, BoboPackshot, BoboPose, BoboSays, VMark } from "@/components/mascot/Bobo";
 
 export const STEP_ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", recognize_symbols: "認", write_symbols: "默", write_syllables: "寫" };
 const STEP_KIND: Record<string, string> = {
@@ -105,7 +106,7 @@ export function Coach() {
     { keys: ["KeyW"], label: hasStory ? "How do we know?" : "Write the story", run: story, when: !!st?.plan && !st.generating && (hasStory || (!!quota && !aiBlocked)) },
   ], { active: !storyOpen });
 
-  if (!st) return <div className="grid flex-1 place-items-center text-muted">{err || "Loading the coach…"}</div>;
+  if (!st) return <div className="grid flex-1 place-items-center text-muted">{err || <span className="flex flex-col items-center gap-3"><BoboFace size={64} pulse />Bobo is on the way…</span>}</div>;
   const plan = st.plan;
   const elapsed = st.generating && now ? Math.max(0, Math.round(now - st.started)) : 0;
   const lead = open ? cur : firstOpen >= 0 ? steps[firstOpen] : null;
@@ -117,16 +118,16 @@ export function Coach() {
 
   return (
     <div className="flex flex-1 flex-col gap-5 md:gap-6">
-      {err && <div className="card border-bad/60 p-3 text-sm text-bad">{err}</div>}
+      {err && <div className="card flex items-center gap-3 border-bad/60 p-3 text-sm text-bad"><BoboPose pose="encourage" className="w-12" />{err}</div>}
       {storyOpen && plan && hasStory && (
         <StoryPlayer planId={plan.id} onClose={() => setStoryOpen(false)} onStart={() => { setStoryOpen(false); start(lead ?? undefined); }} />
       )}
 
       {st.generating && !st.building_next && !writing && (
         <section className="card flex items-center gap-4 p-5">
-          <span className="cjk grid h-12 w-12 shrink-0 animate-pulse place-items-center rounded-2xl bg-accent text-2xl text-white">練</span>
+          <BoboPose pose="thinking" className="w-16" bob />
           <div className="min-w-0 flex-1">
-            <div className="font-semibold">The coach is building your next plan…</div>
+            <div className="font-semibold">Bobo is building your next plan…</div>
             <div className="text-sm text-muted">{st.stage || "Starting"} · {elapsed}s · about a minute</div>
           </div>
         </section>
@@ -154,9 +155,12 @@ export function Coach() {
         </div>
       )}
       {!steps.length && !st.generating && (
-        <div className="card flex flex-col items-start gap-3 p-6">
-          <div className="font-semibold">No plan yet</div>
-          <p className="text-sm text-muted">The coach reads your answers and builds a short plan of steps for you.</p>
+        <div className="card relative flex flex-col items-center gap-5 overflow-hidden p-6 sm:flex-row sm:items-center md:p-8">
+          <VMark className="-bottom-24 -right-10 w-72" />
+          <BoboPackshot className="w-40 shrink-0 md:w-52" priority />
+          <div className="relative flex flex-col items-start gap-3">
+          <div className="text-xl font-semibold">Hi, I&apos;m Bobo! <span className="cjk text-accent">波波</span></div>
+          <p className="text-sm text-muted">I&apos;m a Formosan black bear, and your coach. I read your answers and build a short plan of steps for you.</p>
           {profileGaps > 0 && (
             <p className="text-sm text-muted">
               Your first plan waits for your profile, so its sentences talk about your life.{" "}
@@ -164,6 +168,7 @@ export function Coach() {
             </p>
           )}
           <button className="btn btn-accent" onClick={newPlan} disabled={!quota || aiBlocked}>{aiBlocked ? "AI is recharging" : "Build my plan"} <Kbd className="max-md:!hidden">P</Kbd></button>
+          </div>
         </div>
       )}
 
@@ -199,17 +204,17 @@ function PlanHeader({ st, sel, onSelect, onStory, onNewPlan, writing }: {
   const finished = steps.length > 0 && !steps.some((s) => s.status === "open");
   return (
     <section className="card relative overflow-hidden p-5 md:p-7">
-      <div className="pointer-events-none absolute -bottom-10 -right-2 select-none cjk text-[150px] leading-none text-accent opacity-[.06]">練習</div>
+      <VMark className="-bottom-16 -right-8 w-72" />
       {/* Phone: headline, progress, buttons. Desktop: the buttons on the right of the headline and the progress. */}
       <div className="relative grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:gap-x-8">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-            <span className="font-semibold uppercase tracking-wide text-accent">{plan.status === "active" ? "Your plan" : plan.status === "done" ? "Plan finished" : "Previous plan"}</span>
+            <BoboFace size={32} /><span className="font-semibold uppercase tracking-wide text-accent">{plan.status === "active" ? "Bobo's plan for you" : plan.status === "done" ? "Plan finished" : "Previous plan"}</span>
             <span>built {ago(plan.ts)}</span>
-            {plan.source !== "llm" && <span className="text-rough" title={plan.error ?? ""}>built by rules: the coach model was not available</span>}
+            {plan.source !== "llm" && <span className="text-rough" title={plan.error ?? ""}>built by rules: Bobo’s planner was not available</span>}
           </div>
           <p className="mt-3 max-w-3xl text-xl font-semibold leading-snug md:text-[1.6rem] md:leading-tight">
-            {plan.headline ?? (st.generating ? "The coach is writing a short summary of this plan…" : <span className="line-clamp-3 text-base font-normal text-muted">{plan.diagnosis}</span>)}
+            {plan.headline ?? (st.generating ? "Bobo is writing a short summary of this plan…" : <span className="line-clamp-3 text-base font-normal text-muted">{plan.diagnosis}</span>)}
           </p>
         </div>
         <div className="order-3 flex flex-wrap items-center gap-2 lg:order-none lg:row-span-2 lg:flex-col lg:items-stretch">
@@ -230,7 +235,7 @@ function PlanHeader({ st, sel, onSelect, onStory, onNewPlan, writing }: {
               ))}
             </div>
             <div className="mt-2 text-sm text-muted">
-              {finished ? "All steps are done. The coach builds the next plan from your new answers." : done + " of " + steps.length + " steps done · about " + left + " min left"}
+              {finished ? <span className="flex items-center gap-3"><BoboPose pose="celebrate" className="w-16" />All steps are done! Bobo builds the next plan from your new answers.</span> : done + " of " + steps.length + " steps done · about " + left + " min left"}
             </div>
           </div>
         )}
@@ -322,7 +327,7 @@ function StepDetail({ s, i, alphabet, findings, onStart, onSkip, onEvidence }: {
         </div>
       )}
 
-      {s.note && <div className="rounded-xl bg-raise px-3.5 py-2.5 text-sm"><b className="text-accent">Coach:</b> {s.note.text}</div>}
+      {s.note && <BoboSays><b className="text-accent">Bobo:</b> {s.note.text}</BoboSays>}
 
       {symbolStep && <StepSymbols syms={s.params.syms!} alphabet={alphabet} />}
 
@@ -398,7 +403,7 @@ function AboutPlan({ st, cur, tab, setTab, allFindings, setAllFindings, innerRef
   if (st.milestones.length) tabs.push({ id: "goals", label: "Goals", count: st.milestones.filter((m) => m.status === "achieved").length + "/" + st.milestones.length });
   if (a && a.known_count < 37) tabs.push({ id: "alphabet", label: "Alphabet", count: a.known_count + "/37" });
   if (findings.length) tabs.push({ id: "evidence", label: "Evidence", count: String(findings.length) });
-  if (st.notes.length) tabs.push({ id: "notes", label: "Coach notes", count: String(st.notes.length) });
+  if (st.notes.length) tabs.push({ id: "notes", label: "Bobo's notes", count: String(st.notes.length) });
   if (past.length) tabs.push({ id: "history", label: "Past plans", count: String(past.length) });
   if (!tabs.length) return null;
   const active = tab && tabs.some((t) => t.id === tab) ? tab : tabs[0].id;
@@ -483,7 +488,7 @@ function Evidence({ plan, cur, all, toggle }: { plan: NonNullable<CoachState["pl
   const shown = all ? list : list.slice(0, 4);
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-muted">What the coach found in your stats before it wrote the plan. Highlighted: the findings behind the selected step.</p>
+      <p className="flex items-center gap-3 text-xs text-muted"><BoboPose pose="investigate" className="w-14" />What Bobo found in your stats before writing the plan. Highlighted: the findings behind the selected step.</p>
       <div className="grid gap-3 md:grid-cols-2">{shown.map((f) => <FindingCard key={f.id} f={f} cited={!!cur?.finding_ids.includes(f.id)} />)}</div>
       <button className="btn w-fit !py-1.5 text-sm" onClick={toggle}>{all ? "Show less" : "Show all " + list.length + " findings, strengths, and gaps"}</button>
       {all && (plan.strengths.length > 0 || plan.unknown.length > 0 || plan.too_advanced.length > 0) && (
@@ -554,5 +559,5 @@ function Alphabet({ a }: { a: NonNullable<CoachState["alphabet"]> }) {
 }
 
 export function CoachLink() {
-  return <Link href="/coach" className="flex items-center gap-1 text-xs text-accent hover:underline">Open the coach <Caps caps={["G", "C"]} className="max-md:!hidden" /></Link>;
+  return <Link href="/coach" className="flex items-center gap-1 text-xs text-accent hover:underline">Open Bobo’s plan <Caps caps={["G", "C"]} className="max-md:!hidden" /></Link>;
 }

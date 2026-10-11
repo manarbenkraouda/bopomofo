@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { keyCaps, useHotkeys, useLayers, type Hotkey } from "@/lib/hotkeys";
 import { ROUTES, type RouteInfo } from "@/lib/routes";
 import { Caps, Kbd } from "./Kbd";
+import { BoboPose, poseFor, routeIcon } from "@/components/mascot/Bobo";
 
 export type Command = { group: string; label: string; hint?: string; caps?: string[]; run: () => void };
 
@@ -28,7 +29,7 @@ export function GotoOverlay({ onGo, onClose }: { onGo: (href: string) => void; o
           {ROUTES.map((r) => (
             <button key={r.href} onClick={() => onGo(r.href)} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5 text-left hover:border-accent">
               <Kbd className="w-7">{keyCaps(r.key)}</Kbd>
-              <span className="cjk w-6 text-center text-lg text-accent">{r.icon}</span>
+              <span className="cjk grid w-6 place-items-center text-lg text-accent">{routeIcon(r, 24)}</span>
               <span className="font-medium">{r.label}</span>
             </button>
           ))}
@@ -104,9 +105,10 @@ export function HelpOverlay({ route, onClose }: { route: RouteInfo; onClose: () 
       <div className="grid gap-6 p-6 md:grid-cols-[1fr_1fr]">
         <section>
           <div className="mb-1 flex items-center gap-2">
-            <span className="cjk text-2xl text-accent">{route.icon}</span>
+            <span className="cjk text-2xl text-accent">{routeIcon(route, 36)}</span>
             <h2 className="text-lg font-semibold">{route.label}</h2>
           </div>
+          <BoboPose pose={poseFor(route)} className="float-right ml-3 w-24 md:w-28" />
           <p className="mb-4 text-sm leading-relaxed text-muted">{route.about}</p>
           <h3 className="mb-2 text-xs uppercase tracking-wide text-muted">Keys on this screen</h3>
           {page.length ? (

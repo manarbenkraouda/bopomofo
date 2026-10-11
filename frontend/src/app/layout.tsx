@@ -12,7 +12,6 @@ export const metadata: Metadata = {
   title: "bopomofo",
   description: "Learn Bopomofo: reading, writing, listening, and speaking with tone feedback.",
   appleWebApp: { capable: true, title: "bopomofo", statusBarStyle: "black-translucent" },
-  icons: { icon: "/icon.svg", apple: "/icon.svg" },
 };
 
 // viewportFit "cover": the app draws under the phone's notch and home bar; the shell keeps clear of them with safe-area padding.

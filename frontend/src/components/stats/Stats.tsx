@@ -9,6 +9,7 @@ import { goalMinutes } from "@/lib/session";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { INITIALS } from "@/lib/zhuyin";
 import { Kbd } from "@/components/shell/Kbd";
+import { BoboPose } from "@/components/mascot/Bobo";
 import { AccGrid, AREA_COLOR, AREA_LABEL, AREA_ORDER, accTone, Calendar, DailyChart, Disclosure, Hours, Matrix, Meter, pct, secs, Segmented, shortDay, tint } from "./charts";
 
 // The ids "today" and "history" are kept so the saved tab of older versions still opens.
@@ -113,7 +114,7 @@ export function Stats() {
       {error && <div className="card p-3 text-sm text-bad">{error}</div>}
       {!data && !error && <div className="text-muted">Loading your history…</div>}
       {data && !data.overview.cards && tab !== "history" && tab !== "today" && (
-        <div className="card p-6 text-muted">No answers in this range yet. Practice a little, or choose a longer range with ] .</div>
+        <div className="card flex items-center gap-4 p-6 text-muted"><BoboPose pose="investigate" className="w-20 md:w-24" />Bobo found no answers in this range yet. Practice a little, or choose a longer range with ] .</div>
       )}
       {data && tab === "today" && (
         <OverviewView data={data} days={days} weak={weakShown} sel={sel} setSel={setSel} allWeak={allWeak} toggleWeak={() => { setAllWeak((v) => !v); setSel(0); }} />
@@ -158,7 +159,7 @@ function OverviewView({ data, days, weak, sel, setSel, allWeak, toggleWeak }: {
             </div>
             {vs && o.prev && <div className="relative mt-2 text-[11px] text-muted">Changes: {vs}</div>}
           </>
-        ) : <p className="relative mt-2 text-muted">No answers in this range yet. Practice a little, or choose a longer range with ] .</p>}
+        ) : <p className="relative mt-2 flex items-center gap-4 text-muted"><BoboPose pose="investigate" className="w-20" />Bobo found no answers in this range yet. Practice a little, or choose a longer range with ] .</p>}
       </section>
 
       <section>

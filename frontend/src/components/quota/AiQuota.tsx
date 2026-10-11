@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AI_QUOTA_EVENT, api, type AiQuota } from "@/lib/api";
 import { quotaCountdown, quotaSeconds } from "@/lib/quota-clock";
 import { playSfx } from "@/lib/sfx";
+import { BoboPose } from "@/components/mascot/Bobo";
 
 type Snapshot = { quota: AiQuota; receivedAt: number };
 type QuotaState = { quota: AiQuota | null; blocked: boolean; refilled: boolean; refresh: () => void };
@@ -102,10 +103,10 @@ export function AiEnergyCard({ compact = false }: { compact?: boolean }) {
     <section aria-label="AI energy" className={"card ai-energy-card flex flex-col gap-4 p-4 md:p-5 " +
       (blocked ? "border-rough/40" : refilled ? "zq-pop border-ok/60" : "") }>
       <div className="flex items-center gap-4">
-        <EnergyIcon sleeping={blocked} />
+        {blocked ? <BoboPose pose="sleeping" className="w-20 md:w-24" /> : <EnergyIcon />}
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-bold uppercase tracking-wider text-muted">Daily AI energy</div>
-          <h2 className="text-lg font-bold leading-tight">{blocked ? "Time to recharge" : refilled ? "Your AI energy is back!" : "Ready for your next idea"}</h2>
+          <h2 className="text-lg font-bold leading-tight">{blocked ? "Bobo is recharging" : refilled ? "Your AI energy is back!" : "Ready for your next idea"}</h2>
           <p className="mt-1 text-sm text-muted">{blocked ? "Sentences, translation, and AI plans unlock at midnight." : "New sentences, translations, and plans share this energy."}</p>
         </div>
         {!blocked && <b className="shrink-0 text-xl tabular-nums text-ok">{quota.remaining_percent}%</b>}

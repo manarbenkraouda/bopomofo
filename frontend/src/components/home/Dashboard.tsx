@@ -10,6 +10,7 @@ import { LAST_KEY, MODES, routeFor, type RouteInfo } from "@/lib/routes";
 import { goalMinutes, useToday } from "@/lib/session";
 import { Caps, Kbd } from "@/components/shell/Kbd";
 import { focusChips, STEP_ICON } from "@/components/coach/Coach";
+import { BoboFace, BoboPose, poseFor, VMark } from "@/components/mascot/Bobo";
 
 // The backend groups answers by area (older dictation answers are counted as dictation too).
 const AREA_OF: Record<string, string> = { "/reading": "reading", "/recognize": "recognize", "/listening": "listening", "/dictation": "dictation", "/speaking": "speaking", "/writing": "writing" };
@@ -52,7 +53,7 @@ export function Dashboard() {
   useHotkeys("home", [
     { keys: ["Enter"], label: "Complete my profile", run: fillProfile, when: welcome },
     { keys: ["KeyB"], label: "Build my plan now", run: buildNow, when: welcome && !building },
-    { keys: ["Enter"], label: "Coach step: " + (step?.title ?? ""), run: () => step && router.push(step.href), when: !!step },
+    { keys: ["Enter"], label: "Bobo's step: " + (step?.title ?? ""), run: () => step && router.push(step.href), when: !!step },
     { keys: step || welcome ? ["KeyC"] : ["Enter", "KeyC"], label: "Continue: " + last.label, run: () => router.push(last.href) },
     ...MODES.map((m, i) => ({ keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]], label: m.label, run: () => router.push(m.href), bar: false })),
     { keys: [], label: "Open a mode", show: ["1–" + MODES.length] },
@@ -93,6 +94,7 @@ export function Dashboard() {
               <span className="cjk">{last.icon}</span> Continue: {last.label} <Kbd className="max-md:!hidden">{step || welcome ? "C" : "Enter"}</Kbd>
             </button>
           </div>
+          <BoboPose key={today.goalHit ? "tea" : last.href} pose={today.goalHit ? "bubbletea" : poseFor(last)} className="zq-pop relative hidden w-28 shrink-0 self-end sm:block xl:w-32" />
         </div>
 
         <div className={"card order-last grid gap-5 p-5 sm:grid-cols-2 lg:order-none lg:col-start-2" + row1}>
@@ -228,14 +230,15 @@ function WelcomeCard({ profile, building, error, onFill, onBuild }: {
     <section className="card relative overflow-hidden border-accent/50 p-5 md:p-7 lg:col-span-2 lg:row-start-1">
       <div className="pointer-events-none absolute -bottom-14 left-[30%] select-none cjk text-[150px] leading-none text-accent opacity-[.05]">歡迎</div>
       <div className="relative grid gap-6 md:grid-cols-[1.3fr_1fr] md:gap-10">
-        <div className="min-w-0">
+        <div className="relative min-w-0">
+          <BoboPose pose="welcome" className="float-right -mt-2 ml-3 w-24 sm:w-32 lg:w-36" priority />
           <div className="text-xs font-semibold uppercase tracking-wide text-accent">Welcome to bopomofo</div>
           <h2 className="mt-2 text-2xl font-semibold leading-tight md:text-3xl">
             {name ? "Welcome, " + name + "!" : "Welcome!"} <span className="cjk text-accent">歡迎</span>
           </h2>
           <p className="mt-2 max-w-xl text-[15px] text-muted">
-            Your coach writes your practice sentences about your own life: your city, your work, the people you love.
-            Tell it a little more about you, and it builds your first plan around you.
+            I’m Bobo (波波), your coach. I write your practice sentences about your own life: your city, your work, the people you love.
+            Tell me a little more about you, and I build your first plan around you.
           </p>
           <div className="mt-4 flex flex-col gap-1.5 rounded-xl bg-bg/60 p-3.5 text-[15px] leading-relaxed">
             <div className="text-xs text-muted">Soon you will say sentences like these in Mandarin:</div>
@@ -278,7 +281,7 @@ function WelcomeCard({ profile, building, error, onFill, onBuild }: {
             ))}
             {gaps.length > shown.length && <span className="self-center text-sm text-muted">and {gaps.length - shown.length} more</span>}
           </div>
-          <p className="mt-auto text-xs text-muted">Nothing is invented about you: the coach uses only the facts you write.</p>
+          <p className="mt-auto text-xs text-muted">Nothing is invented about you: Bobo uses only the facts you write.</p>
         </div>
       </div>
     </section>
@@ -286,18 +289,18 @@ function WelcomeCard({ profile, building, error, onFill, onBuild }: {
 }
 
 
-/** The coach's next step, first on Home: what to practice now and why. */
+/** Bobo's next step, first on Home: what to practice now and why. */
 function CoachCard({ st }: { st: CoachState }) {
   const router = useRouter();
   const step = st.steps.find((s) => s.status === "open") ?? null;
   const ms = st.milestones.filter((m) => m.status === "active").slice(0, 3);
   return (
     <section className="card relative overflow-hidden border-accent/50 p-5 md:p-6 lg:col-span-2 lg:row-start-1">
-      <div className="pointer-events-none absolute -right-3 -top-8 select-none cjk text-[130px] leading-none text-accent opacity-[.07]">練</div>
+      <VMark className="-right-6 -top-10 w-56" />
       <div className="relative grid gap-5 md:grid-cols-[1.4fr_1fr] md:gap-8">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-muted">
-            <span className="font-semibold uppercase tracking-wide text-accent">Coach</span>
+            <BoboFace size={28} /><span className="font-semibold uppercase tracking-wide text-accent">Bobo</span>
             {step && <span>step {st.steps.indexOf(step) + 1} of {st.steps.length}</span>}
             <Link href="/coach" className="ml-auto flex items-center gap-1 text-accent hover:underline">Plan <Caps caps={["G", "C"]} className="max-md:!hidden" /></Link>
           </div>
@@ -320,8 +323,8 @@ function CoachCard({ st }: { st: CoachState }) {
             </>
           ) : (
             <div className="mt-3 flex items-center gap-3 text-sm text-muted">
-              <span className="cjk grid h-10 w-10 animate-pulse place-items-center rounded-xl bg-accent-soft text-xl text-accent">練</span>
-              The coach is preparing your plan: {st.stage || "getting started"}…
+              <BoboPose pose="thinking" className="w-14" bob />
+              Bobo is preparing your plan: {st.stage || "getting started"}…
             </div>
           )}
         </div>
