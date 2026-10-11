@@ -12,7 +12,7 @@ import { Caps, Kbd } from "@/components/shell/Kbd";
 import { focusChips, STEP_ICON } from "@/components/coach/Coach";
 
 // The backend groups answers by area (older dictation answers are counted as dictation too).
-const AREA_OF: Record<string, string> = { "/reading": "reading", "/listening": "listening", "/dictation": "dictation", "/speaking": "speaking", "/writing": "writing" };
+const AREA_OF: Record<string, string> = { "/reading": "reading", "/recognize": "recognize", "/listening": "listening", "/dictation": "dictation", "/speaking": "speaking", "/writing": "writing" };
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
 export function Dashboard() {

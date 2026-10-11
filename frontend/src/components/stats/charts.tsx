@@ -2,9 +2,9 @@
 // Small chart parts for the stats screen. Plain HTML and CSS, in the theme colors.
 import type { Stats } from "@/lib/api";
 
-export const AREA_COLOR: Record<string, string> = { reading: "#e5643f", listening: "#4f9cf0", dictation: "#a77bf3", writing: "#e3a62b", speaking: "#3cbc80" };
-export const AREA_LABEL: Record<string, string> = { reading: "Reading", listening: "Listening", dictation: "Dictation", writing: "Writing", speaking: "Speaking" };
-export const AREA_ORDER = ["reading", "listening", "dictation", "writing", "speaking"];
+export const AREA_COLOR: Record<string, string> = { reading: "#e5643f", recognize: "#d4588f", listening: "#4f9cf0", dictation: "#a77bf3", writing: "#e3a62b", speaking: "#3cbc80" };
+export const AREA_LABEL: Record<string, string> = { reading: "Reading", recognize: "Recognize", listening: "Listening", dictation: "Dictation", writing: "Writing", speaking: "Speaking" };
+export const AREA_ORDER = ["reading", "recognize", "listening", "dictation", "writing", "speaking"];
 
 /** Accuracy color: green from 85 %, amber from 65 %, red below. */
 export const accTone = (p: number | null | undefined) => (p == null ? "var(--muted)" : p >= 85 ? "var(--ok)" : p >= 65 ? "var(--rough)" : "var(--bad)");

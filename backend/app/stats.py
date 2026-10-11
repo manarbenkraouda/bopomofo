@@ -21,8 +21,8 @@ from .zhuyin import zhuyin_of
 HALF_LIFE = 14.0
 PRIOR = 4.0  # weight of the skill average in the weak score, in answers
 SESSION_GAP = 15 * 60  # a pause longer than this starts a new session
-AREAS = ["reading", "listening", "dictation", "writing", "speaking"]
-VERB = {"reading": "said", "listening": "picked", "speaking": "said", "dictation": "wrote", "writing": "wrote"}
+AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking"]
+VERB = {"reading": "said", "recognize": "typed", "listening": "picked", "speaking": "said", "dictation": "wrote", "writing": "wrote"}
 
 
 # ---------- speaking: one recording gives tone, initial, final, and syllable units ----------
@@ -116,7 +116,8 @@ def _href(area: str, kind: str, expected: str, also: list | None = None) -> str 
         return None
     syms = quote(",".join(v for v in vals if v not in ("∅", "?")))
     if kind == "symbol":
-        return {"reading": "/reading?syms=", "dictation": "/dictation?syms=", "writing": "/writing?mode=symbol&syms="}.get(area, "/dictation?syms=") + syms
+        return {"reading": "/reading?syms=", "recognize": "/recognize?syms=", "dictation": "/dictation?syms=",
+                "writing": "/writing?mode=symbol&syms="}.get(area, "/dictation?syms=") + syms
     if kind in ("initial", "final"):
         return ("/listening?quiz=zhuyin&syms=" if area == "listening" else "/speaking?source=syllable&syms=") + syms
     if kind in ("stroke", "order"):
@@ -439,7 +440,7 @@ def challenges(today: date | None = None) -> list[dict]:
         out.append({"id": "hear-tone", "area": "listening", "title": f"Hear {tname(i['expected'])}" + (f" vs {tname(other)}" if other else "") + ": 12 right",
                     "why": f"{i['acc']:.0f}% right on {i['n']} questions." + (f" You picked {tname(other)} {i['top'][0][1]} times." if other else ""),
                     "target": 12, "progress": count("listening", "tone", pair), "href": _href("listening", "tone", i["expected"], [other] if other else [])})
-    for area, verb in (("reading", "Read"), ("dictation", "Write")):
+    for area, verb in (("reading", "Read"), ("recognize", "Recognize"), ("dictation", "Write")):
         w = weakest(area, "symbol", 3, 3)
         if w:
             syms = [i["expected"] for i in w]
@@ -470,6 +471,8 @@ def challenges(today: date | None = None) -> list[dict]:
          "progress": sum(1 for e in now_ev if e["area"] == "speaking" and e["mode"] == "sentence"), "href": "/speaking"},
         {"id": "warm-dict", "area": "dictation", "title": "Write 10 symbols from memory", "why": "Daily writing.", "target": 10,
          "progress": sum(1 for e in now_ev if e["area"] == "dictation"), "href": "/dictation"},
+        {"id": "warm-recognize", "area": "recognize", "title": "Recognize 20 symbols silently", "why": "Daily symbol recall, no speaking.", "target": 20,
+         "progress": sum(1 for e in now_ev if e["area"] == "recognize"), "href": "/recognize"},
     ]
     have = {c["area"] for c in out}
     for f in fill:

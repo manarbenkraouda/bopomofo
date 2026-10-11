@@ -15,7 +15,8 @@ from . import coach, db
 # ---------- the facts ----------
 
 TONE = {"1": "tone 1", "2": "tone 2", "3": "tone 3", "4": "tone 4", "5": "the neutral tone"}
-MODE_LABEL = {"reading": "reading symbols aloud", "listening/tone": "the tone quiz (by ear)", "listening/zhuyin": "picking Bopomofo by ear",
+MODE_LABEL = {"reading": "reading symbols aloud", "recognize": "recognizing symbols silently (typing their pinyin)",
+              "listening/tone": "the tone quiz (by ear)", "listening/zhuyin": "picking Bopomofo by ear",
               "dictation": "writing symbols you hear", "writing": "writing syllables", "speaking": "speaking"}
 UNIT_WORD = {"%": "", "min": "minutes", "days": "days", "answers": "answers", "times": "times", "symbols": "symbols", "points": "points"}
 
@@ -113,6 +114,8 @@ def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict |
                     add(f"mix.{area}.tone.{e}>{a}", f"times you {verb} {TONE[a]} instead of {TONE.get(e, e)}", n, "times")
     for m in (d.get("sounds") or {}).get("mixups") or []:
         add(f"mix.{m['area']}.{m['unit']}.{m['expected']}>{m['produced']}", f"times you gave {m['produced']} instead of {m['expected']} ({m['area']})", m["times"], "times")
+    for m in (d.get("symbols") or {}).get("recognize_mixups") or []:
+        add(f"mix.recognize.symbol.{m['shown']}>{m['typed_as']}", f"times you typed the pinyin of {m['typed_as']} for {m['shown']}", m["times"], "times")
     for r in d.get("_skills") or []:
         if r["unit"] in ("initial", "final", "symbol"):
             add(f"skill.{r['area']}.{r['unit']}.{r['x']}.pct", f"{r['x']} right ({r['area']})", r["right_pct"], "%")

@@ -40,15 +40,18 @@ STALE_UNITS = 400  # after this many new answers, the plan may no longer match t
 CHECK_EVERY = 10  # answers in a step between two checkpoint calls
 MAX_SENTENCES = 6
 TYPES = {"speak_sentences": "speaking", "speak_sounds": "speaking", "listen_tones": "listening", "listen_sounds": "listening",
-         "read_symbols": "reading", "write_symbols": "dictation", "write_syllables": "writing"}
+         "read_symbols": "reading", "recognize_symbols": "recognize", "write_symbols": "dictation", "write_syllables": "writing"}
 DECK_TYPES = {"listen_tones", "listen_sounds", "speak_sounds", "write_syllables"}
-DEFAULT_TARGET = {"speak_sounds": 10, "listen_tones": 20, "listen_sounds": 15, "read_symbols": 10, "write_symbols": 10, "write_syllables": 10}
+DEFAULT_TARGET = {"speak_sounds": 10, "listen_tones": 20, "listen_sounds": 15, "read_symbols": 10, "recognize_symbols": 15, "write_symbols": 10,
+                  "write_syllables": 10}
+SYMBOL_TYPES = {"read_symbols", "recognize_symbols", "write_symbols"}  # one symbol per answer, focus = single symbols
 SYLLABLES_FILE = ROOT.parent / "frontend" / "public" / "data" / "syllables.json"
 LIVE = True  # False in tests: no background threads and no model calls
 
 # What each practice mode measures. The analysts get this with the numbers, so a tone quiz is never read as symbol knowledge.
 MEASURES = {
     "reading": ("see a Bopomofo symbol and say its name (alphabet: symbol to sound)", True),
+    "recognize": ("see a Bopomofo symbol and type its sound in pinyin, silently (alphabet: symbol to sound, no speaking)", True),
     "listening/tone": ("hear a syllable and name its tone; no Bopomofo needed", False),
     "listening/zhuyin": ("hear a syllable and pick its Bopomofo spelling; needs the alphabet", True),
     "dictation": ("hear a symbol name and write the symbol by hand (alphabet: sound to symbol)", True),
@@ -59,7 +62,7 @@ MEASURES = {
 # and drills that show Bopomofo wait. This is a rule of the app, not a model decision.
 ALPHABET_GATE = 30
 NEEDS_ALPHABET = {"listen_sounds", "write_syllables"}
-ALPHABET_STEPS = {"read_symbols", "write_symbols"}
+ALPHABET_STEPS = {"read_symbols", "recognize_symbols", "write_symbols"}
 # Coach notes the learner sees: checkpoint notes and the learner line of a debrief. The rest ("debrief", "skip") is for the next plan.
 VISIBLE_NOTES = "(kind LIKE 'checkpoint:%' OR kind='debrief:learner')"
 # A new symbol is learned by repetition first: the app plays it and shows its name or strokes, and the learner repeats it.
@@ -272,24 +275,26 @@ def _known_dir(v: list[bool]) -> bool:
 
 
 def alphabet_status() -> dict:
-    """Per symbol, from first-try answers without help: say it (reading), write it (dictation, writing), pick it (listening).
-    known = said or written right reliably; learning = seen but not known yet; new = never practiced.
-    reps = right answers in reading and dictation, with or without help. Answers in learn mode (the answer is shown on purpose)
+    """Per symbol, from first-try answers without help: say it (reading), type its pinyin (recognize), write it (dictation, writing),
+    pick it (listening). known = said, typed, or written right reliably; learning = seen but not known yet; new = never practiced.
+    reps = right answers in reading, recognize, and dictation, with or without help. Answers in learn mode (the answer is shown on purpose)
     are repetitions only: they are not tests, so they do not count for or against "known"."""
     rows = _q("SELECT u.area, u.kind, u.expected, u.ok, u.help, u.try_n, (e.details::jsonb -> 'learn') AS learn"
               " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND ((u.kind='symbol'"
-              " AND u.area IN ('reading','dictation','writing')) OR (u.kind IN ('initial','final') AND u.area='listening')) ORDER BY u.ts, u.id")
-    per = {s: {"say": [], "write": [], "pick": []} for s in SYMS}
+              " AND u.area IN ('reading','recognize','dictation','writing')) OR (u.kind IN ('initial','final') AND u.area='listening'))"
+              " ORDER BY u.ts, u.id")
+    per = {s: {"say": [], "type": [], "write": [], "pick": []} for s in SYMS}
+    direction = {"reading": "say", "recognize": "type"}
     reps: Counter = Counter()
     for r in rows:
-        if r["kind"] == "symbol" and r["area"] in ("reading", "dictation") and r["ok"]:
+        if r["kind"] == "symbol" and r["area"] in ("reading", "recognize", "dictation") and r["ok"]:
             reps[r["expected"]] += 1
         if r["learn"] or r["try_n"]:
             continue
         good = bool(r["ok"]) and not r["help"]
         if r["kind"] == "symbol":
             if r["expected"] in per:
-                per[r["expected"]]["say" if r["area"] == "reading" else "write"].append(good)
+                per[r["expected"]][direction.get(r["area"], "write")].append(good)
         else:
             for ch in r["expected"]:
                 if ch in per:
@@ -298,7 +303,7 @@ def alphabet_status() -> dict:
     for s in SYMS:
         d = per[s]
         n = sum(len(v) for v in d.values())
-        state = "known" if _known_dir(d["say"]) or _known_dir(d["write"]) else "learning" if n or reps[s] else "new"
+        state = "known" if _known_dir(d["say"]) or _known_dir(d["type"]) or _known_dir(d["write"]) else "learning" if n or reps[s] else "new"
         right = sum(sum(v) for v in d.values())
         symbols.append({"sym": s, "state": state, "answers": n, "right": right, "reps": reps[s],
                         "phase": "known" if state == "known" else "recall" if reps[s] >= LEARN_REPS else "repeat",
@@ -360,7 +365,7 @@ def alphabet_sentence(st: dict) -> str:
 
 def needs_alphabet(c: dict) -> bool:
     """A milestone that tests the Bopomofo symbols. While the alphabet rule is active, the alphabet milestone replaces these."""
-    return c["unit"] != "alphabet" and (c["unit"] == "symbol" or c["area"] in ("reading", "dictation", "writing")
+    return c["unit"] != "alphabet" and (c["unit"] == "symbol" or c["area"] in ("reading", "recognize", "dictation", "writing")
                                         or (c["area"] == "listening" and c["unit"] in ("initial", "final")))
 
 
@@ -445,6 +450,15 @@ def digest() -> dict:
                 mix[(u["area"], u["kind"], u["expected"], u["actual"])] += 1
     mixups = [{"area": a, "unit": k, "expected": e, "produced": x, "times": n, "of": tot[(a, k, e)]} for (a, k, e, x), n in mix.most_common(20)]
 
+    # Silent recognition: which symbol the typed pinyin stands for, when it is not the shown one (ㄓ typed as "z" = ㄗ).
+    rmix, rtot = Counter(), Counter()
+    for u in new_units:
+        if u["area"] == "recognize" and u["kind"] == "symbol" and u["ok"] is not None:
+            rtot[u["expected"]] += 1
+            if not u["ok"] and u["actual"] in BOPOMOFO and u["actual"] != u["expected"]:
+                rmix[(u["expected"], u["actual"])] += 1
+    recognize_mixups = [{"shown": e, "typed_as": x, "times": n, "of": rtot[e]} for (e, x), n in rmix.most_common(20)]
+
     strokes, stroke_n, order_err = Counter(), Counter(), Counter()
     for u in units:
         if u["kind"] == "stroke":
@@ -462,7 +476,7 @@ def digest() -> dict:
     for i in items:
         if i["kind"] == "symbol":
             practiced[i["area"]].add(i["expected"])
-    never = {a: "".join(s for s in SYMS if s not in practiced[a]) for a in ("reading", "dictation", "writing")}
+    never = {a: "".join(s for s in SYMS if s not in practiced[a]) for a in ("reading", "recognize", "dictation", "writing")}
     from . import story
     story_numbers = story.story_stats(units, events, secs, today)
 
@@ -520,6 +534,7 @@ def digest() -> dict:
                            "syllables_weakest_first": syl_rows("speaking")},
         "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups},
         "symbols": {"skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),
+                    "recognize_mixups": recognize_mixups,
                     "stroke_problems": stroke_out, "stroke_order_errors": dict(order_err.most_common(12)), "never_practiced": never},
         "sentences": {"weak": weak_sents, "good_count": len(good), "typical_good_length": good_len[len(good_len) // 2] if good_len else None,
                       "library_not_practiced": unpracticed},
@@ -561,13 +576,13 @@ DOMAINS = {
     "tones_listening": "tones in listening (the tone quiz and the Bopomofo quiz): which tone is taken for which, and on which syllables",
     "tones_speaking": "tones in speaking: which tone the learner says instead, and in which context (tone before and after, tone changes, position)",
     "sounds": "initials and finals in listening and speaking: which sounds are mixed up, in which direction",
-    "symbols": "the 37 Bopomofo symbols and the tone marks in reading (saying them), dictation and writing (writing them by hand): recall, stroke order, stroke problems, symbols never practiced",
+    "symbols": "the 37 Bopomofo symbols and the tone marks in reading (saying them), recognize (typing their pinyin silently; recognize_mixups says which symbol the typed pinyin stands for), dictation and writing (writing them by hand): recall, symbols taken for others, stroke order, stroke problems, symbols never practiced",
     "sentences": "recorded sentences: which sentences score low, which syllables fail in them, and which material fits the level",
 }
 
 ANALYZE = """Task: analyze one domain of the stats: DOMAIN.
 Find the gaps that block progress most. Use "produced_instead", the expected-to-produced tables, and the contexts to say exactly what goes wrong.
-Each finding: {"id":"short-key","area":"reading|listening|dictation|writing|speaking","items":["exact values from the data: tones as strings, Bopomofo, syllables, or sentence ids"],
+Each finding: {"id":"short-key","area":"reading|recognize|listening|dictation|writing|speaking","items":["exact values from the data: tones as strings, Bopomofo, syllables, or sentence ids"],
 "problem":"what goes wrong, with the numbers","context":"when it happens, or empty","severity":1-5,"confidence":1-5,"drill":"the exercise that fixes it, one sentence"}
 Also give "strengths" (facts with numbers: things to stop drilling), "unknown" (things barely or never practiced that matter at this level),
 and "too_advanced" (things to postpone, with the reason).
@@ -605,6 +620,8 @@ Step types (only these; the app measures each one from the answers given inside 
 - listen_tones: {"tones":[2 to 4 tones from 1-4],"target":N}  Tone quiz. Done after N right.
 - listen_sounds: {"syms":[Bopomofo initials or finals],"target":N}  "Which Bopomofo" quiz.
 - read_symbols: {"syms":[single symbols],"target":N}  Say symbols out loud. N right on the first try.
+- recognize_symbols: {"syms":[single symbols],"target":N}  See a symbol and type its pinyin, silently. N right on the first try.
+  Use it to drill symbol recall without speaking, and to contrast symbols taken for each other (put both in "syms").
 - write_symbols: {"syms":[single symbols],"target":N}  Hear a symbol and write it. N right on the first try.
 - write_syllables: {"tones":[1-5],"syms":[Bopomofo],"target":N}  Hear a syllable, write it with its tone mark. N right parts.
 Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "sentence" or with speak_sentences, never on single syllables.
@@ -619,7 +636,7 @@ ALPHABET_RULE = """
 Alphabet rule (overview.alphabet.rule_active is true): the app itself puts the alphabet steps first. New symbols are learned by heavy
 repetition (the app plays each symbol and shows it; the learner repeats it), and tests from memory start only after enough repetitions.
 The steps the app adds are in overview.alphabet.steps_the_app_adds_first: they are part of THIS plan and come before your steps.
-Do not plan read_symbols, write_symbols, listen_sounds, or write_syllables. Plan the rest of the session with steps that need no
+Do not plan read_symbols, recognize_symbols, write_symbols, listen_sounds, or write_syllables. Plan the rest of the session with steps that need no
 Bopomofo (listen_tones, speak_sounds, speak_sentences). The app writes the first sentence of the diagnosis about the alphabet steps:
 your diagnosis covers your own steps only. Do not repeat the alphabet count, do not say that your steps open the session, and never
 say that the alphabet waits for a later plan."""
@@ -627,7 +644,7 @@ say that the alphabet waits for a later plan."""
 ALPHABET_MILESTONE_RULE = """
 Alphabet rule (overview.alphabet.rule_active is true): the learner does not know the Bopomofo alphabet yet and learns it by repetition.
 The app has its own milestone for it ("Know the alphabet"). Do not set milestones that test the symbols: no unit "symbol", no area
-reading, dictation, or writing, and no listening initial or final. Set milestones for tones and speaking only."""
+reading, recognize, dictation, or writing, and no listening initial or final. Set milestones for tones and speaking only."""
 
 SENTENCES = """Task: write new practice sentences that train an exact focus for a learner of Taiwan Mandarin.
 A Bopomofo analyzer checks your sentences after you answer. Sentences that fail are rejected:
@@ -666,7 +683,7 @@ Return {"verdicts":[{"pos":0,"action":"keep|drop|change","title":null,"why":null
 MILESTONES = """Task: set the milestones: 3 to 5 skill goals that take several plans to reach and show real progress.
 You get the overview, the top findings, the active milestones with their current values, and a menu of measurable skills with current values.
 - Keep an active milestone that is still useful and not reached: put its id in "keep".
-- A new milestone must be measurable: {"title","why","area","unit","expected","min_acc","window"}. area: reading|listening|dictation|writing|speaking.
+- A new milestone must be measurable: {"title","why","area","unit","expected","min_acc","window"}. area: reading|recognize|listening|dictation|writing|speaking.
   unit: tone|initial|final|symbol|score (score is speaking only: the average score, with expected []). It is reached when the last "window"
   first-try answers of that unit reach min_acc percent right (score: the average of the last "window" recordings).
 - Set the goal above the current value but reachable, usually 10 to 25 points higher. Do not pick a goal that is already reached.
@@ -768,13 +785,13 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0) -> dict | Non
                 return None
         elif t == "listen_sounds":
             p = {"syms": _syms(s.get("syms"))}
-        elif t in ("read_symbols", "write_symbols"):
+        elif t in SYMBOL_TYPES:
             p = {"syms": _syms(s.get("syms"), single=True)}
         else:
             p = {"tones": _tones(s.get("tones")), "syms": _syms(s.get("syms"))}
             if not p["tones"] and not p["syms"]:
                 return None
-        if t in ("listen_sounds", "read_symbols", "write_symbols") and not p["syms"]:
+        if (t == "listen_sounds" or t in SYMBOL_TYPES) and not p["syms"]:
             return None
         target = max(5, min(120, round(_int(s.get("target"), 5, 60, DEFAULT_TARGET[t]) * scale)))
     return {"type": t, "title": _text(s.get("title"), 80) or t.replace("_", " "), "why": _text(s.get("why"), 500),
@@ -1031,13 +1048,13 @@ def rules_plan(d: dict) -> dict:
             steps.append({"type": "speak_sounds", "unit": u, "syms": [x] + other[:1], "source": "syllable", "title": f"Say {x}" + (f" vs {other[0]}" if other else ""), "why": why, "target": 10})
         elif a == "listening" and u in ("initial", "final"):
             steps.append({"type": "listen_sounds", "syms": [x] + other[:1], "title": f"Hear {x}" + (f" vs {other[0]}" if other else ""), "why": why, "target": 12})
-        elif u == "symbol" and a in ("reading", "dictation"):
+        elif u == "symbol" and a in ("reading", "recognize", "dictation"):
             grouped[a].append(x)
         if len(steps) >= 4:
             break
+    verb = {"reading": ("read_symbols", "Read "), "recognize": ("recognize_symbols", "Recognize "), "dictation": ("write_symbols", "Write ")}
     for a, syms in grouped.items():
-        steps.append({"type": "read_symbols" if a == "reading" else "write_symbols", "syms": syms[:4],
-                      "title": ("Read " if a == "reading" else "Write ") + " ".join(syms[:4]), "why": "The symbols that still trip you up most.", "target": 8})
+        steps.append({"type": verb[a][0], "syms": syms[:4], "title": verb[a][1] + " ".join(syms[:4]), "why": "The symbols that still trip you up most.", "target": 8})
     weak = [s for s in d["sentences"]["weak"] if s["id"]][:4]
     if weak:
         steps.append({"type": "speak_sentences", "sentence_ids": [s["id"] for s in weak], "reps": 2, "min_score": 85,
@@ -1114,7 +1131,7 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         # The alphabet milestone is a rule of the app: it stays until the 37 symbols are known.
         if alpha["known_count"] < 37 and not c.execute("SELECT 1 FROM milestones WHERE status='active' AND criterion LIKE '%\"alphabet\"%'").fetchone():
             m = clean_milestone({"title": "Know the alphabet", "area": "reading", "unit": "alphabet", "min_acc": 100,
-                                 "why": "Every Bopomofo drill needs the 37 symbols. A symbol counts as known when you say or write it right, without help, several times in a row."})
+                                 "why": "Every Bopomofo drill needs the 37 symbols. A symbol counts as known when you say, type, or write it right, without help, several times in a row."})
             c.execute("INSERT INTO milestones(ts, plan_id, title, why, criterion) VALUES (?,?,?,?,?)",
                       (now, pid, m["title"], m["why"], json.dumps(m["criterion"], ensure_ascii=False)))
     # The headline and the "How do we know?" story. A failure here never loses the plan: the story can be written again later.
@@ -1209,7 +1226,7 @@ def _hit(step: dict, r: dict) -> bool:
         return r["kind"] == "tone" and (not tones or r["expected"] in tones)
     if t == "listen_sounds":
         return r["kind"] in ("initial", "final") and (not syms or _match(r["expected"], syms, False))
-    if t in ("read_symbols", "write_symbols"):
+    if t in ("read_symbols", "recognize_symbols", "write_symbols"):
         # Learn mode counts every right repetition; a recall step counts first tries only.
         return r["kind"] == "symbol" and (p.get("learn") or r["try_n"] == 0) and (not syms or r["expected"] in syms)
     return r["kind"] in ("symbol", "tone") and r["expected"] != "∅"  # write_syllables: every written part of the deck
@@ -1273,6 +1290,7 @@ def href(step: dict) -> str:
          "speak_sounds": f"/speaking?source={p.get('source', 'syllable')}" + (f"&tones={tones}" if tones else "") + (f"&syms={syms}" if syms else ""),
          "listen_tones": f"/listening?quiz=tone&tones={tones}", "listen_sounds": f"/listening?quiz=zhuyin&syms={syms}",
          "read_symbols": f"/reading?syms={syms}", "write_symbols": f"/dictation?syms={syms}",
+         "recognize_symbols": f"/recognize?syms={syms}",
          "write_syllables": "/writing?mode=syllable" + (f"&tones={tones}" if tones else "") + (f"&syms={syms}" if syms else "")}[t]
     if p.get("deck") and t in DECK_TYPES:
         q += "&items=" + quote(",".join(p["deck"]))

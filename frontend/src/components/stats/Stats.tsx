@@ -35,7 +35,7 @@ const itemName = (it: { kind: string; expected: string }) =>
 const trainHref = (area: string, kind: string, vals: string[]) => {
   const v = encodeURIComponent(vals.filter((x) => x && x !== "∅" && x !== "?").join(","));
   if (kind === "tone") return area === "listening" ? "/listening?quiz=tone&tones=" + v : area === "writing" ? "/writing?mode=syllable&tones=" + v : "/speaking?source=syllable&tones=" + v;
-  if (kind === "symbol") return area === "reading" ? "/reading?syms=" + v : area === "writing" ? "/writing?mode=symbol&syms=" + v : "/dictation?syms=" + v;
+  if (kind === "symbol") return area === "reading" ? "/reading?syms=" + v : area === "recognize" ? "/recognize?syms=" + v : area === "writing" ? "/writing?mode=symbol&syms=" + v : "/dictation?syms=" + v;
   return area === "listening" ? "/listening?quiz=zhuyin&syms=" + v : "/speaking?source=syllable&syms=" + v;
 };
 const percent = (p: number | null | undefined) => (p == null ? "–" : Math.round(p) + "%");
@@ -523,7 +523,8 @@ function SoundsView({ data }: { data: Data }) {
 
 // ---------- Symbols ----------
 
-const SYM_AREAS = ["reading", "dictation", "writing"];
+const SYM_AREAS = ["reading", "recognize", "dictation", "writing"];
+const SYM_INSTEAD: Record<string, string> = { reading: "Heard instead:", recognize: "Typed instead:" };
 const STATUS_LABEL: Record<string, string> = { ok: "clean", rough: "rough shape", wrong: "wrong shape", reversed: "wrong direction", missing: "missing", joined: "joined", extra: "extra stroke" };
 
 function SymbolsView({ data, area, sel, onPick, sheet, closeSheet }: { data: Data; area: string; sel: number; onPick: (i: number) => void; sheet: boolean; closeSheet: () => void }) {
@@ -540,6 +541,8 @@ function SymbolsView({ data, area, sel, onPick, sheet, closeSheet }: { data: Dat
   }, [data, areas]);
   const sym = SYMS[sel] ?? SYMS[0];
   const practiced = SYMS.filter((s) => agg.has(s)).length;
+  // Silent recognition: which symbol the typed pinyin stood for. Each pair trains as a contrast.
+  const typedMix = useMemo(() => (areas.includes("recognize") ? mixups(data, "symbol", "recognize").filter((c) => c.actual !== "∅").slice(0, 8) : []), [data, areas]);
   return (
     <div className="grid items-start gap-4 md:gap-5 lg:grid-cols-[minmax(0,560px)_minmax(320px,1fr)]">
       <section className="card p-4 md:p-5">
@@ -559,6 +562,20 @@ function SymbolsView({ data, area, sel, onPick, sheet, closeSheet }: { data: Dat
             );
           })}
         </div>
+        {typedMix.length > 0 && (
+          <div className="mt-4">
+            <h3 className="text-sm font-semibold">Taken for another symbol <span className="text-xs font-normal text-muted">Recognize · the pinyin you typed belongs to</span></h3>
+            <div className="mt-1.5 flex flex-col">
+              {typedMix.map((c) => (
+                <Link key={c.expected + c.actual} href={trainHref("recognize", "symbol", [c.expected, c.actual])} className="cjk flex items-center gap-3 rounded-lg px-1.5 py-1 text-sm hover:bg-raise">
+                  <span className="w-20 shrink-0"><b>{c.expected}</b> <span className="text-muted">→</span> <span className="text-bad">{c.actual}</span></span>
+                  <div className="flex-1"><Meter value={c.share} color="var(--bad)" /></div>
+                  <span className="w-16 text-right text-xs tabular-nums text-muted">{c.n}× · {c.share}%</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
       {sheet && <div className="m-sheet-backdrop" onClick={closeSheet} />}
       <aside data-open={sheet} className="m-sheet card p-4 md:p-5 lg:sticky lg:top-0">
@@ -597,7 +614,7 @@ function SymbolDetails({ data, sym }: { data: Data; sym: string }) {
             <Meter value={it.acc} />
             {wrong.length > 0 && (
               <div className="cjk mt-1.5 flex flex-wrap items-center gap-1 text-xs text-muted">
-                {a === "reading" ? "Heard instead:" : "Looked like:"}
+                {SYM_INSTEAD[a] ?? "Looked like:"}
                 {wrong.slice(0, 6).map((c) => <span key={c.actual} className="rounded-md bg-bad/15 px-1.5 py-0.5 text-sm text-ink">{said("symbol", c.actual)} <span className="text-muted">×{c.n}</span></span>)}
               </div>
             )}

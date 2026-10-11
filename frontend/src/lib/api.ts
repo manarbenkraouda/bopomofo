@@ -34,7 +34,7 @@ export type Unit = {
   pos?: number; try_n?: number; help?: boolean; ctx?: string; source?: string; uncertain?: boolean; extra?: Record<string, unknown>;
 };
 export type PracticeEvent = {
-  area: "reading" | "listening" | "dictation" | "writing" | "speaking"; mode?: string; item: string; ok: boolean;
+  area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking"; mode?: string; item: string; ok: boolean;
   first_try?: boolean; score?: number; ms?: number; tries?: number; help?: boolean; replays?: number;
   units: Unit[]; details?: Record<string, unknown>;
 };
@@ -71,7 +71,7 @@ export type Stats = {
 };
 export type Health = { ok: boolean; speech_model: "ready" | "loading" | "error"; speech_error: string | null; llm_model: string; llm_configured: boolean; speaker_hz: number | null };
 
-export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "write_symbols" | "write_syllables";
+export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "recognize_symbols" | "write_symbols" | "write_syllables";
 export type CoachNote = { kind: string; text: string; ts: number };
 export type CoachStep = {
   id: number; plan_id: number; pos: number; type: StepType; title: string; why: string; target: number; minutes: number;
@@ -94,7 +94,7 @@ export type CoachState = {
   alphabet: {
     known_count: number; known: string; learning: string; new: string; next_group: string[]; gate: boolean; learn_reps: number;
     symbols: { sym: string; state: "known" | "learning" | "new"; phase: "known" | "recall" | "repeat"; answers: number; right: number; reps: number;
-      say?: string; write?: string; pick?: string }[];
+      say?: string; type?: string; write?: string; pick?: string }[];
   };
   usage: { calls: number; cost: number; today_calls: number; today_cost: number };
   plan: null | {

@@ -4,7 +4,7 @@ import type { BlockProps } from "../types";
 import { rise, SPRING } from "./shared";
 
 const SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ";
-const ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", write_symbols: "默", write_syllables: "寫" };
+const ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", recognize_symbols: "認", write_symbols: "默", write_syllables: "寫" };
 
 /** The 37 symbols: known (green), met but not known (amber), new (faint). Highlighted ones get a pulsing ring. */
 export function SymbolGrid({ props, ctx, delay }: BlockProps<"symbol_grid">) {

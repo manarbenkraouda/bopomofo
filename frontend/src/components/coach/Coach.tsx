@@ -11,14 +11,14 @@ import { Caps, Kbd } from "@/components/shell/Kbd";
 import { StoryPlayer } from "@/components/story/StoryPlayer";
 import { useAiQuota } from "@/components/quota/AiQuota";
 
-export const STEP_ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", write_symbols: "默", write_syllables: "寫" };
+export const STEP_ICON: Record<string, string> = { speak_sentences: "說", speak_sounds: "說", listen_tones: "聽", listen_sounds: "聽", read_symbols: "讀", recognize_symbols: "認", write_symbols: "默", write_syllables: "寫" };
 const STEP_KIND: Record<string, string> = {
   speak_sentences: "Speaking · sentences", speak_sounds: "Speaking · sounds", listen_tones: "Listening · tones", listen_sounds: "Listening · sounds",
-  read_symbols: "Reading", write_symbols: "Dictation", write_syllables: "Writing · syllables",
+  read_symbols: "Reading", recognize_symbols: "Recognize · silent", write_symbols: "Dictation", write_syllables: "Writing · syllables",
 };
 const DOMAIN: Record<string, string> = { tones_listening: "Tones by ear", tones_speaking: "Spoken tones", sounds: "Sounds", symbols: "Symbols", sentences: "Sentences" };
 const SKIP = { too_hard: "too hard", too_easy: "too easy", not_now: "not now" } as const;
-const SYMBOL_STEPS = new Set(["read_symbols", "write_symbols"]);
+const SYMBOL_STEPS = new Set(["read_symbols", "recognize_symbols", "write_symbols"]);
 
 /** Short labels for the focus of a step: tones, symbols, deck size, sentences. */
 export function focusChips(s: CoachStep): string[] {
@@ -534,7 +534,7 @@ function Alphabet({ a }: { a: NonNullable<CoachState["alphabet"]> }) {
       <div className="grid grid-cols-8 gap-1.5 sm:grid-cols-10 lg:grid-cols-[repeat(19,minmax(0,1fr))]">
         {a.symbols.map((s) => (
           <Link key={s.sym} href={"/reading?syms=" + encodeURIComponent(s.sym) + (s.phase === "repeat" ? "&learn=1" : "")}
-            title={s.state + " · " + Math.min(s.reps, a.learn_reps) + "/" + a.learn_reps + " repetitions" + (s.answers ? " · from memory: said " + (s.say ?? "–") + " · written " + (s.write ?? "–") + (s.pick ? " · picked " + s.pick : "") : s.reps ? "" : " · never practiced")}
+            title={s.state + " · " + Math.min(s.reps, a.learn_reps) + "/" + a.learn_reps + " repetitions" + (s.answers ? " · from memory: said " + (s.say ?? "–") + (s.type ? " · typed " + s.type : "") + " · written " + (s.write ?? "–") + (s.pick ? " · picked " + s.pick : "") : s.reps ? "" : " · never practiced")}
             className={"cjk relative grid aspect-square place-items-center overflow-hidden rounded-lg border text-lg transition hover:scale-110 " + cls[s.state] + (a.next_group.includes(s.sym) ? " ring-2 ring-accent" : "")}>
             {s.sym}
             {s.phase !== "known" && s.reps > 0 && (
