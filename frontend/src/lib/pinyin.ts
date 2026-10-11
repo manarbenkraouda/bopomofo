@@ -39,6 +39,3 @@ export const answerText = (sym: string) => {
   return a ? a.main + (a.name ? " (" + a.name + ")" : "") : "";
 };
 
-/** The keys of the on-screen pinyin keyboard: the QWERTY rows, with ü in place of v (pinyin has no v) and ê added. */
-export const PINYIN_ROWS = [[..."qwertyuiop"], [..."asdfghjkl"], [..."zxcübnm", "ê"]];
-

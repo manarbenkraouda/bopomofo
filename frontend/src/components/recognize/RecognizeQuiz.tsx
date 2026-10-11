@@ -12,7 +12,6 @@ import { loadData, type MoeRow } from "@/lib/zhuyin";
 import { FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Feedback";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
-import { PinyinKeyboard } from "./PinyinKeyboard";
 
 const SETS = Object.keys(SET_LABEL) as SymbolSet[];
 /** What the answer field keeps: pinyin letters only, with the keyboard spellings of ü and ê turned into the letters. */
@@ -32,7 +31,6 @@ export function RecognizeQuiz() {
   const [revealed, setRevealed] = useState(false);
   const [wrong, setWrong] = useState<{ typed: string; sym: string } | null>(null);
   const [hint, setHint] = useState("");
-  const [pressed, setPressed] = useState<string | null>(null);
   const [stats, setStats] = useState({ cards: 0, firstTry: 0, streak: 0, right: 0 });
   const [fxKey, setFxKey] = useState(0);
 
@@ -42,7 +40,6 @@ export function RecognizeQuiz() {
   const recent = useRef<string[]>([]);
   const missRate = useRef<Record<string, number>>({});
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const order = useRef<string[]>([]);
   const focus = useFocus();
   // Learn mode (?learn=1): the answer is shown from the start and the learner copies it. Each right repetition counts.
@@ -135,11 +132,6 @@ export function RecognizeQuiz() {
 
   const skip = () => { finishCard(false); next(); };
 
-  const flash = (k: string) => {
-    setPressed(k);
-    if (pressTimer.current) clearTimeout(pressTimer.current);
-    pressTimer.current = setTimeout(() => setPressed(null), 160);
-  };
   const edit = (v: string) => {
     if (card.current.done) return;
     setTyped(clean(v));
@@ -193,16 +185,11 @@ export function RecognizeQuiz() {
             )}
           </div>
 
-          <input ref={input} value={typed} onChange={(e) => edit(e.target.value)} inputMode="none" autoFocus autoComplete="off" autoCapitalize="none"
+          <input ref={input} value={typed} onChange={(e) => edit(e.target.value)} autoFocus autoComplete="off" autoCapitalize="none"
             autoCorrect="off" spellCheck={false} enterKeyHint="done" aria-label="Pinyin of the symbol" placeholder={done ? "" : "pinyin"}
-            onKeyDown={(e) => flash(e.key === "Backspace" ? "Backspace" : clean(e.key))}
             className={"w-48 rounded-2xl border-2 bg-card px-4 py-2 text-center font-mono text-3xl tracking-wider outline-none transition placeholder:text-base placeholder:tracking-normal placeholder:text-muted/60 focus:border-accent " +
               (done ? "border-ok text-ok" : status === "wrong" ? "border-bad/60" : "border-line")} />
-          <div className="h-5 text-center text-sm text-rough">{hint}</div>
-
-          <PinyinKeyboard pressed={pressed} disabled={done}
-            onChar={(c) => { input.current?.focus({ preventScroll: true }); edit(typed + c); }}
-            onBackspace={() => edit(typed.slice(0, -1))} />
+          <div className="min-h-5 text-center text-sm text-rough">{hint || (!done && <span className="text-muted">Type v for ü and eh for ê.</span>)}</div>
 
           <ActionBar tone={done ? "ok" : status === "wrong" ? "bad" : null}
             title={done ? "✓ " + cur.sym + " = " + answer : status === "wrong" && wrong ? "That is " + wrong.sym : undefined}
