@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import auth, coach, db, limits, llm, scoring, speaker, stats, symbols, tts
+from . import auth, coach, db, levels, limits, llm, scoring, speaker, stats, symbols, tts
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
@@ -358,8 +358,8 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_leng
     # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
     stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
                        help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
-    coach.refresh()
-    return res
+    r = coach.refresh()
+    return {**res, "notices": (r.get("levels") or {}).get("notices") or []}
 
 
 @app.post("/api/symbols/check")
@@ -431,8 +431,9 @@ def progress_event(body: EventIn):
         step = str(details["step"])
         details["step"] = int(step) if step.isdigit() else None
     eid = db.add_event(ev)
-    coach.refresh()
-    return {"ok": True, "id": eid}
+    r = coach.refresh()
+    # Level notices (an unlock, a known item that dropped) go back with the answer, so the app can show them at once.
+    return {"ok": True, "id": eid, "notices": (r.get("levels") or {}).get("notices") or []}
 
 
 class DayIn(BaseModel):
@@ -476,14 +477,31 @@ def stats_export():
 
 @app.get("/api/coach")
 def coach_get():
-    coach.refresh()
-    return coach.state()
+    r = coach.refresh()
+    return coach.state(r.get("levels"))
 
 
 @app.get("/api/alphabet")
 def alphabet_get():
     """Which of the 37 symbols the learner knows, for the Symbols screen. Read only: it does not refresh the plan."""
     return coach.alphabet_status()
+
+
+@app.get("/api/levels")
+def levels_get():
+    """The level path: levels, goals, stars per exercise and item, known items that dropped, and unseen notices.
+    Saves new unlocks (they are permanent), like every answer does."""
+    return levels.check()
+
+
+class SeenIn(BaseModel):
+    ids: list[int] = Field(default_factory=list, max_length=100)
+
+
+@app.post("/api/levels/seen")
+def levels_seen(body: SeenIn):
+    levels.mark_seen(body.ids)
+    return {"ok": True}
 
 
 class PlanIn(BaseModel):

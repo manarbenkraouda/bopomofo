@@ -29,7 +29,7 @@ from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
-from . import db, limits, llm, stats
+from . import db, levels, limits, llm, stats
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
 from .zhuyin import analyze_text
 
@@ -370,19 +370,25 @@ def alphabet_status() -> dict:
     # and none while MAX_LEARNING symbols are still being learned: half-learned symbols come first.
     seen = sorted((x for x in symbols if x["state"] == "learning"), key=lambda x: (x["right"] / max(1, x["answers"]), -x["answers"]))
     group = [x["sym"] for x in seen[:3]]
-    group += new[: min(4, 6 - len(group))] if len(learning) < MAX_LEARNING else []
+    # New symbols come from the open chapters of the level path only (initials, then medials, then finals).
+    open_syms = levels.opened()["symbols"]
+    fresh = sorted((s for s in new if s in open_syms), key=open_syms.index)
+    group += fresh[: min(4, 6 - len(group))] if len(learning) < MAX_LEARNING else []
     if len(group) < 6:
         group += [x["sym"] for x in seen[3:]][: 6 - len(group)]
     return {"known_count": len(known), "known": "".join(known), "learning": "".join(learning), "new": "".join(new),
             "next_group": group, "gate": len(known) < ALPHABET_GATE, "symbols": symbols, "learn_reps": LEARN_REPS}
 
 
-def alphabet_gate(steps: list[dict], st: dict) -> tuple[list[dict], list[str]]:
+def alphabet_gate(steps: list[dict], st: dict, op: dict | None = None) -> tuple[list[dict], list[str]]:
     """Below ALPHABET_GATE known symbols: the plan starts with the next symbols, and drills that show Bopomofo are removed.
     Symbols with fewer than LEARN_REPS right repetitions get repetition steps (the answer is shown, every right answer counts);
-    the others get recall steps (say and write from memory). Returns the steps and the titles of the removed steps."""
+    the others get recall steps (say and write from memory). Before the level that opens dictation, recall is said and typed,
+    and there is no copy step. Returns the steps and the titles of the removed steps."""
     if not st["gate"] or not st["next_group"]:
         return steps, []
+    op = op or levels.opened()
+    can_write = levels.is_open("dictation", op)
     g = st["next_group"]
     info = {x["sym"]: x for x in st["symbols"]}
     repeat = [s for s in g if info[s]["reps"] < LEARN_REPS]
@@ -390,21 +396,27 @@ def alphabet_gate(steps: list[dict], st: dict) -> tuple[list[dict], list[str]]:
     meta = {"finding_ids": [], "review": "Added by the alphabet rule: the 37 symbols come first.", "rule": "alphabet"}
     first: list[dict] = []
     if recall:
-        first += [
+        first.append(
             {"type": "read_symbols", "title": "Say from memory: " + " ".join(recall), "params": {"syms": recall}, "minutes": 5, "meta": dict(meta),
              "why": "You have repeated these enough. Now say them from memory, and press Space only when you are stuck.",
-             "target": max(6, 2 * len(recall))},
+             "target": max(6, 2 * len(recall))})
+        first.append(
             {"type": "write_symbols", "title": "Hear and write from memory: " + " ".join(recall), "params": {"syms": recall}, "minutes": 5,
-             "meta": dict(meta), "why": "Now write them from their sound, so you know them both ways.", "target": max(6, len(recall))}]
+             "meta": dict(meta), "why": "Now write them from their sound, so you know them both ways.", "target": max(6, len(recall))} if can_write else
+            {"type": "recognize_symbols", "title": "Type from memory: " + " ".join(recall), "params": {"syms": recall}, "minutes": 4,
+             "meta": dict(meta), "why": "Type the sound of each symbol, quickly: knowing a symbol means you answer without thinking.",
+             "target": max(6, 2 * len(recall))})
     if repeat:
         left = sum(LEARN_REPS - info[s]["reps"] for s in repeat)
-        first += [
+        first.append(
             {"type": "read_symbols", "title": "Listen and repeat: " + " ".join(repeat), "params": {"syms": repeat, "learn": True},
              "minutes": max(4, round(left / 6)), "meta": dict(meta), "target": max(len(repeat), left),
-             "why": "Hear each symbol and say it back. Every right repetition counts, and the symbols come before every other drill."},
-            {"type": "write_symbols", "title": "Copy and write: " + " ".join(repeat), "params": {"syms": repeat, "learn": True},
-             "minutes": max(3, len(repeat)), "meta": dict(meta), "target": 3 * len(repeat),
-             "why": "Watch the strokes and copy each symbol to learn its shape."}]
+             "why": "Hear each symbol and say it back. Every right repetition counts, and the symbols come before every other drill."})
+        if can_write:
+            first.append(
+                {"type": "write_symbols", "title": "Copy and write: " + " ".join(repeat), "params": {"syms": repeat, "learn": True},
+                 "minutes": max(3, len(repeat)), "meta": dict(meta), "target": 3 * len(repeat),
+                 "why": "Watch the strokes and copy each symbol to learn its shape."})
     kept = [s for s in steps if s["type"] not in NEEDS_ALPHABET | ALPHABET_STEPS]
     removed = [s["title"] for s in steps if s not in kept]
     return (first + kept)[:7], removed
@@ -422,13 +434,16 @@ def alphabet_sentence(st: dict) -> str:
 
 def needs_alphabet(c: dict) -> bool:
     """A milestone that tests the Bopomofo symbols. While the alphabet rule is active, the alphabet milestone replaces these."""
-    return c["unit"] != "alphabet" and (c["unit"] == "symbol" or c["area"] in ("reading", "recognize", "dictation", "writing")
+    return c["unit"] not in ("alphabet", "level") and (c["unit"] == "symbol" or c["area"] in ("reading", "recognize", "dictation", "writing")
                                         or (c["area"] == "listening" and c["unit"] in ("initial", "final")))
 
 
 # ---------- the stats digest ----------
 
-def digest() -> dict:
+def digest(lv: dict | None = None) -> dict:
+    """lv: the level status (levels.check() or levels.status()). Read here when not given."""
+    lv = lv or levels.status()
+    op = {"level": lv["level"], "exercises": lv["exercises"], "symbols": lv["symbols"]}
     today = db.local_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()
@@ -453,7 +468,9 @@ def digest() -> dict:
                       "right_7d_pct": stats._pct(sum(e["ok"] for e in week), len(week)),
                       "answer_shown_pct": stats._pct(sum(e["help"] for e in ev), len(ev)),
                       "answers_before": len(old), "right_before_pct": stats._pct(sum(e["ok"] for e in old), len(old))})
-    never = [f"{k} ({v[0]})" for k, v in MEASURES.items() if k not in {m["mode"] for m in modes} and k != "listening"]
+    # Only the exercises of the open levels: a locked exercise is never a gap to fill.
+    never = [f"{k} ({v[0]})" for k, v in MEASURES.items() if k not in {m["mode"] for m in modes} and k != "listening"
+             and any(e == k or e.startswith(k + "/") for e in op["exercises"])]
     alpha = alphabet_status()
 
     items = stats.item_stats(units, today)
@@ -568,7 +585,7 @@ def digest() -> dict:
                                 "minutes_to_finish": round((s["done_ts"] - p["ts"]) / 60) if s["done_ts"] and s["status"] == "done" else None}
                                for s in _steps(p["id"])]})
     notes = [{"kind": n["kind"], "text": n["text"], "day": db.day_of(n["ts"])} for n in _q("SELECT kind, text, ts FROM coach_notes ORDER BY id DESC LIMIT 10")]
-    ms = [{"id": m["id"], "title": m["title"], "criterion": json.loads(m["criterion"]), "now": milestone_progress(json.loads(m["criterion"]))}
+    ms = [{"id": m["id"], "title": m["title"], "criterion": json.loads(m["criterion"]), "now": milestone_progress(json.loads(m["criterion"]), lv)}
           for m in _q("SELECT * FROM milestones WHERE status='active' ORDER BY id")]
     detail = _q("SELECT MIN(day) AS since, COUNT(*) AS n FROM events WHERE legacy=0")[0]
 
@@ -580,7 +597,8 @@ def digest() -> dict:
                                  "never_practiced": alpha["new"], "rule_active": alpha["gate"],
                                  "right_repetitions": {x["sym"]: x["reps"] for x in alpha["symbols"] if x["reps"]},
                                  "repetitions_before_tests": LEARN_REPS,
-                                 "steps_the_app_adds_first": [s["title"] for s in alphabet_gate([], alpha)[0]]},
+                                 "steps_the_app_adds_first": [s["title"] for s in alphabet_gate([], alpha, op)[0]]},
+                     "level": levels.coach_view(lv),
                      "mastered": mastered,
                      "detailed_answers": detail["n"], "detailed_log_since": detail["since"],
                      "old_answers_without_detail": sum(1 for e in events if e["legacy"])},
@@ -601,6 +619,7 @@ def digest() -> dict:
         "milestones": ms,
         "story": story_numbers,
         "_skills": weak,
+        "_open": op,
     }
 
 
@@ -695,7 +714,8 @@ Alphabet rule (overview.alphabet.rule_active is true): the app itself puts the a
 repetition (the app plays each symbol and shows it; the learner repeats it), and tests from memory start only after enough repetitions.
 The steps the app adds are in overview.alphabet.steps_the_app_adds_first: they are part of THIS plan and come before your steps.
 Do not plan read_symbols, recognize_symbols, write_symbols, listen_sounds, or write_syllables. Plan the rest of the session with steps that need no
-Bopomofo (listen_tones, speak_sounds, speak_sentences). The app writes the first sentence of the diagnosis about the alphabet steps:
+Bopomofo and that the level allows (listen_tones; speak_sounds and speak_sentences only when overview.level.allowed_step_types lists them).
+The app writes the first sentence of the diagnosis about the alphabet steps:
 your diagnosis covers your own steps only. Do not repeat the alphabet count, do not say that your steps open the session, and never
 say that the alphabet waits for a later plan."""
 
@@ -703,6 +723,20 @@ ALPHABET_MILESTONE_RULE = """
 Alphabet rule (overview.alphabet.rule_active is true): the learner does not know the Bopomofo alphabet yet and learns it by repetition.
 The app has its own milestone for it ("Know the alphabet"). Do not set milestones that test the symbols: no unit "symbol", no area
 reading, recognize, dictation, or writing, and no listening initial or final. Set milestones for tones and speaking only."""
+
+
+def level_rule(op: dict, task: str = "plan") -> str:
+    """The level path is a rule of the app: the model only sees and plans the exercises the learner has unlocked."""
+    open_ex = ", ".join(op["exercises"])
+    if task == "milestones":
+        return (f"\nLevel rule (overview.level): the learner is at level {op['level']} of {levels.MAX_LEVEL}. Only these exercises are open: {open_ex}."
+                " Set milestones only for skills these exercises measure. The app has its own milestone for the next level.")
+    syms = "" if op["symbols"] == levels.SYMS else f" Symbol steps use only these symbols: {' '.join(op['symbols'])}."
+    return (f"\nLevel rule (overview.level): the learner is at level {op['level']} of {levels.MAX_LEVEL} and has unlocked only these exercises: {open_ex}."
+            f" Use only these step types: {', '.join(levels.allowed_types(op))}. Any other step type is removed.{syms}"
+            " A level opens when its items are known: right on the first try, fast, on more than one day."
+            " overview.level.next_level lists what is still missing: steps that train those items move the learner up."
+            " overview.level.dropped lists known items that slipped: the app adds a review step for them itself.")
 
 SENTENCES = """Task: write new practice sentences that train an exact focus for a learner of Taiwan Mandarin.
 A Bopomofo analyzer checks your sentences after you answer. Sentences that fail are rejected:
@@ -802,10 +836,14 @@ async def call(stage: str, task: str, payload: dict, run: str, step_id: int | No
 
 # ---------- checking the model's steps ----------
 
-def clean_step(s: dict, known_texts: set[str], scale: float = 1.0) -> dict | None:
-    """One step from the model, checked. Returns None when it cannot be measured."""
+def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | None = None) -> dict | None:
+    """One step from the model, checked. Returns None when it cannot be measured or when the level has not unlocked its exercise.
+    op: what the level opens (levels.opened()); read here when not given."""
     t = s.get("type")
     if t not in TYPES:
+        return None
+    op = op or levels.opened()
+    if not levels.step_allowed(t, {"source": s.get("source")} if t == "speak_sounds" else None, op):
         return None
     meta = {"finding_ids": [_text(x, 60) for x in (s.get("finding_ids") or []) if x][:6], "review": ""}
     if t == "speak_sentences":
@@ -837,6 +875,8 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0) -> dict | Non
                 return None
             if unit == "tone" and 5 in p["tones"]:
                 p["source"] = "sentence"  # the neutral tone only exists after another syllable
+            if not levels.step_allowed(t, p, op):
+                return None
         elif t == "listen_tones":
             p = {"tones": _tones(s.get("tones"), allow5=False)}
             if not p["tones"]:
@@ -844,7 +884,7 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0) -> dict | Non
         elif t == "listen_sounds":
             p = {"syms": _syms(s.get("syms"))}
         elif t in SYMBOL_TYPES:
-            p = {"syms": _syms(s.get("syms"), single=True)}
+            p = {"syms": [x for x in _syms(s.get("syms"), single=True) if x in op["symbols"]]}
         else:
             p = {"tones": _tones(s.get("tones")), "syms": _syms(s.get("syms"))}
             if not p["tones"] and not p["syms"]:
@@ -956,14 +996,17 @@ def milestone_menu(d: dict) -> list[dict]:
 async def milestones_call(d: dict, findings: list[dict], run: str) -> dict:
     active = d["milestones"]
     gate = d["overview"]["alphabet"]["rule_active"]
-    menu = [m for m in milestone_menu(d) if not (gate and needs_alphabet(m))]
-    r = await call("milestones", MILESTONES + (ALPHABET_MILESTONE_RULE if gate else ""),
+    op = d["_open"]
+    menu = [m for m in milestone_menu(d) if not (gate and needs_alphabet(m)) and levels.milestone_allowed(m, op)]
+    r = await call("milestones", MILESTONES + (ALPHABET_MILESTONE_RULE if gate else "") + level_rule(op, "milestones"),
                    {"overview": d["overview"], "findings": findings[:15], "active": active, "menu": menu}, run)
     keep = {_int(x, 0, 10**9, 0) for x in r.get("keep") or []} & {m["id"] for m in active}
     new: list[dict] = []
     for m in r.get("new") or []:
         cm = clean_milestone(m) if isinstance(m, dict) else None
         if cm and gate and needs_alphabet(cm["criterion"]):
+            continue
+        if cm and not levels.milestone_allowed(cm["criterion"], op):
             continue
         if cm and not milestone_progress(cm["criterion"])["reached"] and cm["criterion"] not in [x["criterion"] for x in new]:
             new.append(cm)
@@ -1039,13 +1082,14 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
 
     _stage("Choosing your next steps")
     s = d["sentences"]
-    task = PLAN + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "")
+    op = d["_open"]
+    task = PLAN + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + level_rule(op)
     plan = await call("plan", task, {"reason": reason, "overview": d["overview"], "pace": pace, "findings": findings[:30], "strengths": strengths,
                                      "unknown": unknown, "too_advanced": advanced,
                                      "reusable_sentences": {"weak": s["weak"], "library_not_practiced": s["library_not_practiced"]},
                                      "previous_plans": d["pace"]["previous_plans"], "milestones": d["milestones"]}, run)
     known = {x["text"] for x in s["weak"]} | {x["text"] for x in s["library_not_practiced"]}
-    steps = [c for c in (clean_step(x, known, pace["target_scale"]) for x in plan.get("steps") or [] if isinstance(x, dict)) if c][:7]
+    steps = [c for c in (clean_step(x, known, pace["target_scale"], op) for x in plan.get("steps") or [] if isinstance(x, dict)) if c][:7]
     if not steps:
         raise llm.LLMError("The planner's steps could not be measured.")
 
@@ -1075,7 +1119,7 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     draft = [{"pos": i, "type": x["type"], "title": x["title"], "why": x["why"], "focus": _focus_of(x), "target": x["target"],
               "minutes": x["minutes"], "finding_ids": x["meta"]["finding_ids"]} for i, x in enumerate(steps)]
     review_r, ms_r = await asyncio.gather(
-        call("review", REVIEW + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else ""),
+        call("review", REVIEW + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + level_rule(op),
              {"draft": draft, "findings": findings[:30], "pace": pace, "overview": d["overview"]}, run),
         milestones_call(d, findings, run), return_exceptions=True)
     diagnosis = _text(plan.get("diagnosis"), 1200)
@@ -1117,13 +1161,19 @@ def rules_plan(d: dict) -> dict:
     if weak:
         steps.append({"type": "speak_sentences", "sentence_ids": [s["id"] for s in weak], "reps": 2, "min_score": 85,
                       "title": "Repeat your weakest sentences", "why": "These sentences are close: a few more tries make them smooth."})
+    # Only the exercises the level has unlocked. Without weak spots: a first look at each open exercise.
+    op = d.get("_open") or levels.opened()
+    steps = [s for s in steps if levels.step_allowed(s["type"], s, op)]
     if not steps:
+        first = list(op["symbols"][:6])
         steps = [
             {"type": "listen_tones", "tones": [1, 2, 3, 4], "target": 20, "title": "Tone check: all four tones", "why": "A first look at how you hear the tones."},
-            {"type": "read_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Read the first symbols", "why": "A first look at the symbols."},
-            {"type": "write_symbols", "syms": list("ㄅㄆㄇㄈㄉㄊ"), "target": 8, "title": "Write the first symbols", "why": "A first try at writing them."},
+            {"type": "read_symbols", "syms": first, "target": 8, "title": "Read the first symbols", "why": "A first look at the symbols."},
+            {"type": "recognize_symbols", "syms": first, "target": 8, "title": "Type the first symbols", "why": "A first try at naming them silently."},
+            {"type": "write_symbols", "syms": first, "target": 8, "title": "Write the first symbols", "why": "A first try at writing them."},
             {"type": "speak_sounds", "unit": "tone", "tones": [1, 2, 3, 4], "source": "syllable", "target": 10, "title": "Say single syllables", "why": "A first look at how you say the tones."},
         ]
+        steps = [s for s in steps if levels.step_allowed(s["type"], s, op)]
     return {"diagnosis": "Built by rules from your weak spots, because Bobo's planner was not available.", "steps": steps[:6], "milestones": None}
 
 
@@ -1135,7 +1185,9 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
     """Build and save a new plan. run_pipeline(digest, reason, run) -> result can replace the model pipeline in tests.
     as_next: the plan waits (status 'next') until the active plan is finished."""
     _stage("Reading your answers")
-    d = digest()
+    lv = levels.check()  # new unlocks and drops first, so the plan matches the level the learner sees
+    d = digest(lv)
+    op = d["_open"]
     run = uuid.uuid4().hex[:12]
     error = None
     try:
@@ -1147,9 +1199,18 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         traceback.print_exc()
         out, source, error = rules_plan(d), "rules", f"{type(e).__name__}: {e}"[:400]
         known = {s["text"] for s in d["sentences"]["weak"]}
-        out["steps"] = [c for c in (clean_step(s, known) for s in out["steps"]) if c]
+        out["steps"] = [c for c in (clean_step(s, known, 1.0, op) for s in out["steps"]) if c]
+    # A rule of the app, whatever the model returned: no step of a locked exercise.
+    out["steps"] = [s for s in out["steps"] if levels.step_allowed(s["type"], s["params"], op)]
     alpha = alphabet_status()
-    out["steps"], removed = alphabet_gate(out["steps"], alpha)
+    out["steps"], removed = alphabet_gate(out["steps"], alpha, op)
+    # Known items that dropped get a short review right after the alphabet steps.
+    review = levels.remediation(lv)
+    if review:
+        n = sum(1 for s in out["steps"] if (s.get("meta") or {}).get("rule") == "alphabet")
+        out["steps"] = (out["steps"][:n] + review + out["steps"][n:])[:7]
+        out["diagnosis"] = ("Review first: " + ", ".join(s["title"].removeprefix("Review: ") for s in review)
+                            + " slipped below your known level. " + (out.get("diagnosis") or ""))
     if source == "rules" and alpha["gate"]:
         out["diagnosis"] = "Tone quizzes train your ear, but they do not show that you know the symbols. " + out["diagnosis"]
     if alpha["gate"] and alpha["next_group"]:
@@ -1159,6 +1220,8 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
     model = ", ".join(m for m, _ in models.most_common(3)) or None
     raw = {k: out.get(k) for k in ("findings", "strengths", "unknown", "too_advanced", "pace", "review")}
     raw["alphabet_rule"] = {"active": alpha["gate"], "known": alpha["known_count"], "next": alpha["next_group"], "removed_steps": removed}
+    raw["level_rule"] = {"level": lv["level"], "exercises": lv["exercises"], "step_types": lv["step_types"],
+                         "review": [s["title"] for s in review], "drops": lv["drops"]}
     now = time.time()
     with db.conn() as c:
         has_active = c.execute("SELECT 1 FROM plans WHERE status='active'").fetchone()
@@ -1175,9 +1238,11 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         if source == "llm" and ms:
             keep = list(ms.get("keep") or [])
             c.execute("UPDATE milestones SET status='dropped', done_ts=? WHERE status='active' AND criterion NOT LIKE '%\"alphabet\"%'"
+                      " AND criterion NOT LIKE '%\"level\"%'"
                       f" AND id NOT IN ({','.join('?' * len(keep)) or 'NULL'})", (now, *keep))
             for m in ms.get("new") or []:
-                if m["criterion"]["unit"] == "alphabet" or (alpha["gate"] and needs_alphabet(m["criterion"])):
+                if m["criterion"]["unit"] in ("alphabet", "level") or (alpha["gate"] and needs_alphabet(m["criterion"])) \
+                        or not levels.milestone_allowed(m["criterion"], op):
                     continue
                 c.execute("INSERT INTO milestones(ts, plan_id, title, why, criterion) VALUES (?,?,?,?,?)",
                           (now, pid, m["title"], m["why"], json.dumps(m["criterion"], ensure_ascii=False)))
@@ -1186,6 +1251,19 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
             for mid, crit in c.execute("SELECT id, criterion FROM milestones WHERE status='active'").fetchall():
                 if needs_alphabet(json.loads(crit)):
                     c.execute("UPDATE milestones SET status='dropped', done_ts=? WHERE id=?", (now, mid))
+        # Milestones of locked exercises wait for their level.
+        for mid, crit in c.execute("SELECT id, criterion FROM milestones WHERE status='active'").fetchall():
+            if not levels.milestone_allowed(json.loads(crit), op):
+                c.execute("UPDATE milestones SET status='dropped', done_ts=? WHERE id=?", (now, mid))
+        # The next level is a milestone of the app from level 2 on (at level 1 the alphabet milestone is the same goal).
+        nxt = lv["next"]
+        if nxt and lv["level"] >= 2 and not c.execute("SELECT 1 FROM milestones WHERE status='active' AND criterion LIKE ?",
+                                                      (f'%"unit": "level", "expected": ["{nxt["n"]}"]%',)).fetchone():
+            goals = lv["levels"][lv["level"] - 1]["goals"]
+            crit = {"area": "reading", "unit": "level", "expected": [str(nxt["n"])], "min_acc": 100, "window": sum(g["need"] for g in goals)}
+            c.execute("INSERT INTO milestones(ts, plan_id, title, why, criterion) VALUES (?,?,?,?,?)",
+                      (now, pid, f"Reach level {nxt['n']}: {nxt['title']}", "Unlocks " + ", ".join(o["label"] for o in nxt["opens"])
+                       + ". Every item must be known: right on the first try, fast, on more than one day.", json.dumps(crit, ensure_ascii=False)))
         # The alphabet milestone is a rule of the app: it stays until the 37 symbols are known.
         if alpha["known_count"] < 37 and not c.execute("SELECT 1 FROM milestones WHERE status='active' AND criterion LIKE '%\"alphabet\"%'").fetchone():
             m = clean_milestone({"title": "Know the alphabet", "area": "reading", "unit": "alphabet", "min_acc": 100,
@@ -1337,10 +1415,21 @@ def href(step: dict) -> str:
     return q + f"&step={sid}"
 
 
-def milestone_progress(c: dict) -> dict:
+def milestone_progress(c: dict, lv: dict | None = None) -> dict:
+    """lv: the level status, for the level milestone (read here when not given)."""
     if c["unit"] == "alphabet":
         n = alphabet_status()["known_count"]
         return {"n": n, "value": round(100 * n / 37, 1), "reached": n >= round(37 * c["min_acc"] / 100)}
+    if c["unit"] == "level":
+        target = int(c["expected"][0]) if c.get("expected") else 0
+        if lv is None and levels.opened()["level"] >= target:
+            return {"n": c["window"], "value": 100.0, "reached": True}
+        lv = lv or levels.status()
+        if lv["level"] >= target:
+            return {"n": c["window"], "value": 100.0, "reached": True}
+        goals = lv["levels"][target - 2]["goals"] if 2 <= target <= levels.MAX_LEVEL else []
+        n = sum(min(g["done"], g["need"]) for g in goals)
+        return {"n": n, "value": round(100 * n / max(1, c["window"]), 1), "reached": False}
     if c["unit"] == "score":
         rows = _q("SELECT score FROM events WHERE area='speaking' AND score IS NOT NULL ORDER BY ts DESC LIMIT ?", (c["window"],))
         n = len(rows)
@@ -1510,12 +1599,23 @@ def refresh(check: bool = True) -> dict:
     # Checkpoints and debriefs are AI calls. While AI energy is empty, a due checkpoint stays due until the refill.
     ai_ready = LIVE and check and not limits.ai_quota()["blocked"]
     with _refresh_lock:
+        # Levels first: new unlocks, drops, and notices. A failure here never blocks the plan.
+        lv = None
+        try:
+            lv = levels.check()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+        op = {"exercises": lv["exercises"], "symbols": lv["symbols"]} if lv else None
         plan = _plan_row()
         if plan:
             now = time.time()
             with db.conn() as c:
                 for s in _steps(plan["id"]):
                     if s["status"] != "open":
+                        continue
+                    # A step of an exercise the level has not unlocked (a plan from before the levels) is closed.
+                    if op and not levels.step_allowed(s["type"], s["params"], op):
+                        c.execute("UPDATE steps SET status='skipped', skip_reason='locked', done_ts=? WHERE id=?", (now, s["id"]))
                         continue
                     pr = step_progress(s)
                     if pr["progress"] >= s["target"]:
@@ -1532,7 +1632,7 @@ def refresh(check: bool = True) -> dict:
                     want_next = True
         with db.conn() as c:
             for m in c.execute("SELECT id, criterion FROM milestones WHERE status='active'").fetchall():
-                if milestone_progress(json.loads(m["criterion"]))["reached"]:
+                if milestone_progress(json.loads(m["criterion"]), lv)["reached"]:
                     c.execute("UPDATE milestones SET status='achieved', done_ts=? WHERE id=?", (time.time(), m["id"]))
         if finished and not _promote():
             start("The previous plan is finished. Build the next one from the new stats.")
@@ -1544,7 +1644,7 @@ def refresh(check: bool = True) -> dict:
             _bg(checkpoint, sid)
     if want_next and not _q("SELECT id FROM plans WHERE status='next'"):
         start("One step is left in the current plan. Build the next plan now, so it is ready when this one ends.", as_next=True)
-    return {"done_now": done_now, "checking": to_check, "finished": finished}
+    return {"done_now": done_now, "checking": to_check, "finished": finished, "levels": lv}
 
 
 def skip(step_id: int, reason: str) -> dict:
@@ -1580,7 +1680,8 @@ def _calls(plan_id: int) -> dict:
             "stages": dict(Counter(r["stage"].split(":")[0].split("#")[0] for r in rows))}
 
 
-def state() -> dict:
+def state(lv: dict | None = None) -> dict:
+    """lv: the level status from refresh(), to avoid reading every answer twice."""
     plan = _plan_row() or (_q("SELECT * FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 1") or [None])[0]
     # The first plan waits for the onboarding and the full profile, so its sentences use the learner's real life.
     # A learner who does not want to wait asks for it on Home (POST /api/coach/plan).
@@ -1589,12 +1690,13 @@ def state() -> dict:
         start("First plan for this learner, with the full profile.")
         job = _job()
     midnight = db.day_start(db.local_today())
+    lv = lv or levels.status()
     use = _q("SELECT COUNT(*) AS n, SUM(cost) AS cost, COUNT(*) FILTER (WHERE ts>=?) AS today_n, SUM(CASE WHEN ts>=? THEN cost END) AS today_cost FROM coach_calls", (midnight, midnight))[0]
     out: dict = {"generating": job["running"], "stage": job["stage"], "building_next": job["running"] and job["next"], "error": job["error"],
                  "writing_story": job["story"],
                  "started": job["started"], "plan": None, "steps": [], "milestones": [], "history": [], "notes": [],
                  "next_ready": bool(_q("SELECT id FROM plans WHERE status='next'")), "coach_model": COACH_MODEL,
-                 "alphabet": alphabet_status(), "ai_quota": limits.ai_quota(),
+                 "alphabet": alphabet_status(), "levels": {k: v for k, v in lv.items() if k != "stars"}, "ai_quota": limits.ai_quota(),
                  "usage": {"calls": use["n"] or 0, "cost": round(use["cost"] or 0, 4), "today_calls": use["today_n"] or 0, "today_cost": round(use["today_cost"] or 0, 4)}}
     if plan:
         raw = json.loads(plan["raw"] or "{}")
@@ -1608,7 +1710,7 @@ def state() -> dict:
         out["notes"] = _q(f"SELECT id, ts, step_id, kind, text FROM coach_notes WHERE plan_id=? AND {VISIBLE_NOTES} ORDER BY id DESC LIMIT 30", (plan["id"],))
     for m in _q("SELECT * FROM milestones WHERE status IN ('active','achieved') ORDER BY status='achieved', id DESC LIMIT 20"):
         c = json.loads(m["criterion"])
-        out["milestones"].append({k: m[k] for k in ("id", "ts", "title", "why", "status", "done_ts")} | {"criterion": c, **milestone_progress(c)})
+        out["milestones"].append({k: m[k] for k in ("id", "ts", "title", "why", "status", "done_ts")} | {"criterion": c, **milestone_progress(c, lv)})
     for p in _q("SELECT id, ts, status, source, diagnosis, headline, done_ts FROM plans WHERE status!='next' ORDER BY id DESC LIMIT 12"):
         st = _q("SELECT status FROM steps WHERE plan_id=?", (p["id"],))
         out["history"].append({**p, "steps": len(st), "done": sum(1 for s in st if s["status"] == "done"), "skipped": sum(1 for s in st if s["status"] == "skipped")})

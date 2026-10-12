@@ -19,6 +19,8 @@ const STEP_KIND: Record<string, string> = {
 };
 const DOMAIN: Record<string, string> = { tones_listening: "Tones by ear", tones_speaking: "Spoken tones", sounds: "Sounds", symbols: "Symbols", sentences: "Sentences" };
 const SKIP = { too_hard: "too hard", too_easy: "too easy", not_now: "not now" } as const;
+/** Why a step was skipped: the learner's reason, or "locked" when its exercise is not unlocked yet. */
+const SKIPPED: Record<string, string> = { ...SKIP, locked: "not unlocked yet" };
 const SYMBOL_STEPS = new Set(["read_symbols", "recognize_symbols", "write_symbols"]);
 
 /** Short labels for the focus of a step: tones, symbols, deck size, sentences. */
@@ -293,7 +295,7 @@ function StepDetail({ s, i, alphabet, findings, onStart, onSkip, onEvidence }: {
       <div>
         <div className="text-xs text-muted">
           Step {i + 1} · {STEP_KIND[s.type]} · about {s.minutes} min
-          {skipped && s.skip_reason ? " · skipped: " + SKIP[s.skip_reason as keyof typeof SKIP] : ""}
+          {skipped && s.skip_reason ? " · skipped: " + (SKIPPED[s.skip_reason] || s.skip_reason) : ""}
         </div>
         <h2 className="cjk mt-1 text-xl font-semibold leading-snug md:text-2xl">{s.title}</h2>
         <p className="mt-2 text-[15px] leading-relaxed text-muted">{s.why}</p>

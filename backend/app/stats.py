@@ -15,7 +15,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from . import db
+from . import db, levels
 from .zhuyin import zhuyin_of
 
 HALF_LIFE = 14.0
@@ -311,10 +311,12 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     sessions = [{**s, "areas": dict(s["areas"])} for s in sessions[-40:]][::-1]
 
     items = item_stats(units, today)
+    lv = levels.status()
+    op = {"exercises": lv["exercises"], "symbols": lv["symbols"]}
     return {"range": {"days": days, "since": since if days else first_day, "area": area},
             "overview": overview, "daily": daily, "areas": per_area, "confusion": confusion, "expected": expected,
             "items": items, "tone_ctx": tone_ctx, "strokes": stroke_list, "hours": by_hour, "sessions": sessions,
-            "recent": recent(area=area), "records": records(), "challenges": challenges(), "weak": weak(items),
+            "recent": recent(area=area), "records": records(), "challenges": challenges(op=op), "weak": weak(items, op=op), "levels": lv,
             "calendar": [{"day": dd, "minutes": round(s / 60, 1)} for dd, s in secs_all.items() if dd >= (today - timedelta(days=370)).isoformat()]}
 
 
@@ -333,14 +335,15 @@ def recent(limit: int = 80, area: str | None = None) -> list[dict]:
     return evs
 
 
-def weak(items: list[dict], limit: int = 12) -> list[dict]:
-    """Training targets: the lowest weak scores with enough answers."""
+def weak(items: list[dict], limit: int = 12, op: dict | None = None) -> list[dict]:
+    """Training targets: the lowest weak scores with enough answers, in the exercises the level has unlocked."""
+    op = op or levels.opened()
     out = []
     for it in items:
         if it["n"] < 3 or it["kind"] in ("syllable", "order") or it["expected"] in ("∅", "?") or it["post"] >= 92:
             continue
         href = _href(it["area"], it["kind"], it["expected"], [a for a, _ in it["top"][:2]])
-        if not href:
+        if not href or not levels.is_open(levels.exercise_of(href), op):
             continue
         out.append({**it, "label": _label(it["kind"], it["expected"]), "verb": VERB.get(it["area"], "gave"), "href": href})
         if len(out) >= limit:
@@ -404,10 +407,11 @@ def records() -> dict:
 
 # ---------- daily challenges ----------
 
-def challenges(today: date | None = None) -> list[dict]:
+def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     """Up to four goals for today, picked from the weakest skills before today, so they stay the same all day.
-    Progress counts today's answers."""
+    Progress counts today's answers. Only exercises the level has unlocked."""
     today = today or db.local_today()
+    op = op or levels.opened()
     t = today.isoformat()
     since = (today - timedelta(days=45)).isoformat()
     past = _rows("SELECT day, area, kind, expected, actual, ok, try_n, help FROM units WHERE day>=? AND day<? AND kind!='stroke'", (since, t))
@@ -460,11 +464,12 @@ def challenges(today: date | None = None) -> list[dict]:
     # Tones first (the main goal of the app), then the others in a daily order.
     rnd = random.Random(t)
     rnd.shuffle(out)
+    out = [c for c in out if levels.is_open(levels.exercise_of(c["href"]), op)]
     out.sort(key=lambda c: 0 if c["id"] in ("speak-tone", "hear-tone") else 1)
     out = out[:4]
     fill = [
         {"id": "warm-listen", "area": "listening", "title": "Answer 20 listening questions", "why": "Daily ear training.", "target": 20,
-         "progress": sum(1 for e in now_ev if e["area"] == "listening"), "href": "/listening"},
+         "progress": sum(1 for e in now_ev if e["area"] == "listening"), "href": "/listening?quiz=tone"},
         {"id": "warm-read", "area": "reading", "title": "Read 15 symbols out loud", "why": "Daily reading.", "target": 15,
          "progress": sum(1 for e in now_ev if e["area"] == "reading"), "href": "/reading"},
         {"id": "warm-speak", "area": "speaking", "title": "Record 5 sentences", "why": "Daily speaking.", "target": 5,
@@ -478,7 +483,7 @@ def challenges(today: date | None = None) -> list[dict]:
     for f in fill:
         if len(out) >= 4:
             break
-        if f["area"] not in have:
+        if f["area"] not in have and levels.is_open(levels.exercise_of(f["href"]), op):
             out.append(f)
             have.add(f["area"])
     for c in out:

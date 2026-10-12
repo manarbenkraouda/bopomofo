@@ -1,0 +1,582 @@
+"""Levels: a guided path through the practice modes, with exercises that unlock.
+
+A new learner sees few exercises. More exercises unlock when the learner proves what the level teaches. The proof uses
+tests only (first try, no help, not in learn mode): accuracy over the last tests, answer speed, and right answers on
+more than one day. Practice time alone never unlocks anything, and a lucky guess cannot unlock anything.
+
+Stars per item (a symbol or a tone) and per exercise:
+  ★    seen: tested at least once, or LEARN_REPS right repetitions.
+  ★★   accurate: at least min_tests tests, and min_acc percent right in the last "window" tests.
+  ★★★  known: ★★, the median time of the right answers in the window at or below the speed limit of the exercise
+       (exercises without a timer use accuracy only), and right answers on at least MIN_DAYS different days.
+A level unlocks when every goal of the level before it is met. Unlocks are permanent. When a known item drops (accuracy
+under DROP_ACC, or slower than DROP_SLOW x the limit), the learner gets a notice and the coach adds a review step.
+
+Cost: the stars come from one summary row per exercise and item (level_items: counts, right days, and the last tests).
+Each answer updates only the rows of the items it tests, in the transaction that saves it (record()). So saving an
+answer and checking the level do not read the history, and the cost stays the same after years of practice. The
+history is read once per user, to build the summaries (rebuild()).
+"""
+from __future__ import annotations
+
+import json
+import math
+import time
+from dataclasses import dataclass
+
+from . import db
+
+SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
+INITIALS, FINALS, MEDIALS = SYMS[:21], SYMS[21:34], SYMS[34:]
+BOPOMOFO = set(SYMS)
+LEARN_REPS = 10
+MIN_DAYS = 2
+DROP_ACC = 80
+DROP_SLOW = 1.25
+SHARE = 0.9  # a level goal over the 37 symbols needs 90% of them (34)
+
+
+@dataclass(frozen=True)
+class Spec:
+    """How one exercise measures an item. ms: speed limit of a right answer, None = no timer."""
+    area: str
+    mode: str | None
+    kinds: tuple[str, ...]
+    ms: int | None
+    window: int
+    min_tests: int
+    min_acc: int
+
+
+# Every exercise of the app: label, link, and how it measures (None: a study screen without answers).
+# Speed limits are first estimates, not calibrated on real answers yet.
+EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
+    "symbols": ("Symbols", "/symbols", None),
+    "reading": ("Reading", "/reading", Spec("reading", None, ("symbol",), 4000, 10, 5, 90)),
+    "recognize": ("Recognize", "/recognize", Spec("recognize", None, ("symbol",), 3000, 10, 5, 90)),
+    "listening/tone": ("Tone quiz", "/listening?quiz=tone", Spec("listening", "tone", ("tone",), 4000, 20, 10, 90)),
+    "dictation": ("Dictation", "/dictation", Spec("dictation", None, ("symbol",), None, 10, 5, 90)),
+    "writing/symbol": ("Write symbols", "/writing?mode=symbol", Spec("writing", "symbol", ("symbol",), None, 10, 5, 90)),
+    "listening/zhuyin": ("Bopomofo quiz", "/listening?quiz=zhuyin", Spec("listening", "zhuyin", ("initial", "final", "tone"), 4000, 20, 10, 90)),
+    "writing/syllable": ("Write syllables", "/writing?mode=syllable", Spec("writing", "syllable", ("symbol", "tone"), None, 10, 5, 90)),
+    "speaking/syllable": ("Say syllables", "/speaking?source=syllable", Spec("speaking", "syllable", ("tone", "initial", "final"), None, 10, 5, 85)),
+    "speaking/sentence": ("Say sentences", "/speaking?source=sentence", Spec("speaking", "sentence", ("tone", "initial", "final"), None, 10, 5, 85)),
+    "writing/word": ("Write words", "/writing?mode=word", Spec("writing", "word", ("symbol", "tone"), None, 10, 5, 90)),
+    "sentences": ("Sentences", "/sentences", None),
+    "speaking/custom": ("Free speaking", "/speaking?source=custom", Spec("speaking", "custom", ("tone", "initial", "final"), None, 10, 5, 85)),
+}
+TONES4 = ["tone:1", "tone:2", "tone:3", "tone:4"]
+TONES5 = TONES4 + ["tone:5"]
+NEED_SYMS = math.ceil(SHARE * len(SYMS))
+
+# The unlock tree. A level opens its exercises; its goals open the next level.
+LEVELS: list[dict] = [
+    {"n": 1, "key": "alphabet", "title": "Read the alphabet", "opens": ["symbols", "reading", "recognize", "listening/tone"],
+     "about": "Learn the 37 symbols by sight, and train your ear on the four tones.",
+     "goals": [{"key": "read", "label": "Read the symbols", "items": list(SYMS), "modes": ["reading", "recognize"], "need": NEED_SYMS}]},
+    {"n": 2, "key": "write", "title": "Write the alphabet", "opens": ["dictation", "writing/symbol"],
+     "about": "Hear a symbol and write it by hand.",
+     "goals": [{"key": "write", "label": "Write the symbols", "items": list(SYMS), "modes": ["dictation", "writing/symbol"], "need": NEED_SYMS}]},
+    {"n": 3, "key": "syllables", "title": "Syllables", "opens": ["listening/zhuyin", "writing/syllable", "speaking/syllable"],
+     "about": "Put the symbols together: hear, write, and say whole syllables.",
+     "goals": [{"key": "sounds", "label": "Know the sounds in syllables", "items": list(SYMS),
+                "modes": ["listening/zhuyin", "writing/syllable", "speaking/syllable"], "need": NEED_SYMS},
+               {"key": "tones", "label": "Hear the four tones", "items": TONES4, "modes": ["listening/tone"], "need": 4}]},
+    {"n": 4, "key": "sentences", "title": "Words and sentences", "opens": ["speaking/sentence", "writing/word", "sentences"],
+     "about": "Say whole sentences, with every tone, and write words.",
+     "goals": [{"key": "speak", "label": "Say the five tones in sentences", "items": TONES5, "modes": ["speaking/sentence"], "need": 5}]},
+    {"n": 5, "key": "free", "title": "Free speaking", "opens": ["speaking/custom"], "about": "Say anything you want and get it checked.", "goals": []},
+]
+MAX_LEVEL = len(LEVELS)
+# The alphabet of level 1 comes in chapters. A chapter opens when 90% of the chapter before it is accurate (★★) by sight.
+CHAPTERS = [("initials", "Initials", INITIALS), ("medials", "Medials", MEDIALS), ("finals", "Finals", FINALS)]
+CHAPTER_MODES = ["reading", "recognize"]
+# Learners who said they read Bopomofo skip the "two days" rule for the alphabet (a placement): accuracy and speed still count.
+PLACEMENT_MODES = {"reading", "recognize", "dictation", "writing/symbol"}
+
+# Coach step types and the exercise each one needs. speak_sounds depends on its source.
+STEP_EXERCISE = {"read_symbols": "reading", "recognize_symbols": "recognize", "listen_tones": "listening/tone", "write_symbols": "dictation",
+                 "listen_sounds": "listening/zhuyin", "write_syllables": "writing/syllable", "speak_sentences": "speaking/sentence"}
+
+
+def step_exercise(step_type: str, params: dict | None = None) -> str:
+    if step_type == "speak_sounds":
+        return "speaking/sentence" if (params or {}).get("source") == "sentence" else "speaking/syllable"
+    return STEP_EXERCISE.get(step_type, "")
+
+
+def exercise_of(href: str) -> str | None:
+    """The exercise a link opens (/listening?quiz=tone&tones=1 -> listening/tone). None for other screens."""
+    path, _, query = (href or "").partition("?")
+    q = dict(p.partition("=")[::2] for p in query.split("&") if p)
+    if path == "/listening":
+        return "listening/zhuyin" if q.get("quiz") == "zhuyin" else "listening/tone"
+    if path == "/speaking":
+        return "speaking/" + (q.get("source") if q.get("source") in ("syllable", "custom") else "custom" if q.get("text") else "sentence")
+    if path == "/writing":
+        return "writing/" + (q.get("mode") if q.get("mode") in ("symbol", "word") else "syllable")
+    key = path.strip("/")
+    return key if key in EXERCISES else None
+
+
+# ---------- what is open: read from the saved unlocks only (cheap) ----------
+
+def _unlock_keys() -> dict[str, float]:
+    if not db.current_user():
+        return {}
+    with db.conn() as c:
+        return {r["key"]: r["ts"] for r in c.execute("SELECT key, ts FROM level_unlocks").fetchall()}
+
+
+def _level_of(keys) -> int:
+    n = 1
+    while n < MAX_LEVEL and f"level:{n + 1}" in keys:
+        n += 1
+    return n
+
+
+def _open_symbols(keys, level: int) -> str:
+    if level >= 2:
+        return SYMS
+    out = ""
+    for i, (k, _, syms) in enumerate(CHAPTERS):
+        if i == 0 or f"chapter:{k}" in keys:
+            out += syms
+        else:
+            break
+    return out
+
+
+def opened(keys: dict | None = None) -> dict:
+    """The level, the open exercises, and the open symbols, from the saved unlocks."""
+    keys = _unlock_keys() if keys is None else keys
+    level = _level_of(keys)
+    ex = [e for lv in LEVELS[:level] for e in lv["opens"]]
+    return {"level": level, "exercises": ex, "symbols": _open_symbols(keys, level)}
+
+
+def is_open(exercise: str | None, op: dict | None = None) -> bool:
+    return not exercise or exercise in (op or opened())["exercises"]
+
+
+def allowed_types(op: dict | None = None) -> list[str]:
+    op = op or opened()
+    types = [t for t, e in STEP_EXERCISE.items() if e in op["exercises"]]
+    if "speaking/syllable" in op["exercises"] or "speaking/sentence" in op["exercises"]:
+        types.append("speak_sounds")
+    return types
+
+
+def step_allowed(step_type: str, params: dict | None, op: dict | None = None) -> bool:
+    return is_open(step_exercise(step_type, params), op)
+
+
+def milestone_exercises(c: dict) -> list[str]:
+    """The exercises that can move a milestone (coach criterion: area, unit)."""
+    a, u = c.get("area"), c.get("unit")
+    if u in ("alphabet", "level"):
+        return []
+    if a == "listening":
+        return ["listening/zhuyin"] if u in ("initial", "final") else ["listening/tone", "listening/zhuyin"]
+    if a == "writing":
+        return ["writing/symbol", "writing/syllable", "writing/word"]
+    if a == "speaking":
+        return ["speaking/sentence"] if u == "score" else ["speaking/syllable", "speaking/sentence", "speaking/custom"]
+    return [a] if a in EXERCISES else []
+
+
+def milestone_allowed(c: dict, op: dict | None = None) -> bool:
+    ex = milestone_exercises(c)
+    op = op or opened()
+    return not ex or any(e in op["exercises"] for e in ex)
+
+
+# ---------- stars ----------
+
+def _median(v: list) -> float | None:
+    v = sorted(x for x in v if x is not None)
+    if not v:
+        return None
+    m = len(v) // 2
+    return v[m] if len(v) % 2 else (v[m - 1] + v[m]) / 2
+
+
+def item_stars(tests: list[tuple[bool, int | None, str]], reps: int, spec: Spec, placement: bool = False,
+               n_tests: int | None = None, right_days: int | None = None) -> dict:
+    """Stars of one item in one exercise. tests: (right, ms, day) for each test, oldest first (at least the last "window" tests).
+    reps: right answers, tests or not. n_tests and right_days: the counts over all tests, when "tests" holds only the last ones."""
+    last = tests[-spec.window:]
+    n_last = len(last)
+    right = [t for t in last if t[0]]
+    acc = round(100 * len(right) / n_last) if n_last else None
+    ms = _median([t[1] for t in right])
+    days = len({t[2] for t in tests if t[0]}) if right_days is None else right_days
+    n = len(tests) if n_tests is None else n_tests
+    stars = 1 if n or reps >= LEARN_REPS else 0
+    accurate = n >= spec.min_tests and acc is not None and acc >= spec.min_acc
+    if accurate:
+        stars = 2
+        fast = spec.ms is None or (ms is not None and sum(1 for t in right if t[1] is not None) >= min(spec.min_tests, len(right))
+                                   and ms <= spec.ms)
+        if fast and (days >= MIN_DAYS or placement):
+            stars = 3
+    slow = spec.ms is not None and ms is not None and ms > spec.ms * DROP_SLOW
+    return {"stars": stars, "tests": n, "acc": acc, "ms": round(ms) if ms is not None else None, "days": days, "reps": reps,
+            "dropped": bool(n_last) and ((acc or 0) < DROP_ACC or slow)}
+
+
+def _keys_of(kind: str, expected: str) -> list[str]:
+    if kind == "tone":
+        return ["tone:" + expected] if expected in ("1", "2", "3", "4", "5") else []
+    return list(dict.fromkeys(ch for ch in expected if ch in BOPOMOFO))
+
+
+def _exercise_key(area: str, mode: str | None) -> str | None:
+    if area in ("reading", "recognize", "dictation"):
+        return area
+    key = f"{area}/{mode}"
+    return key if key in EXERCISES and EXERCISES[key][2] else None
+
+
+def _is_learn(details) -> bool:
+    """Learn mode (the answer is shown first): not a test. Same values as the "learn" flag in events.details."""
+    if isinstance(details, str):
+        try:
+            details = json.loads(details or "{}")
+        except ValueError:
+            return False
+    v = (details or {}).get("learn") if isinstance(details, dict) else None
+    return v not in (None, False, 0, "", "false", "0")
+
+
+def _contribs(area: str, mode: str | None, kind: str, expected, ok, help_, try_n, learn: bool):
+    """What one unit of an answer adds: (exercise, item, test, right) for each item it measures.
+    A test: first try, not in learn mode. A right test: a right test without help."""
+    if ok is None or expected in (None, ""):
+        return []
+    ex = _exercise_key(area, mode)
+    if not ex or kind not in EXERCISES[ex][2].kinds:
+        return []
+    test = int(try_n or 0) == 0 and not learn
+    right = test and bool(ok) and not help_
+    return [(ex, item, test, right) for item in _keys_of(kind, str(expected))]
+
+
+def _push(last: list, entry: list, window: int) -> None:
+    """Add a test to the last tests (oldest first) and keep the last "window". Answers come in time order, so this is an
+    append; an older answer (a late sync) goes to its place."""
+    if not last or (last[-1][0], last[-1][1]) <= (entry[0], entry[1]):
+        last.append(entry)
+    else:
+        i = len(last)
+        while i and (last[i - 1][0], last[i - 1][1]) > (entry[0], entry[1]):
+            i -= 1
+        last.insert(i, entry)
+    del last[:-window]
+
+
+def _values(n_rows: int, n_cols: int, casts: tuple[str, ...] = ()) -> str:
+    row = "(" + ",".join("?" + (casts[i] if i < len(casts) else "") for i in range(n_cols)) + ")"
+    return ",".join([row] * n_rows)
+
+
+def _built(c) -> bool:
+    """True when the summaries of this user hold the whole history. The first call builds them (once per user)."""
+    if c.execute("SELECT 1 FROM level_built").fetchone():
+        return True
+    # The row lock makes a second request wait here, then see the built summaries.
+    if c.execute("INSERT INTO level_built(ts) VALUES (?) ON CONFLICT DO NOTHING RETURNING ts", (time.time(),)).fetchone():
+        rebuild(c)
+    return False
+
+
+_HISTORY_SQL = (
+    "SELECT u.area, u.mode, u.kind, u.expected, u.ok, u.help, u.try_n, u.day, u.ts, u.event_id, e.ms,"
+    " COALESCE(e.details::jsonb ->> 'learn', 'false') NOT IN ('false', '0', '') AS learn"
+    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND u.kind IN ('symbol','tone','initial','final')"
+    " ORDER BY u.ts, u.id")
+
+
+def rebuild(c) -> None:
+    """Build the summaries of the current user from the whole history (one pass, in time order). Runs once per user,
+    after the migration; after that, record() keeps them up to date with each answer."""
+    items: dict[tuple, dict] = {}
+    days: set[tuple] = set()
+    for r in c.execute(_HISTORY_SQL).fetchall():
+        for ex, item, test, right in _contribs(r["area"], r["mode"], r["kind"], r["expected"], r["ok"], r["help"], r["try_n"], r["learn"]):
+            s = items.setdefault((ex, item), {"reps": 0, "tests": 0, "last": []})
+            s["reps"] += int(bool(r["ok"]))
+            if test:
+                s["tests"] += 1
+                _push(s["last"], [r["ts"], r["event_id"], right, r["ms"], r["day"]], EXERCISES[ex][2].window)
+            if right:
+                days.add((ex, item, r["day"]))
+    n_days: dict[tuple, int] = {}
+    for ex, item, _ in days:
+        n_days[(ex, item)] = n_days.get((ex, item), 0) + 1
+    c.execute("DELETE FROM level_items")
+    c.execute("DELETE FROM level_item_days")
+    rows = [(ex, item, s["reps"], s["tests"], n_days.get((ex, item), 0), json.dumps(s["last"], ensure_ascii=False))
+            for (ex, item), s in items.items()]
+    for i in range(0, len(rows), 500):
+        part = rows[i:i + 500]
+        c.execute("INSERT INTO level_items(exercise, item, reps, tests, right_days, last) VALUES "
+                  + _values(len(part), 6, ("", "", "::int", "::int", "::int", "::jsonb")), tuple(v for r in part for v in r))
+    day_rows = sorted(days)
+    for i in range(0, len(day_rows), 1000):
+        part = day_rows[i:i + 1000]
+        c.execute("INSERT INTO level_item_days(exercise, item, day) VALUES " + _values(len(part), 3), tuple(v for r in part for v in r))
+
+
+def record(c, event_id: int, ts: float, day: str, area: str, mode: str | None, ms, details, units: list[dict]) -> None:
+    """Update the summaries with one answer, in the transaction that saves it (db.add_event). The cost depends on the
+    size of the answer only: the history is never read again. units: kind, expected, ok, help, try_n."""
+    if not db.current_user() or not _built(c):
+        return  # not built: the build just read the whole history, this answer included
+    learn = _is_learn(details)
+    add: dict[tuple, dict] = {}
+    for u in units:
+        for ex, item, test, right in _contribs(area, mode, u["kind"], u["expected"], u["ok"], u["help"], u["try_n"], learn):
+            a = add.setdefault((ex, item), {"reps": 0, "tests": [], "right": False})
+            a["reps"] += int(bool(u["ok"]))
+            if test:
+                a["tests"].append([ts, event_id, right, ms, day])
+            a["right"] = a["right"] or right
+    if not add:
+        return
+    keys = list(add)
+    flat = tuple(v for k in keys for v in k)
+    # Create the missing rows, then lock the rows of this answer: two answers at the same time update them one after the other.
+    c.execute("INSERT INTO level_items(exercise, item) VALUES " + _values(len(keys), 2) + " ON CONFLICT DO NOTHING", flat)
+    rows = {(r["exercise"], r["item"]): r for r in c.execute(
+        "SELECT exercise, item, reps, tests, right_days, last FROM level_items WHERE (exercise, item) IN (VALUES "
+        + _values(len(keys), 2) + ") FOR UPDATE", flat).fetchall()}
+    right_keys = [(ex, item, day) for (ex, item), a in add.items() if a["right"]]
+    new_days: set[tuple] = set()
+    if right_keys:
+        new_days = {(r["exercise"], r["item"]) for r in c.execute(
+            "INSERT INTO level_item_days(exercise, item, day) VALUES " + _values(len(right_keys), 3)
+            + " ON CONFLICT DO NOTHING RETURNING exercise, item", tuple(v for k in right_keys for v in k)).fetchall()}
+    out = []
+    for k, a in add.items():
+        r = rows[k]
+        last = r["last"]
+        last = json.loads(last) if isinstance(last, str) else list(last or [])
+        for t in a["tests"]:
+            _push(last, t, EXERCISES[k[0]][2].window)
+        out.append((k[0], k[1], r["reps"] + a["reps"], r["tests"] + len(a["tests"]), r["right_days"] + (k in new_days),
+                    json.dumps(last, ensure_ascii=False)))
+    c.execute("UPDATE level_items AS i SET reps = v.reps, tests = v.tests, right_days = v.right_days, last = v.last FROM (VALUES "
+              + _values(len(out), 6, ("", "", "::int", "::int", "::int", "::jsonb"))
+              + ") AS v(exercise, item, reps, tests, right_days, last) WHERE i.exercise = v.exercise AND i.item = v.item",
+              tuple(v for r in out for v in r))
+
+
+def all_stars(placement: bool = False) -> dict[str, dict[str, dict]]:
+    """Stars per exercise and per item, from the summaries: at most one row per exercise and item, whatever the history."""
+    with db.conn() as c:
+        _built(c)
+        rows = c.execute("SELECT exercise, item, reps, tests, right_days, last FROM level_items").fetchall()
+    out: dict[str, dict[str, dict]] = {}
+    for r in sorted(rows, key=lambda r: (r["exercise"], r["item"])):  # alphabet order (code points) for stable notices
+        ex = r["exercise"]
+        if ex not in EXERCISES or not EXERCISES[ex][2]:
+            continue
+        spec = EXERCISES[ex][2]
+        last = r["last"]
+        last = json.loads(last) if isinstance(last, str) else (last or [])
+        tests = [(bool(t[2]), t[3], t[4]) for t in last]
+        out.setdefault(ex, {})[r["item"]] = item_stars(tests, r["reps"], spec, placement and ex in PLACEMENT_MODES,
+                                                        n_tests=r["tests"], right_days=r["right_days"])
+    return out
+
+
+def _best(stars: dict, item: str, modes: list[str]) -> int:
+    return max((stars.get(m, {}).get(item, {}).get("stars", 0) for m in modes), default=0)
+
+
+def _goal_view(g: dict, stars: dict) -> dict:
+    per = {i: _best(stars, i, g["modes"]) for i in g["items"]}
+    done = sum(1 for v in per.values() if v >= 3)
+    return {"key": g["key"], "label": g["label"], "modes": g["modes"], "need": g["need"], "of": len(g["items"]), "done": done,
+            "accurate": sum(1 for v in per.values() if v >= 2), "seen": sum(1 for v in per.values() if v >= 1),
+            "met": done >= g["need"], "missing": [i for i, v in per.items() if v < 3][:40]}
+
+
+def _chapter_done(stars: dict, syms: str) -> bool:
+    return sum(1 for s in syms if _best(stars, s, CHAPTER_MODES) >= 2) >= math.ceil(SHARE * len(syms))
+
+
+def _placement() -> bool:
+    try:
+        return db.get_settings().get("bopomofo") == "reads"
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# ---------- saving unlocks, drops, and notices ----------
+
+def _notice(c, kind: str, key: str, title: str, text: str) -> None:
+    c.execute("INSERT INTO level_notices(ts, kind, key, title, text) VALUES (?,?,?,?,?)", (time.time(), kind, key, title, text))
+
+
+def _label(item: str) -> str:
+    return ("neutral tone" if item == "tone:5" else "tone " + item[5:]) if item.startswith("tone:") else item
+
+
+def check() -> dict:
+    """Compute the stars, save new unlocks (permanent), find known items that dropped, and write notices. Returns status()."""
+    if not db.current_user():
+        return status_from({}, {}, [])
+    stars = all_stars(_placement())
+    keys = _unlock_keys()
+    now = time.time()
+    with db.conn() as c:
+        # Levels: the goals of level n open level n+1. Old history can open several levels at once: one notice for the last one.
+        new_levels = []
+        while True:
+            lv = _level_of(keys)
+            if lv >= MAX_LEVEL or not all(_goal_view(g, stars)["met"] for g in LEVELS[lv - 1]["goals"]):
+                break
+            keys[f"level:{lv + 1}"] = now
+            new_levels.append(lv + 1)
+            c.execute("INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING", (f"level:{lv + 1}", now))
+        if new_levels:
+            top = LEVELS[new_levels[-1] - 1]
+            names = ", ".join(EXERCISES[e][0] for n in new_levels for e in LEVELS[n - 1]["opens"])
+            _notice(c, "unlock", f"level:{top['n']}", f"Level {top['n']}: {top['title']}", f"New: {names}.")
+        # Chapters of the alphabet (level 1 only; level 2 opens every symbol).
+        if _level_of(keys) == 1:
+            for i in range(1, len(CHAPTERS)):
+                k, name, _ = CHAPTERS[i]
+                if f"chapter:{k}" in keys:
+                    continue
+                if not _chapter_done(stars, CHAPTERS[i - 1][2]):
+                    break
+                keys[f"chapter:{k}"] = now
+                c.execute("INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING", (f"chapter:{k}", now))
+                _notice(c, "unlock", f"chapter:{k}", f"New symbols: {name}", "New symbols: " + " ".join(CHAPTERS[i][2]) + ".")
+        # Known items: remember them, and notice when one drops or comes back.
+        marks = {(r["exercise"], r["item"]): r for r in c.execute("SELECT exercise, item, dropped_ts FROM level_marks").fetchall()}
+        dropped, back = {}, {}
+        for ex, items in stars.items():
+            for item, s in items.items():
+                m = marks.get((ex, item))
+                if s["stars"] >= 3:
+                    if not m:
+                        c.execute("INSERT INTO level_marks(exercise, item, known_ts) VALUES (?,?,?) ON CONFLICT DO NOTHING", (ex, item, now))
+                    elif m["dropped_ts"]:
+                        c.execute("UPDATE level_marks SET dropped_ts=NULL WHERE exercise=? AND item=?", (ex, item))
+                        back.setdefault(ex, []).append(item)
+                elif m and not m["dropped_ts"] and s["dropped"]:
+                    c.execute("UPDATE level_marks SET dropped_ts=? WHERE exercise=? AND item=?", (now, ex, item))
+                    dropped.setdefault(ex, []).append(item)
+        for ex, items in dropped.items():
+            _notice(c, "drop", ex, f"{EXERCISES[ex][0]}: needs a review",
+                    " ".join(_label(i) for i in items) + (" is" if len(items) == 1 else " are") + " less sure than before. Bobo adds a review to your next plan.")
+        for ex, items in back.items():
+            _notice(c, "back", ex, f"{EXERCISES[ex][0]}: back on track", " ".join(_label(i) for i in items) + " known again.")
+        drops = [dict(r) for r in c.execute("SELECT exercise, item, dropped_ts FROM level_marks WHERE dropped_ts IS NOT NULL ORDER BY dropped_ts").fetchall()]
+    return status_from(stars, keys, drops)
+
+
+def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
+    op = opened(keys)
+    lv = op["level"]
+    levels = []
+    for L in LEVELS:
+        unlocked = L["n"] <= lv
+        goals = [_goal_view(g, stars) for g in L["goals"]]
+        need = sum(g["need"] for g in goals)
+        levels.append({"n": L["n"], "key": L["key"], "title": L["title"], "about": L["about"], "unlocked": unlocked,
+                       "unlocked_ts": keys.get(f"level:{L['n']}") if L["n"] > 1 else None, "current": L["n"] == lv,
+                       "opens": [{"key": e, "label": EXERCISES[e][0], "href": EXERCISES[e][1]} for e in L["opens"]],
+                       "goals": goals, "progress": round(100 * sum(min(g["done"], g["need"]) for g in goals) / need) if need else 100})
+    chapters = [{"key": k, "title": t, "symbols": s, "open": s in op["symbols"],
+                 "accurate": sum(1 for x in s if _best(stars, x, CHAPTER_MODES) >= 2), "of": len(s)} for k, t, s in CHAPTERS]
+    return {"level": lv, "title": LEVELS[lv - 1]["title"], "max_level": MAX_LEVEL, "levels": levels, "chapters": chapters,
+            "exercises": op["exercises"], "symbols": op["symbols"], "step_types": allowed_types(op),
+            "next": levels[lv] if lv < MAX_LEVEL else None,
+            "drops": [d for d in drops if d["exercise"] in op["exercises"]],
+            "stars": stars, "notices": notices(),
+            "rules": {"learn_reps": LEARN_REPS, "min_days": MIN_DAYS, "drop_acc": DROP_ACC, "placement": _placement(),
+                      "speed_ms": {k: v[2].ms for k, v in EXERCISES.items() if v[2] and v[2].ms},
+                      "min_acc": {k: v[2].min_acc for k, v in EXERCISES.items() if v[2]},
+                      "window": {k: v[2].window for k, v in EXERCISES.items() if v[2]},
+                      "min_tests": {k: v[2].min_tests for k, v in EXERCISES.items() if v[2]}}}
+
+
+def status() -> dict:
+    """Read only: the stars from the answers and the saved unlocks, without saving anything."""
+    if not db.current_user():
+        return status_from({}, {}, [])
+    with db.conn() as c:
+        drops = [dict(r) for r in c.execute("SELECT exercise, item, dropped_ts FROM level_marks WHERE dropped_ts IS NOT NULL ORDER BY dropped_ts").fetchall()]
+    return status_from(all_stars(_placement()), _unlock_keys(), drops)
+
+
+def notices(limit: int = 10) -> list[dict]:
+    if not db.current_user():
+        return []
+    with db.conn() as c:
+        return [dict(r) for r in c.execute("SELECT id, ts, kind, key, title, text FROM level_notices WHERE NOT seen ORDER BY id LIMIT ?", (limit,)).fetchall()]
+
+
+def mark_seen(ids: list[int]) -> None:
+    if not ids:
+        return
+    with db.conn() as c:
+        c.execute(f"UPDATE level_notices SET seen=true WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))
+
+
+# ---------- for the coach ----------
+
+def coach_view(st: dict) -> dict:
+    """What the coach models get: the level, what is open, the next goals, and the known items that dropped."""
+    nxt = st["next"]
+    return {"level": st["level"], "of": st["max_level"], "title": st["title"],
+            "open_exercises": st["exercises"], "locked_exercises": [e for e in EXERCISES if e not in st["exercises"]],
+            "allowed_step_types": st["step_types"], "open_symbols": st["symbols"],
+            "next_level": {"level": nxt["n"], "title": nxt["title"], "opens": [o["label"] for o in nxt["opens"]],
+                           "goals": [{"goal": g["label"], "known": g["done"], "need": g["need"], "accurate": g["accurate"], "missing": g["missing"][:12]}
+                                     for g in st["levels"][st["level"] - 1]["goals"]]} if nxt else None,
+            "dropped": [{"exercise": d["exercise"], "item": _label(d["item"])} for d in st["drops"]]}
+
+
+REMEDY = {"reading": "read_symbols", "recognize": "recognize_symbols", "dictation": "write_symbols", "writing/symbol": "write_symbols",
+          "listening/tone": "listen_tones", "listening/zhuyin": "listen_sounds", "writing/syllable": "write_syllables", "writing/word": "write_syllables",
+          "speaking/syllable": "speak_sounds", "speaking/sentence": "speak_sounds", "speaking/custom": "speak_sounds"}
+
+
+def remediation(st: dict, limit: int = 2) -> list[dict]:
+    """Review steps for known items that dropped, in open exercises. A rule of the app, like the alphabet steps."""
+    by: dict[str, list[str]] = {}
+    for d in st["drops"]:
+        by.setdefault(d["exercise"], []).append(d["item"])
+    out: list[dict] = []
+    meta = {"finding_ids": [], "review": "Added by the level rule: a known item dropped.", "rule": "remediation"}
+    for ex, items in by.items():
+        t = REMEDY.get(ex)
+        if not t or not step_allowed(t, {"source": "sentence" if ex == "speaking/sentence" else "syllable"}, {"exercises": st["exercises"]}):
+            continue
+        tones = [int(i[5:]) for i in items if i.startswith("tone:")]
+        syms = [i for i in items if i in BOPOMOFO][:6]
+        names = " ".join(_label(i) for i in items[:6])
+        base = {"title": f"Review: {names}"[:80], "minutes": 4, "meta": dict(meta), "why": "You knew these well before. A short review brings them back."}
+        if t in ("read_symbols", "recognize_symbols", "write_symbols") and syms:
+            out.append({**base, "type": t, "params": {"syms": syms}, "target": max(6, 2 * len(syms))})
+        elif t == "listen_tones" and tones:
+            tt = sorted(set([x for x in tones if x != 5] or [1]) | ({1, 4} if len(tones) < 2 else set()))[:4]
+            out.append({**base, "type": t, "params": {"tones": tt}, "target": 15})
+        elif t == "listen_sounds" and syms:
+            out.append({**base, "type": t, "params": {"syms": syms}, "target": 12})
+        elif t == "write_syllables" and (syms or tones):
+            out.append({**base, "type": t, "params": {"tones": tones, "syms": syms}, "target": 10})
+        elif t == "speak_sounds" and (syms or tones):
+            unit = "tone" if tones else "initial" if syms[0] in INITIALS else "final"
+            src = "sentence" if ex == "speaking/sentence" or 5 in tones else "syllable"
+            out.append({**base, "type": t, "params": {"unit": unit, "tones": tones, "syms": [] if tones else syms, "source": src}, "target": 10})
+        if len(out) >= limit:
+            break
+    return out
+

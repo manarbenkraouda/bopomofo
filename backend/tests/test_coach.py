@@ -3,13 +3,20 @@ import time
 
 import pytest
 
-from app import coach, db
+from app import coach, db, levels
 
 
 @pytest.fixture()
 def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
+    unlock_all()  # the level rules have their own tests (test_levels.py)
+
+
+def unlock_all():
+    with db.conn() as c:
+        for n in range(2, levels.MAX_LEVEL + 1):
+            c.execute("INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING", (f"level:{n}", time.time()))
 
 
 def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):

@@ -68,6 +68,7 @@ export type Stats = {
   challenges: Challenge[];
   weak: WeakItem[];
   calendar: { day: string; minutes: number }[];
+  levels: Levels;
 };
 export type Health = { ok: boolean; speech_model: "ready" | "loading" | "error"; speech_error: string | null; llm_model: string; llm_configured: boolean; speaker_hz: number | null };
 
@@ -88,6 +89,8 @@ export type Milestone = {
 };
 export type CoachState = {
   ai_quota: AiQuota;
+  /** The level path, without the stars per item (GET /api/levels has them). */
+  levels: Omit<Levels, "stars">;
   generating: boolean; stage: string; building_next: boolean; error: string | null; started: number; next_ready: boolean; coach_model: string;
   /** The plan whose story is being written now, or null. */
   writing_story: number | null;
@@ -109,6 +112,27 @@ export type CoachState = {
   history: { id: number; ts: number; status: string; source: string; diagnosis: string; headline: string | null; done_ts: number | null; steps: number; done: number; skipped: number }[];
 };
 export type StepState = { step: CoachStep; plan: { id: number; status: string }; count: number; done: number; next: CoachStep | null; generating: boolean; stage: string };
+
+/** A level message: a new level or new symbols ("unlock"), a known item that dropped ("drop"), or one that came back ("back"). */
+export type LevelNotice = { id: number; ts: number; kind: "unlock" | "drop" | "back"; key: string; title: string; text: string };
+export type LevelGoal = { key: string; label: string; modes: string[]; need: number; of: number; done: number; accurate: number; seen: number; met: boolean; missing: string[] };
+export type LevelInfo = {
+  n: number; key: string; title: string; about: string; unlocked: boolean; unlocked_ts: number | null; current: boolean;
+  opens: { key: string; label: string; href: string }[]; goals: LevelGoal[]; progress: number;
+};
+/** Stars of one item in one exercise: 1 seen, 2 accurate, 3 known (accurate, fast, on more than one day). */
+export type ItemStars = { stars: 0 | 1 | 2 | 3; tests: number; acc: number | null; ms: number | null; days: number; reps: number; dropped: boolean };
+export type Levels = {
+  level: number; title: string; max_level: number; levels: LevelInfo[];
+  chapters: { key: string; title: string; symbols: string; open: boolean; accurate: number; of: number }[];
+  /** Exercise keys the learner has unlocked, for example "reading" or "listening/tone". */
+  exercises: string[]; symbols: string; step_types: StepType[]; next: LevelInfo | null;
+  drops: { exercise: string; item: string; dropped_ts: number }[];
+  stars: Record<string, Record<string, ItemStars>>;
+  notices: LevelNotice[];
+  rules: { learn_reps: number; min_days: number; drop_acc: number; placement: boolean; speed_ms: Record<string, number>; min_acc: Record<string, number>;
+    window: Record<string, number>; min_tests: Record<string, number> };
+};
 export type Alphabet = CoachState["alphabet"];
 export type AlphabetSymbol = Alphabet["symbols"][number];
 
@@ -120,6 +144,10 @@ export const currentStep = () => {
 };
 /** Tells the step banner that an answer was saved, so it can show the new progress. */
 const answered = () => { if (typeof window !== "undefined") window.dispatchEvent(new Event("zs:answered")); };
+/** Tells the app shell about new level messages, so it can show them at once. */
+const notify = (notices?: LevelNotice[]) => {
+  if (typeof window !== "undefined" && notices?.length) window.dispatchEvent(new CustomEvent<LevelNotice[]>("zs:levels", { detail: notices }));
+};
 
 export type Profile = Record<string, string>;
 
@@ -230,14 +258,15 @@ export const api = {
     if (opts.tryN) f.append("try_n", String(opts.tryN));
     const step = currentStep();
     if (step) f.append("step", String(step));
-    return call<SpeechResult>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); return r; });
+    return call<SpeechResult & { notices?: LevelNotice[] }>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); notify(r.notices); return r; });
   },
   /** Save one graded answer with everything the learner produced. Also counts it for today's HUD. */
   event: (ev: PracticeEvent) => {
     recordAttempt(ev.area, ev.ok);
     const step = currentStep();
     const body = step ? { ...ev, details: { ...ev.details, step } } : ev;
-    return call<{ ok: boolean }>("/api/progress/event", json(body)).then((r) => { answered(); return r; }).catch(() => ({ ok: false }));
+    return call<{ ok: boolean; notices?: LevelNotice[] }>("/api/progress/event", json(body))
+      .then((r) => { answered(); notify(r.notices); return r; }).catch(() => ({ ok: false }));
   },
   saveDay: (day: string, seconds: number, goal_min: number) =>
     call<{ ok: boolean }>("/api/progress/day", { ...json({ day, seconds, goal_min }), method: "PUT" }).catch(() => ({ ok: false })),
@@ -247,6 +276,9 @@ export const api = {
   stats: (days: number, area = "") => call<Stats>("/api/stats?days=" + days + (area ? "&area=" + area : "")),
   challenges: () => call<{ challenges: Challenge[] }>("/api/stats/challenges"),
   coach: () => call<CoachState>("/api/coach"),
+  /** The level path: levels, goals, stars, drops, and unseen messages. Also saves new unlocks. */
+  levels: () => call<Levels>("/api/levels", { cache: "no-store" }),
+  levelsSeen: (ids: number[]) => call<{ ok: boolean }>("/api/levels/seen", json({ ids })).catch(() => ({ ok: false })),
   /** Which of the 37 symbols the learner knows. Read only, so the Symbols screen can load it on every visit. */
   alphabet: () => call<Alphabet>("/api/alphabet"),
   coachPlan: (reason = "") => call<CoachState>("/api/coach/plan", json({ reason })),

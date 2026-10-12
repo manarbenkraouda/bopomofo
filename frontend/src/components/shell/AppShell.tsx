@@ -3,7 +3,7 @@ import { UserButton } from "@clerk/nextjs";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { api, type Health } from "@/lib/api";
+import { api, type Health, type LevelNotice } from "@/lib/api";
 import { capsOf, keyCaps, useHotkeys, useLayers, type Hotkey } from "@/lib/hotkeys";
 import { setTheme, THEME_KEY, usePref } from "@/lib/prefs";
 import { missingFacts, useProfile } from "@/lib/profile";
@@ -107,11 +107,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       // Every 30 s, save today's active time, so the stats keep a minutes history.
       if (++ticks % 6 === 0) { const t = todayRef.current; if (t.seconds) api.saveDay(t.date, t.seconds, goalMinutes()); }
       if (!tick(5)) return;
-      setToast("Daily goal reached! " + goalMinutes() + " minutes today.");
+      setToast("✓ Daily goal reached! " + goalMinutes() + " minutes today.");
       playSfx("right");
       clearTimeout(toastTimer);
       toastTimer = setTimeout(() => setToast(""), 5000);
     }, 5000);
+    // Level messages come back with an answer: a new level or new symbols, or a known item that needs a review.
+    const levelNotice = (e: Event) => {
+      const list = (e as CustomEvent<LevelNotice[]>).detail || [];
+      if (!list.length) return;
+      const last = list[list.length - 1];
+      setToast((last.kind === "drop" ? "↻ " : "★ ") + last.title + ". " + last.text);
+      if (list.some((n) => n.kind === "unlock")) playSfx("right");
+      api.levelsSeen(list.map((n) => n.id));
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => setToast(""), 7000);
+    };
+    window.addEventListener("zs:levels", levelNotice);
     window.addEventListener("keydown", act);
     window.addEventListener("pointerdown", act);
     window.addEventListener("pointerup", drop);
@@ -119,6 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => {
       clearInterval(iv);
       clearTimeout(toastTimer);
+      window.removeEventListener("zs:levels", levelNotice);
       window.removeEventListener("keydown", act);
       window.removeEventListener("pointerdown", act);
       window.removeEventListener("pointerup", drop);
@@ -171,7 +184,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {overlay === "goto" && <GotoOverlay onGo={go} onClose={close} />}
       {overlay === "palette" && <Palette commands={commands} onClose={close} />}
       {overlay === "help" && <HelpOverlay route={route} onClose={close} />}
-      {toast && <div className="fixed left-1/2 top-16 z-50 -translate-x-1/2 rounded-full bg-ok px-5 py-2 font-semibold text-white shadow-lg zq-pop" role="status">✓ {toast}</div>}
+      {toast && <div className="fixed left-1/2 top-16 z-50 max-w-[90vw] -translate-x-1/2 rounded-full bg-ok px-5 py-2 text-center font-semibold text-white shadow-lg zq-pop" role="status">{toast}</div>}
     </div>
   );
 }

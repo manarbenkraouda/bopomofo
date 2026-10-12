@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import math
 import queue
 import ssl
 import threading
@@ -438,6 +439,9 @@ def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: 
     c.executemany(
         "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    from . import levels  # the level summaries change with the answer, in the same transaction
+    levels.record(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("ms"), ev.get("details"),
+                  [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows])
     return eid
 
 
@@ -520,7 +524,8 @@ def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
         rows = c.execute(sql + " ORDER BY ts, id", tuple(args)).fetchall()
     out: dict[str, list[list]] = defaultdict(list)
     for r in rows:
-        out[r["item"]].append([round(r["ts"], 1), int(bool(r["good"]) and not r["help"])])
+        # Round down, so a test is never later than the "now" the caller reads after it.
+        out[r["item"]].append([math.floor(r["ts"] * 10) / 10, int(bool(r["good"]) and not r["help"])])
     return {k: v[-MEMORY_KEEP:] for k, v in out.items()}
 
 
