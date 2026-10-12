@@ -342,7 +342,7 @@ function Welcome({ email, onSignOut }: { email?: string; onSignOut: () => void }
           <motion.span key={f.s} aria-hidden className="cjk absolute text-3xl text-accent/70" style={{ left: "calc(50% + " + f.x + ")", top: "calc(50% + " + f.y + ")" }}
             animate={{ y: [0, -8, 0] }} transition={{ duration: 3.2, delay: f.d, repeat: Infinity, ease: "easeInOut" }}>{f.s}</motion.span>
         ))}
-        <BoboPose pose="welcome" className="zq-pop h-full w-auto [&_img]:h-full [&_img]:w-auto" priority />
+        <BoboPose pose="welcome" className="zq-pop [&_img]:h-56 [&_img]:w-auto [@media(max-height:760px)]:[&_img]:h-44" priority />
       </div>
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold leading-tight md:text-4xl">Learn Mandarin<br />the Taiwan way</h1>
