@@ -84,8 +84,13 @@ export type Stats = {
   rules: RuleStat[];
   /** Sound pairs the speech model mixes up for this learner, as the learner confirmed by typing the Pinyin. */
   mic_pairs: MicPair[];
+  /** The deep check of missed speaking answers. corrected: false misses fixed in apply mode; top_pairs: the pairs fixed most. */
+  deep_check?: { mode: "off" | "shadow" | "apply"; checked: number; false_miss: number; corrected: number; applied: number;
+    top_pairs: { kind: string; expected: string; heard: string; n: number }[] };
 };
 export type MicPair = { area: string; kind: string; expected: string; heard: string; n: number; confirmed: boolean };
+/** The second, slower check of one missed speaking answer. */
+export type DeepCheck = { status: "done" | "error"; verdict: "false_miss" | "partial" | "real_miss" | null; applied: boolean; score_after: number | null; notice_id: number | null };
 export type Health = { ok: boolean; speech_model: "ready" | "loading" | "error"; speech_error: string | null; llm_model: string; llm_configured: boolean; speaker_hz: number | null };
 
 export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "recognize_symbols" | "write_symbols" | "write_syllables" | "tone_rules";
@@ -275,8 +280,11 @@ export const api = {
     if (opts.tryN) f.append("try_n", String(opts.tryN));
     const step = currentStep();
     if (step) f.append("step", String(step));
-    return call<SpeechResult & { event_id?: number; notices?: LevelNotice[] }>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); notify(r.notices); return r; });
+    return call<SpeechResult & { event_id?: number; deep_check?: "queued" | "skipped" | "off"; notices?: LevelNotice[] }>("/api/speech/analyze", { method: "POST", body: f })
+      .then((r) => { answered(); notify(r.notices); return r; });
   },
+  /** The deep check of one answer, or null while it is still waiting in the queue. */
+  deepCheck: (eventId: number) => call<DeepCheck>("/api/speech/deep-check/" + eventId, { cache: "no-store" }).catch(() => null),
   /** After missed recordings of one single-syllable card: the learner typed the sound they said. A match counts the sound misses as right. */
   confirmSpeech: (event_ids: number[], typed: string) =>
     call<{ match: boolean; fixed: number; notices?: LevelNotice[] }>("/api/speech/confirm", json({ event_ids, typed }))

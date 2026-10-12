@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import auth, coach, db, levels, limits, llm, scoring, speaker, stats, symbols, tts, typed_fix
+from . import auth, coach, db, deep_check, levels, limits, llm, scoring, speaker, stats, symbols, tts, typed_fix
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
@@ -115,10 +115,15 @@ def startup():
     tts.remove_shared_files()
     recognizer.load_async()
     tts.preload_async()
+    deep_check.start(lambda: recognizer.vocab)
 
 
 @app.on_event("shutdown")
 def shutdown():
+    # The deep checks still in the queue get at most deep_check.DRAIN_SECONDS, then the worker process stops.
+    dropped = deep_check.stop()
+    if dropped:
+        print(f"Stopping with {dropped} deep checks not done", flush=True)
     # A deploy stops the old process after Caddy sends new requests to the new one. Coach plans and stories still
     # being written here finish and save first; the new process shows their progress from the coach_jobs table.
     left = db.wait_background(BACKGROUND_DRAIN_SECONDS)
@@ -353,13 +358,31 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_leng
         raise HTTPException(400, str(e)) from e
     if res.get("speaker_hz"):
         speaker.update(res["speaker_hz"])
+    # The frame log probabilities are for the deep check only: they are never saved or sent.
+    lp, has_ref = res.pop("_lp", None), res.pop("_has_ref", False)
+    want_deep = deep_check.wanted({**res, "_lp": lp})
     # Every syllable is saved: expected and heard tone, initial, and final, so the stats can show confusions.
     # "step": the coach step this recording belongs to. Only answers given inside a step count for it.
     # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
     eid = stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
                              help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
+    # A missed answer gets a second, slower check in a separate low-priority process. The answer does not wait for it.
+    deep = "off" if deep_check.mode() == "off" else "skipped"
+    if want_deep:
+        mic = [[p["kind"], p["expected"], p["heard"]] for p in typed_fix.mic_pairs() if p["area"] == "speaking"]
+        deep = deep_check.submit(deep_check.make_job(db.current_user(), eid, res, lp, has_ref, mic))
+    del lp
     r = coach.refresh()
-    return {**res, "event_id": eid, "notices": (r.get("levels") or {}).get("notices") or []}
+    return {**res, "event_id": eid, "deep_check": deep, "notices": (r.get("levels") or {}).get("notices") or []}
+
+
+@app.get("/api/speech/deep-check/{event_id}")
+def speech_deep_check(event_id: int):
+    """The deep check of one answer. 404 while it is still in the queue, or when no check runs for this answer."""
+    r = deep_check.result(event_id)
+    if not r:
+        raise HTTPException(404, "No deep check for this answer yet.")
+    return r
 
 
 class ConfirmIn(BaseModel):

@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from . import db, levels, typed_fix
+from . import db, deep_check, levels, typed_fix
 from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
@@ -370,7 +370,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     return {"range": {"days": days, "since": since if days else first_day, "area": area},
             "overview": overview, "daily": daily, "areas": per_area, "confusion": confusion, "expected": expected,
             "items": items, "tone_ctx": tone_ctx, "strokes": stroke_list, "hours": by_hour, "sessions": sessions,
-            "rules": rule_stats(days), "mic_pairs": typed_fix.mic_pairs(),
+            "rules": rule_stats(days), "mic_pairs": typed_fix.mic_pairs(), "deep_check": deep_check.summary(),
             "recent": recent(area=area), "records": records(), "challenges": challenges(op=op), "weak": weak(items, op=op), "levels": lv,
             "calendar": [{"day": dd, "minutes": round(s / 60, 1)} for dd, s in secs_all.items() if dd >= (today - timedelta(days=370)).isoformat()]}
 

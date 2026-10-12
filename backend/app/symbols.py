@@ -17,6 +17,8 @@ import soundfile as sf
 from . import db
 from .asr import recognizer
 from .config import DATA_DIR, SAVE_QUIZ_CLIPS
+from .ctc import ctc as _ctc
+from .ctc import vocab_groups
 from .tts import level
 
 CLIPS = DATA_DIR / "quiz_clips"
@@ -56,33 +58,8 @@ def _vocab_groups(size: int):
     """One group of vocabulary ids per initial or final (all tones together), plus one blank group."""
     global _groups
     if _groups is None:
-        units: dict[str, list[int]] = {}
-        blank = [i for i in range(size) if i not in recognizer.vocab]  # ids beyond the vocab file are special tokens
-        for i, tok in recognizer.vocab.items():
-            if tok in ("[PAD]", "|", "[UNK]", "<s>", "</s>"):
-                blank.append(i)
-            else:
-                units.setdefault(tok[:-1] if tok[-1:].isdigit() else tok, []).append(i)
-        _groups = (units, blank)
+        _groups = vocab_groups(recognizer.vocab, size)
     return _groups
-
-
-def _ctc(seq: list[np.ndarray], blank: np.ndarray) -> float:
-    """Log probability of the unit sequence over the whole clip (CTC forward pass)."""
-    ext = [blank]
-    for u in seq:
-        ext += [u, blank]
-    emit = np.stack(ext, axis=1)  # (frames, states)
-    n = emit.shape[1]
-    neg = -1e30
-    a = np.full(n, neg)
-    a[0], a[1] = emit[0, 0], emit[0, 1]
-    odd = np.arange(n) % 2 == 1
-    for f in range(1, emit.shape[0]):
-        step = np.concatenate([[neg], a[:-1]])
-        skip = np.where(odd, np.concatenate([[neg, neg], a[:-2]]), neg)  # skip a blank between two units
-        a = np.logaddexp(np.logaddexp(a, step), skip) + emit[f]
-    return float(np.logaddexp(a[-1], a[-2]))
 
 
 def scores_from_log_probs(lp: np.ndarray) -> dict[str, float]:

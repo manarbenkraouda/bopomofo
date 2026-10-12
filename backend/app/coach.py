@@ -29,7 +29,7 @@ from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
-from . import db, levels, limits, llm, stats, typed_fix
+from . import db, deep_check, levels, limits, llm, stats, typed_fix
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
 from .zhuyin import RULES, analyze_text
 
@@ -592,6 +592,7 @@ def digest(lv: dict | None = None) -> dict:
                 mix[(u["area"], u["kind"], u["expected"], u["actual"])] += 1
     mixups = [{"area": a, "unit": k, "expected": e, "produced": x, "times": n, "of": tot[(a, k, e)]} for (a, k, e, x), n in mix.most_common(20)]
     mic = typed_fix.mic_pairs()
+    deep_fixes = deep_check.coach_pairs()
 
     # Silent recognition: which symbol the typed pinyin stands for, when it is not the shown one (ㄓ typed as "z" = ㄗ).
     rmix, rtot = Counter(), Counter()
@@ -687,7 +688,8 @@ def digest(lv: dict | None = None) -> dict:
         "tones_speaking": {"skills": pick(lambda r: r["area"] == "speaking" and r["unit"] == "tone"),
                            "expected_to_said": tables.get("speaking", {}), "contexts_weakest_first": contexts,
                            "syllables_weakest_first": syl_rows("speaking")},
-        "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups, "mic_pairs": mic},
+        "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups, "mic_pairs": mic,
+                   "deep_fixes": deep_fixes},
         "tone_rules": tone_rules,
         "symbols": {"skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),
                     "recognize_mixups": recognize_mixups,
@@ -732,6 +734,9 @@ The coach is a pipeline of small decisions. You make one of them. Rules for ever
 - "mic_pairs" lists sound pairs (expected, heard) where the learner typed the sound they said in Pinyin and it was the expected
   sound: the speech model heard the wrong sound (a blocked nose makes p sound like b). "confirmed": true means 5 or more such
   checks; the old misses of that pair already count as right. Do not call these pairs weak, and do not plan contrast drills for them.
+- "deep_fixes" lists sound and tone pairs (kind, expected, heard) where a second, closer check of the recording found the
+  expected sound or tone 3 or more times after the first check heard the other one: the microphone misses, not the learner.
+  Those answers already count as right. Do not plan drills for these pairs because of microphone misses.
 - Write short, plain English. Return one JSON object only."""
 
 DOMAINS = {

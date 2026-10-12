@@ -12,7 +12,7 @@ os.environ["DATABASE_URL"] = TEST_URL  # set before app.config is imported
 
 from app import db  # noqa: E402
 
-TABLES = ("level_built, level_item_days, level_items, level_notices, level_marks, level_unlocks, coach_jobs, usage_log, coach_notes, coach_calls,"
+TABLES = ("deep_checks, level_built, level_item_days, level_items, level_notices, level_marks, level_unlocks, coach_jobs, usage_log, coach_notes, coach_calls,"
           " milestones, steps, plans, units, events,"
           " days, meta, profile, sentences")
 

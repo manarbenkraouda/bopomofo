@@ -104,7 +104,11 @@ class Recognizer:
             win = probs[max(0, a - 1): b + 2]
             tp = np.array([win[:, self.tone_ids[d]].sum(-1).max() for d in range(1, 6)])
             s["tone_probs"] = [round(float(x), 3) for x in tp / max(tp.sum(), 1e-9)]
-        return {"raw": "".join(t["tok"] for t in tokens), "syllables": sylls, "infer_seconds": round(infer, 2), "audio_seconds": round(len(audio) / SR, 2)}
+        # The frame log probabilities, for the deep check after the answer (app/deep_check.py). Never stored or sent.
+        z = logits - logits.max(-1, keepdims=True)
+        log_probs = (z - np.log(np.exp(z).sum(-1, keepdims=True))).astype(np.float32)
+        return {"raw": "".join(t["tok"] for t in tokens), "syllables": sylls, "infer_seconds": round(infer, 2), "audio_seconds": round(len(audio) / SR, 2),
+                "log_probs": log_probs}
 
 
 def to_syllables(tokens: list[dict], frame: float) -> list[dict]:

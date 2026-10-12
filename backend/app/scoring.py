@@ -178,4 +178,7 @@ def analyze(audio: np.ndarray, text: str, speaker_ref: float | None = None) -> d
         "heard_raw": asr["raw"],
         "pitch": {"times": times, "semitones": [None if np.isnan(v) else round(float(v), 2) for v in st], "ref_hz": round(ref, 1)},
         "timing": {"infer_seconds": asr["infer_seconds"], "audio_seconds": asr["audio_seconds"]},
+        # Private keys (a leading "_") are for the deep check only. /api/speech/analyze removes them before it saves or answers.
+        "_lp": asr.get("log_probs"),
+        "_has_ref": has_ref,
     }

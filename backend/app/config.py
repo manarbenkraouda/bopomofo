@@ -22,6 +22,11 @@ CLERK_JWT_KEY = os.getenv("CLERK_JWT_KEY", "")
 CLERK_AUTHORIZED_PARTIES = [o.strip() for o in os.getenv("CLERK_AUTHORIZED_PARTIES", "").split(",") if o.strip()]
 # Keep the learner's last reading quiz clips on disk to tune the thresholds. Off unless set to 1.
 SAVE_QUIZ_CLIPS = os.getenv("SAVE_QUIZ_CLIPS", "") == "1"
+# The deep check after a missed speaking answer (app/deep_check.py): off, shadow (store the verdicts only), or apply
+# (also correct the answer). Change to apply only after tools/eval_deep_check.py shows a precision of 0.9 or more.
+DEEP_CHECK = os.getenv("DEEP_CHECK", "shadow").strip().lower()
+if DEEP_CHECK not in ("off", "shadow", "apply"):
+    DEEP_CHECK = "shadow"
 # Limits for each user (app/limits.py), so one account cannot use up the AI credit, CPU, or disk.
 # AI energy refills at midnight in the learner's time zone; the audio clip limit uses the last 24 hours.
 AI_DAILY_LIMIT_USD = float(os.getenv("AI_DAILY_LIMIT_USD", "1"))  # AI spend per local day: coach, sentences, translation

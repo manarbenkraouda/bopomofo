@@ -534,6 +534,19 @@ function SoundsView({ data }: { data: Data }) {
           ))}
         </section>
       )}
+      {data.deep_check?.mode === "apply" && data.deep_check.applied > 0 && (
+        <section className="card p-4 md:p-5">
+          <h2 className="font-semibold">Answers corrected after analysis: {data.deep_check.corrected}</h2>
+          <p className="mb-3 text-xs text-muted">A closer check of the recording found the right sound or tone where the first check missed it.</p>
+          {data.deep_check.top_pairs.map((p) => (
+            <div key={p.kind + p.expected + p.heard} className="cjk flex items-center gap-3 px-1.5 py-1.5 text-sm">
+              <span className="w-24 shrink-0 text-muted">{p.kind}</span>
+              <span><b>{p.kind === "tone" ? "tone " + p.expected : p.expected}</b> <span className="text-muted">first heard as</span> <b>{p.kind === "tone" ? "tone " + p.heard : p.heard}</b></span>
+              <span className="ml-auto text-xs tabular-nums text-muted">{p.n}×</span>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

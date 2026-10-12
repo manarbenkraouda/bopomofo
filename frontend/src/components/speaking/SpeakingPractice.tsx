@@ -9,6 +9,7 @@ import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { Recorder } from "@/lib/recorder";
 import { playSfx } from "@/lib/sfx";
 import { useReview } from "@/lib/review";
+import { correctedScore, pollDeepCheck } from "@/lib/deepCheck";
 import { loadData, syllableAudio, TONE_NAME, type SyllableItem } from "@/lib/zhuyin";
 import { PlayButton } from "@/components/PlayButton";
 import { ActionBar } from "@/components/shell/ActionBar";
@@ -94,6 +95,7 @@ export function SpeakingPractice() {
   const [session, setSession] = useState({ n: 0, sum: 0, streak: 0 });
   const [typedCheck, setTypedCheck] = useState<Check>("none");
   const [typedNote, setTypedNote] = useState("");
+  const [deepNote, setDeepNote] = useState("");
   const { w: vw } = useViewport();
   const recorder = useRef<Recorder | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -102,6 +104,9 @@ export function SpeakingPractice() {
   // The card in progress: the cheat and the number of recordings already checked, for the stats.
   // eventIds: the saved recordings of this card. misses: recordings without the cheat where a sound was heard wrong.
   const meta = useRef({ card: null as Card | null, cheat: false, tries: 0, eventIds: [] as number[], misses: 0 });
+  // The answer on screen (its saved event id). A deep check result only changes the card when it is about this answer.
+  const shown = useRef<number | null>(null);
+  const alive = useRef(true);
   const firstSentence = useRef(Number(params.get("sentence")) || 0);
   const focus = useFocus();
   // The card order: a few new cards at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
@@ -127,7 +132,7 @@ export function SpeakingPractice() {
   const nextSyllable = () => { const t = review().next(sylls.map((s) => s.char)); return sylls.find((s) => s.char === t); };
   const nextPhrase = () => { const t = review().next(phrases.map((p) => p.text)); return phrases.find((p) => p.text === t); };
 
-  const clearRecording = () => { setResult(null); setError(""); setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
+  const clearRecording = () => { setResult(null); setError(""); setDeepNote(""); shown.current = null; setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
   const show = useCallback((c: Card | null) => {
     clearRecording();
     meta.current = { card: c, cheat: false, tries: 0, eventIds: [], misses: 0 };
@@ -188,7 +193,7 @@ export function SpeakingPractice() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, phraseKey, scheduled]);
   useEffect(() => { if (source === "custom" && !params.get("text")) { loadId.current++; show(null); } }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; if (timer.current) clearTimeout(timer.current); }; }, []);
 
   const next = () => {
     if (rec !== "idle") return;
@@ -233,12 +238,25 @@ export function SpeakingPractice() {
       if (r.score < RIGHT && !m.cheat && soundMiss(r)) m.misses += 1;
       if (c.items.filter((x) => x.type === "syllable").length === 1 && m.misses >= CHECK_AFTER && !m.cheat) setTypedCheck((s) => (s === "none" ? "open" : s));
       setResult(r);
+      shown.current = r.event_id ?? null;
+      if (r.event_id && r.deep_check === "queued") void pollDeep(r.event_id, c);
       const g = grade(r.score);
       playSfx(g === "right" ? "right" : g === "close" ? "close" : "wrong");
       setFxKey((k) => k + 1);
       setSession((s) => ({ n: s.n + 1, sum: s.sum + r.score, streak: g === "right" ? s.streak + 1 : 0 }));
       api.health().then(setHealth).catch(() => {});
     } catch (e) { setError((e as Error).message); }
+  };
+  /** After a missed answer, wait for the closer check. A miss it corrected: show the new score here, and mark the notice
+   *  seen so no toast repeats it. Partial and real misses, and the shadow mode, show nothing. */
+  const pollDeep = async (eventId: number, c: Card) => {
+    const d = await pollDeepCheck(() => api.deepCheck(eventId), () => alive.current && meta.current.card === c);
+    const score = correctedScore(d);
+    // Only when this answer is still the one on screen: a newer recording of the card replaced it otherwise.
+    if (score == null || shown.current !== eventId) return;
+    setDeepNote("This was right after a closer check. Your score is now " + score + ".");
+    setResult((x) => x && { ...x, score });
+    if (d?.notice_id) void api.levelsSeen([d.notice_id]);
   };
   /** The learner typed the sound they said. Same sound: the sound misses of this card count as right (the tones stay as checked). */
   const checkTyped = async (typed: string): Promise<string | null> => {
@@ -377,6 +395,7 @@ export function SpeakingPractice() {
             <div className="text-sm text-rough text-center max-w-md">Tip: record one full sentence first. The app then learns your voice, which makes single-syllable tone checks more accurate.</div>
           )}
           {typedNote && <div className="text-sm text-center max-w-md cjk text-muted" role="status">{typedNote}</div>}
+          {deepNote && <div className="text-sm text-center max-w-md text-ok" role="status">{deepNote}</div>}
           {typedCheck === "open" && rec === "idle" && <PinyinCheck example="po, ma, or zi" check={checkTyped} onClose={() => setTypedCheck("closed")} />}
           {error && <div className="text-bad text-sm">{error}</div>}
 
