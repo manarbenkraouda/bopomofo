@@ -38,12 +38,15 @@ def symbol(client, sym, ok, headers=A):
 
 
 def voice(user, mode, text, sounds_ok, tone_ok, ts=None):
-    """One recording as stats.log_speaking saves it: an initial, a final, and a tone unit."""
+    """One recording as stats.log_speaking saves it: an initial, a final, and a tone unit per syllable of the text."""
+    units = []
+    for i in analyze_text(text):
+        if i["type"] == "syllable":
+            units += [{"kind": "initial", "expected": i["initial"] or "∅", "actual": i["initial"] if sounds_ok else "ㄆ", "ok": sounds_ok},
+                      {"kind": "final", "expected": i["final"], "actual": i["final"], "ok": sounds_ok},
+                      {"kind": "tone", "expected": i["surface_tone"], "actual": i["surface_tone"] if tone_ok else 0, "ok": tone_ok}]
     with db.as_user(user):
-        return db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": sounds_ok and tone_ok, "score": 90,
-                             "units": [{"kind": "initial", "expected": "ㄅ", "actual": "ㄅ" if sounds_ok else "ㄆ", "ok": sounds_ok},
-                                       {"kind": "final", "expected": "ㄚ", "actual": "ㄚ", "ok": True},
-                                       {"kind": "tone", "expected": 1, "actual": 1 if tone_ok else 4, "ok": tone_ok}]}, ts=ts)
+        return db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": sounds_ok and tone_ok, "score": 90, "units": units}, ts=ts)
 
 
 def unlocks(user="user_a"):
@@ -51,20 +54,32 @@ def unlocks(user="user_a"):
         return {r["key"] for r in c.execute("SELECT key FROM level_unlocks").fetchall()}
 
 
-def test_place_needs_the_alphabet_first_then_syllables_then_sentences():
-    good = {"cards": len(placement.SYLLABLES), "sounds": 90, "tones": 90, "missed": []}
-    bad = {"cards": len(placement.SYLLABLES), "sounds": 50, "tones": 90, "missed": []}
-    few = {"cards": placement.MIN_SYLLABLES - 1, "sounds": 100, "tones": 100, "missed": []}
-    alpha = {"right": placement.ALPHA_PASS}
+def test_place_compares_the_proven_items_with_the_level_goals():
+    need = levels.NEED_SYMS
+    good = {"cards": 3, "symbols": levels.SYMS[:need], "tones": [1, 2, 3, 4, 5], "missed": []}  # no minimum of recordings
+    few_syms = {**good, "symbols": levels.SYMS[:need - 1]}
+    three_tones = {**good, "tones": [1, 2, 3]}
+    none = {"cards": 0, "symbols": "", "tones": [], "missed": []}
+    alpha = {"right": need, "asked": 37}
     assert placement.place(alpha, good, good)["level"] == 4
-    assert placement.place(alpha, good, bad)["level"] == 3
-    assert placement.place(alpha, bad, good)["level"] == 2  # sentences do not count without good syllables
-    assert placement.place(alpha, few, good)["level"] == 2  # too few recordings
-    assert placement.place({"right": placement.ALPHA_PASS - 1}, good, good)["level"] == 1  # good voice, alphabet not known
-    p = placement.place({"right": placement.ALPHA_OPEN}, bad, bad)
-    assert p["level"] == 1 and p["chapters"]
-    assert not placement.place({"right": placement.ALPHA_OPEN - 1}, bad, bad)["chapters"]
+    assert placement.place(alpha, good, {**good, "tones": [1, 2, 3, 4]})["level"] == 3  # no neutral tone in the sentences
+    assert placement.place(alpha, few_syms, good)["level"] == 2  # sentences do not count without the syllable goals
+    assert placement.place(alpha, three_tones, good)["level"] == 2
+    assert placement.place({"right": need - 1, "asked": 37}, good, good)["level"] == 1  # good voice, alphabet not known
+    p = placement.place({"right": 3, "asked": 37}, none, none)
+    assert p["level"] == 1 and p["chapters"]  # the alphabet part was taken: every chapter opens, the stats show the gaps
+    assert not placement.place({"right": 0, "asked": 0}, none, none)["chapters"]
     assert placement.place(None, good, good) == {"level": 1, "alphabet_known": False, "syllables_ok": True, "sentences_ok": True, "chapters": True}
+
+
+def test_a_voice_item_is_proven_when_it_is_more_often_right_than_wrong():
+    def rec(i, kind, expected, ok, try_n=0):
+        return {"id": i, "area": "speaking", "mode": "syllable", "kind": kind, "expected": expected, "ok": ok, "try_n": try_n}
+    rows = [rec(1, "final", "ㄧㄢ", True), rec(2, "final", "ㄧ", False), rec(3, "final", "ㄧ", True), rec(4, "final", "ㄢ", False),
+            rec(5, "tone", 3, True), rec(5, "initial", "∅", False), rec(6, "initial", "ㄅ", False), rec(6, "initial", "ㄅ", True, try_n=1)]
+    v = placement.score_voice(rows, "syllable")
+    assert v["symbols"] == "ㄧ" and v["tones"] == [3]  # ㄧ: 2 right, 1 wrong. ㄢ: 1 and 1 (not proven). A second try does not count.
+    assert v["missed"] == ["ㄅ", "ㄢ"] and v["cards"] == 6
 
 
 def test_the_voice_part_covers_every_symbol_every_tone_and_every_tone_rule():
@@ -75,7 +90,6 @@ def test_the_voice_part_covers_every_symbol_every_tone_and_every_tone_rule():
     assert all(tones[t] >= 8 for t in (1, 2, 3, 4))
     sent = [i for t, _ in placement.SENTENCES for i in analyze_text(t) if i["type"] == "syllable"]
     assert {"3-3", "bu", "yi"} <= {i.get("rule") for i in sent} and any(i["surface_tone"] == 5 for i in sent)
-    assert placement.MIN_SYLLABLES <= len(placement.SYLLABLES) and placement.MIN_SENTENCES <= len(placement.SENTENCES)
 
 
 def test_only_everyday_and_fluent_learners_take_the_test(client):
@@ -97,7 +111,8 @@ def test_a_good_test_opens_level_four_counts_the_symbols_and_runs_once(client):
     r = client.post("/api/placement/finish", json={"alphabet_ids": alpha, "voice_ids": vids}, headers=A)
     assert r.status_code == 200
     res = r.json()["result"]
-    assert res["level"] == 4 and res["alphabet"]["right"] == len(syms) - 2 and res["syllables"]["sounds"] == 100
+    assert res["level"] == 4 and res["alphabet"]["right"] == len(syms) - 2 and res["syllables"]["symbols"] == syms
+    assert res["syllables"]["tones"] == [1, 2, 3, 4] and res["sentences"]["tones"] == [1, 2, 3, 4, 5]
     assert {"level:2", "level:3", "level:4", "chapter:medials", "chapter:finals"} <= unlocks()
     assert client.get("/api/me", headers=A).json()["placement"] == "done"
     assert client.post("/api/placement/finish", json={}, headers=A).status_code == 409
@@ -121,7 +136,8 @@ def test_weak_voice_places_at_two_and_answers_of_others_or_old_ones_do_not_count
     old = [voice("user_a", "syllable", t, True, True, ts=time.time() - placement.MAX_AGE - 60) for t in placement.SYLLABLES]
     weak = [voice("user_a", "syllable", t, True, False) for t in placement.SYLLABLES]  # every tone missed
     res = client.post("/api/placement/finish", json={"alphabet_ids": alpha, "voice_ids": old + weak}, headers=A).json()["result"]
-    assert res["level"] == 2 and res["syllables"]["cards"] == len(placement.SYLLABLES) and res["syllables"]["tones"] == 0
+    assert res["level"] == 2 and res["syllables"]["cards"] == len(placement.SYLLABLES) and res["syllables"]["tones"] == []
+    assert res["syllables"]["symbols"] == levels.SYMS  # the sounds are proven, only the tones are missing
     # user_b sends user_a's answers: none of them are theirs, so nothing is known.
     res_b = client.post("/api/placement/finish", json={"alphabet_ids": alpha, "voice_ids": weak}, headers=B).json()["result"]
     assert res_b["level"] == 1 and res_b["alphabet"]["right"] == 0 and res_b["syllables"]["cards"] == 0

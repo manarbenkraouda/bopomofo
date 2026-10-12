@@ -185,8 +185,8 @@ export type Me = {
 };
 export type Onboarding = { name: string; reasons: Reason[]; level: Level; bopomofo: BopomofoLevel; goal_min: number; timezone: string };
 
-/** One voice part of the placement test: cards recorded, percent of initials and finals right, percent of tones right, sounds missed. */
-export type PlacementVoice = { cards: number; sounds: number | null; tones: number | null; missed: string[] };
+/** One voice part of the placement test: cards recorded, the symbols and tones it proves (more often right than wrong), symbols missed. */
+export type PlacementVoice = { cards: number; symbols: string; tones: number[]; missed: string[] };
 export type PlacementResult = {
   level: number; title: string; alphabet_known: boolean; syllables_ok: boolean; sentences_ok: boolean; chapters: boolean;
   alphabet: { right: number; of: number; asked: number; known: string } | null;

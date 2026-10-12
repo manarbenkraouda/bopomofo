@@ -7,29 +7,28 @@ Two parts, both saved as normal answers through the normal endpoints, so the sta
      the tone rules 3-3, 不, 一). These are Speaking answers (modes "syllable" and "sentence");
      the speech model checks each initial, final, and tone, with the tone changes.
 
-finish() reads the saved answers of the test (by event id, only the learner's own rows) and places the learner:
-  - ALPHA_PASS symbols or more right: the alphabet is known. Level 2 opens, and the coach counts those symbols as known.
-  - The alphabet known and the syllables right (sounds and tones): level 3.
-  - Also the sentences right: level 4 (sentences). Free speaking (level 5) still needs the normal goals.
-  - ALPHA_OPEN symbols or more right, or good syllables: the three alphabet chapters open at once.
+The test only fills the stats and loads the level before the first plan. There is no pass mark and no minimum number of
+recordings: an item that the learner did not answer is not proven, and that is all. finish() reads the saved answers of the
+test (by event id, only the learner's own rows), finds the items they prove, and compares them with the goals of the levels
+(levels.py), so the level is the one the answers show:
+  - A symbol is proven when it is typed right on the first try. In the voice parts, a symbol or a tone is proven when its
+    first recordings are more often right than wrong.
+  - The level 1 goal met with the typed symbols (34 of 37): the alphabet is known. Level 2 opens, and the coach counts those symbols as known.
+  - Also the level 3 goals for sounds and tones met with the syllables (34 of 37 symbols, the 4 tones): level 3.
+  - Also the level 4 goal met with the sentences (the 5 tones): level 4. Free speaking (level 5) still needs the normal goals.
+  - The alphabet part taken, or a symbol proven by voice: the three alphabet chapters open at once.
 Unlocks are permanent, like the other unlocks. The test only adds unlocks; it never closes anything.
 """
 from __future__ import annotations
 
 import time
+from collections import Counter
 
 from . import db, levels
 from .zhuyin import analyze_text
 
 # Who takes the test: the onboarding levels "everyday" (intermediate) and "fluent" (advanced).
 LEVELS_WITH_TEST = ("everyday", "fluent")
-# Thresholds. First estimates, not calibrated on real learners yet.
-ALPHA_PASS = levels.NEED_SYMS  # 34 of 37 (90%), the same share as the level 1 goal
-ALPHA_OPEN = 22  # 60%: open every alphabet chapter, but the alphabet is not known yet
-SOUNDS_PASS = 80  # percent of initials and finals right
-TONES_PASS = 75  # percent of tones right
-MIN_SYLLABLES = 30  # of 42: fewer recorded syllables (too many skipped), and the syllable part does not count
-MIN_SENTENCES = 8  # of 12
 MAX_AGE = 6 * 3600  # answers older than this are not part of this test
 
 # The voice test, about 10 minutes with the alphabet. Syllables: each of the 21 initials, the 3 medials, and the 13 finals at least once
@@ -67,10 +66,6 @@ def content() -> dict:
             "result": (s.get("placement") or {}).get("result")}
 
 
-def _pct(ok: int, n: int) -> int | None:
-    return round(100 * ok / n) if n else None
-
-
 def _rows(event_ids: list[int]) -> list[dict]:
     if not event_ids:
         return []
@@ -91,25 +86,26 @@ def score_alphabet(rows: list[dict]) -> dict:
 
 
 def score_voice(rows: list[dict], mode: str) -> dict:
-    """Sounds: initials and finals right; tones: tones right. First recording of each card only."""
+    """The symbols and tones the recordings prove: first recording of each card only, more often right than wrong."""
     rs = [r for r in rows if r["area"] == "speaking" and r["mode"] == mode and not r["try_n"]]
-    snd = [r for r in rs if r["kind"] in ("initial", "final") and r["ok"] is not None]
-    ton = [r for r in rs if r["kind"] == "tone" and r["ok"] is not None]
-    return {"cards": len({r["id"] for r in rs}), "sounds": _pct(sum(bool(r["ok"]) for r in snd), len(snd)),
-            "tones": _pct(sum(bool(r["ok"]) for r in ton), len(ton)),
-            "missed": sorted({r["expected"] for r in rs if r["kind"] in ("initial", "final") and not r["ok"] and r["expected"] != "∅"})[:20]}
-
-
-def _good(v: dict, need: int) -> bool:
-    return v["cards"] >= need and (v["sounds"] or 0) >= SOUNDS_PASS and (v["tones"] or 0) >= TONES_PASS
+    right, wrong = Counter(), Counter()
+    for r in rs:
+        if r["kind"] in ("initial", "final", "tone") and r["ok"] is not None:
+            for k in levels._keys_of(r["kind"], str(r["expected"])):
+                (right if r["ok"] else wrong)[k] += 1
+    symbols = "".join(s for s in levels.SYMS if right[s] > wrong[s])
+    return {"cards": len({r["id"] for r in rs}), "symbols": symbols,
+            "tones": [int(t[5:]) for t in levels.TONES5 if right[t] > wrong[t]],
+            "missed": [s for s in levels.SYMS if s in wrong and s not in symbols][:20]}
 
 
 def place(alpha: dict | None, syl: dict, sent: dict) -> dict:
-    """The level and the unlocks from the scores. Pure: no database."""
-    alpha_ok = bool(alpha) and alpha["right"] >= ALPHA_PASS
-    syl_ok, sent_ok = _good(syl, MIN_SYLLABLES), _good(sent, MIN_SENTENCES)
+    """The level and the unlocks from the proven items and the goals of the levels. Pure: no database."""
+    alpha_ok = bool(alpha) and alpha["right"] >= levels.NEED_SYMS  # the level 1 goal
+    syl_ok = len(syl["symbols"]) >= levels.NEED_SYMS and {1, 2, 3, 4} <= set(syl["tones"])  # the level 3 goals for sounds and tones
+    sent_ok = {1, 2, 3, 4, 5} <= set(sent["tones"])  # the level 4 goal
     level = 1 + alpha_ok + (alpha_ok and syl_ok) + (alpha_ok and syl_ok and sent_ok)
-    chapters = level >= 2 or syl_ok or (bool(alpha) and alpha["right"] >= ALPHA_OPEN)
+    chapters = bool(alpha and alpha["asked"]) or bool(syl["symbols"] or sent["symbols"])
     return {"level": level, "alphabet_known": alpha_ok, "syllables_ok": syl_ok, "sentences_ok": sent_ok, "chapters": chapters}
 
 
@@ -158,6 +154,10 @@ def coach_view() -> dict | None:
     a = r.get("alphabet")
     return {"placed_at_level": r["level"], "alphabet": f"{a['right']} of {a['of']} symbols typed right" if a else "not tested",
             "alphabet_known": r["alphabet_known"],
-            "syllables": {k: r["syllables"][k] for k in ("cards", "sounds", "tones", "missed")},
-            "sentences": {k: r["sentences"][k] for k in ("cards", "sounds", "tones", "missed")},
+            "syllables": _voice_view(r["syllables"]), "sentences": _voice_view(r["sentences"]),
             "voice_skipped": r["voice_skipped"], "day": db.day_of(r["ts"])}
+
+
+def _voice_view(v: dict) -> dict:
+    return {"recorded": v.get("cards", 0), "symbols_said_right": v.get("symbols", ""), "tones_said_right": v.get("tones", []),
+            "symbols_missed": v.get("missed", [])}

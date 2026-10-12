@@ -726,7 +726,8 @@ The coach is a pipeline of small decisions. You make one of them. Rules for ever
   only when it was said or written right without help, reliably. Never say the learner knows, reads, or hears the symbols unless
   "known_symbols" shows it. Tones can be trained by ear and by speaking without the alphabet.
 - "overview.placement" (when present) is the one placement test the learner took after the onboarding: the level it gave, the
-  alphabet score, and the syllable and sentence scores with the sounds missed. It is one short test, so trust newer answers more.
+  alphabet score, and for the syllables and the sentences the symbols and tones said right and the symbols missed. Its answers
+  are also in the stats. It is one test, so trust newer answers more.
 - Each row of "overview.modes" says what that mode measures. Draw a conclusion only from a mode that measures it: the tone quiz
   ("listening/tone") measures tones by ear, not symbols. "answer_shown_pct" is how often the learner asked for the answer.
 - "Surface tone" is the tone after tone changes (3-3 is said 2-3; 不 and 一 change). Tone 5 is the neutral tone.

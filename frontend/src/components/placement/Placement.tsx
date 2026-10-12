@@ -356,12 +356,12 @@ function Voice({ card, last, onAnswer, onNext, onSkipVoice, error: outer }: {
   );
 }
 
-function VoiceRow({ label, v }: { label: string; v: PlacementVoice }) {
+function VoiceRow({ label, v, tones }: { label: string; v: PlacementVoice; tones: number }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3">
       <span className="shrink-0 text-sm text-muted">{label}</span>
       <span className="ml-auto text-right font-medium">
-        {v.cards ? <>Sounds {v.sounds ?? 0}% · Tones {v.tones ?? 0}%</> : "Not recorded"}
+        {v.cards ? <>{v.symbols.length} of 37 sounds · {v.tones.length} of {tones} tones</> : "Not recorded"}
       </span>
     </div>
   );
@@ -393,7 +393,7 @@ function Result({ r }: { r: PlacementResult }) {
         )}
         {r.voice_skipped && !r.syllables.cards && !r.sentences.cards
           ? <div className="flex items-center gap-3 px-4 py-3"><span className="text-sm text-muted">Voice</span><span className="ml-auto font-medium">Skipped. Speaking opens with your level.</span></div>
-          : <><VoiceRow label="Sounds" v={r.syllables} /><VoiceRow label="Sentences" v={r.sentences} /></>}
+          : <><VoiceRow label="Syllables" v={r.syllables} tones={4} /><VoiceRow label="Sentences" v={r.sentences} tones={5} /></>}
       </div>
       {missed.length > 0 && (
         <div className="flex flex-col items-center gap-2">
