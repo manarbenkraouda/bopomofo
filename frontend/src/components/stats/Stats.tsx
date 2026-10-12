@@ -520,6 +520,20 @@ function SoundsView({ data }: { data: Data }) {
           )) : <div className="text-sm text-muted">No mix-ups in this range.</div>}
         </section>
       </div>
+      {(data.mic_pairs ?? []).length > 0 && (
+        <section className="card p-4 md:p-5">
+          <h2 className="font-semibold">Sounds the microphone mixes up for you</h2>
+          <p className="mb-3 text-xs text-muted">You typed what you said, and it was right. After 5 checks of the same pair, its older misses count as right too.</p>
+          {data.mic_pairs.map((p) => (
+            <div key={p.area + p.kind + p.expected + p.heard} className="cjk flex items-center gap-3 px-1.5 py-1.5 text-sm">
+              <span className="w-24 shrink-0 text-muted">{AREA_LABEL[p.area] ?? p.area}</span>
+              <span><b>{p.expected}</b> <span className="text-muted">heard as</span> <b>{p.heard}</b></span>
+              <span className="ml-auto text-xs tabular-nums text-muted">{p.n}×</span>
+              {p.confirmed && <span className="rounded bg-ok/15 px-1.5 py-0.5 text-[11px] text-ok">fixed</span>}
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }

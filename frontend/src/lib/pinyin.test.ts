@@ -20,6 +20,8 @@ describe("symbolOfPinyin", () => {
     expect(symbolOfPinyin("e^")).toBe("ㄝ");
     expect(symbolOfPinyin(" ZH ")).toBe("ㄓ");
     expect(symbolOfPinyin("yi1")).toBe("ㄧ");
+    expect(symbolOfPinyin("bō")).toBe("ㄅ"); // tone marks are ignored
+    expect(symbolOfPinyin("ǚ")).toBe("ㄩ");
     expect(normalizePinyin("u\u0308")).toBe("ü"); // ü typed as u + combining diaeresis
   });
   test("text that is no single symbol is refused", () => {

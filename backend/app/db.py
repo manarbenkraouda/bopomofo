@@ -428,21 +428,35 @@ def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: 
         (ts, day, ev["area"], ev.get("mode"), str(ev["item"])[:400], int(bool(ev["ok"])), _b(ev.get("first_try")), ev.get("score"),
          ev.get("ms"), ev.get("tries"), int(bool(ev.get("help"))), ev.get("replays"), int(legacy),
          json.dumps(ev.get("details") or {}, ensure_ascii=False))).fetchone()["id"]
-    rows = []
-    for u in ev.get("units") or []:
-        if u.get("kind") not in UNIT_KINDS or u.get("expected") in (None, ""):
-            continue
-        rows.append((eid, ts, day, ev["area"], ev.get("mode"), u["kind"], str(u["expected"])[:64], _s(u.get("actual")),
-                     _b(u.get("ok")), int(u.get("pos") or 0), int(u.get("try_n") or 0), int(bool(u.get("help"))),
-                     _s(u.get("ctx")), _s(u.get("lex")), _s(u.get("prev")), _s(u.get("next")), _s(u.get("source")),
-                     int(bool(u.get("uncertain"))), json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None))
-    c.executemany(
-        "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    rows = _insert_units(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("units") or [])
     from . import levels  # the level summaries change with the answer, in the same transaction
     levels.record(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("ms"), ev.get("details"),
                   [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows])
     return eid
+
+
+def _insert_units(c: Conn, eid: int, ts: float, day: str, area: str, mode: str | None, units: list[dict]) -> list[tuple]:
+    rows = []
+    for u in units:
+        if u.get("kind") not in UNIT_KINDS or u.get("expected") in (None, ""):
+            continue
+        rows.append((eid, ts, day, area, mode, u["kind"], str(u["expected"])[:64], _s(u.get("actual")),
+                     _b(u.get("ok")), int(u.get("pos") or 0), int(u.get("try_n") or 0), int(bool(u.get("help"))),
+                     _s(u.get("ctx")), _s(u.get("lex")), _s(u.get("prev")), _s(u.get("next")), _s(u.get("source")),
+                     int(bool(u.get("uncertain"))), json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None))
+    if rows:
+        c.executemany(
+            "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    return rows
+
+
+def add_units(c: Conn, event_id: int, units: list[dict]) -> int:
+    """Add units to a saved answer (the typed Pinyin after the recordings of a card). The caller rebuilds the level summaries."""
+    ev = c.execute("SELECT ts, day, area, mode FROM events WHERE id=?", (event_id,)).fetchone()
+    if not ev:
+        return 0
+    return len(_insert_units(c, event_id, ev["ts"], ev["day"], ev["area"], ev["mode"], units))
 
 
 def legacy_event(area: str, item: str, ok: bool, score: float | None, details: dict | None) -> dict:

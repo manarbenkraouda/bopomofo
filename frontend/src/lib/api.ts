@@ -82,7 +82,10 @@ export type Stats = {
   calendar: { day: string; minutes: number }[];
   levels: Levels;
   rules: RuleStat[];
+  /** Sound pairs the speech model mixes up for this learner, as the learner confirmed by typing the Pinyin. */
+  mic_pairs: MicPair[];
 };
+export type MicPair = { area: string; kind: string; expected: string; heard: string; n: number; confirmed: boolean };
 export type Health = { ok: boolean; speech_model: "ready" | "loading" | "error"; speech_error: string | null; llm_model: string; llm_configured: boolean; speaker_hz: number | null };
 
 export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "recognize_symbols" | "write_symbols" | "write_syllables" | "tone_rules";
@@ -191,7 +194,7 @@ export function apiBase(): string {
 }
 
 // Messages the learner can read as they are. Every other error gets a short, friendly message.
-const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story|Unknown time zone|You reached the daily|The request is too large)/;
+const SAFE_DETAIL = /^(The recording is|The target text has|Text must be|This plan has no story|Unknown time zone|You reached the daily|The request is too large|That is not a Pinyin syllable|These recordings are not|This card has no sounds)/;
 
 // The Clerk session token. <ApiAuth /> gives the getter while a user is signed in, and null when not.
 // Just after the sign-in redirect there is no token yet: requests wait for one (at most 10 s).
@@ -272,8 +275,12 @@ export const api = {
     if (opts.tryN) f.append("try_n", String(opts.tryN));
     const step = currentStep();
     if (step) f.append("step", String(step));
-    return call<SpeechResult & { notices?: LevelNotice[] }>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); notify(r.notices); return r; });
+    return call<SpeechResult & { event_id?: number; notices?: LevelNotice[] }>("/api/speech/analyze", { method: "POST", body: f }).then((r) => { answered(); notify(r.notices); return r; });
   },
+  /** After missed recordings of one single-syllable card: the learner typed the sound they said. A match counts the sound misses as right. */
+  confirmSpeech: (event_ids: number[], typed: string) =>
+    call<{ match: boolean; fixed: number; notices?: LevelNotice[] }>("/api/speech/confirm", json({ event_ids, typed }))
+      .then((r) => { answered(); notify(r.notices); return r; }),
   /** Save one graded answer with everything the learner produced. Also counts it for today's HUD. */
   event: (ev: PracticeEvent) => {
     recordAttempt(ev.area, ev.ok);

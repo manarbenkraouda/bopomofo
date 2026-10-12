@@ -29,7 +29,7 @@ from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
-from . import db, levels, limits, llm, stats
+from . import db, levels, limits, llm, stats, typed_fix
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
 from .zhuyin import RULES, analyze_text
 
@@ -591,6 +591,7 @@ def digest(lv: dict | None = None) -> dict:
             if not u["ok"] and u["actual"] not in (None, u["expected"]):
                 mix[(u["area"], u["kind"], u["expected"], u["actual"])] += 1
     mixups = [{"area": a, "unit": k, "expected": e, "produced": x, "times": n, "of": tot[(a, k, e)]} for (a, k, e, x), n in mix.most_common(20)]
+    mic = typed_fix.mic_pairs()
 
     # Silent recognition: which symbol the typed pinyin stands for, when it is not the shown one (ㄓ typed as "z" = ㄗ).
     rmix, rtot = Counter(), Counter()
@@ -686,10 +687,11 @@ def digest(lv: dict | None = None) -> dict:
         "tones_speaking": {"skills": pick(lambda r: r["area"] == "speaking" and r["unit"] == "tone"),
                            "expected_to_said": tables.get("speaking", {}), "contexts_weakest_first": contexts,
                            "syllables_weakest_first": syl_rows("speaking")},
-        "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups},
+        "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups, "mic_pairs": mic},
         "tone_rules": tone_rules,
         "symbols": {"skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),
                     "recognize_mixups": recognize_mixups,
+                    "mic_pairs": [p for p in mic if p["area"] == "reading"],
                     "stroke_problems": stroke_out, "stroke_order_errors": dict(order_err.most_common(12)), "never_practiced": never},
         "sentences": {"weak": weak_sents, "good_count": len(good), "typical_good_length": good_len[len(good_len) // 2] if good_len else None,
                       "library_not_practiced": unpracticed},
@@ -727,6 +729,9 @@ The coach is a pipeline of small decisions. You make one of them. Rules for ever
   it helps now. Never mention data, logs, detailed or old answers, "missing data", findings, analysts, the planner, the reviewer,
   the model, the app, the plan's process, or JSON field names. The diagnosis, findings, and other fields are internal: there,
   write for the coach and quote the numbers.
+- "mic_pairs" lists sound pairs (expected, heard) where the learner typed the sound they said in Pinyin and it was the expected
+  sound: the speech model heard the wrong sound (a blocked nose makes p sound like b). "confirmed": true means 5 or more such
+  checks; the old misses of that pair already count as right. Do not call these pairs weak, and do not plan contrast drills for them.
 - Write short, plain English. Return one JSON object only."""
 
 DOMAINS = {

@@ -16,6 +16,7 @@ import { PHONE, useViewport } from "@/lib/useFit";
 import { PitchChart } from "@/components/PitchChart";
 import { ZhuyinText } from "@/components/ZhuyinText";
 import { Burst, FxFrame, StatusPill, useCountUp, type FxStatus } from "@/components/quiz/Feedback";
+import { PinyinCheck } from "@/components/quiz/PinyinCheck";
 import { Kbd } from "@/components/shell/Kbd";
 import { RulesGuide, ruleLine, type Rules } from "@/components/listening/RuleQuiz";
 import { useLevels } from "@/lib/levels";
@@ -29,6 +30,12 @@ const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 
 const verdict = (score: number) => (score >= 85 ? "Excellent! " : score >= 60 ? "Almost: " : "Keep practicing: ") + score;
 /** The score of a right recording, as the backend saves it (stats.log_speaking). */
 const RIGHT = 80;
+/** Misses of a one-syllable card before the app asks what the learner said: the model can mix up close sounds (b and p). */
+const CHECK_AFTER = 3;
+/** The typed Pinyin check: not asked yet, open, closed with Esc (it can open again), or answered. */
+type Check = "none" | "open" | "closed" | "done";
+/** A recording where the model heard another initial or final (or nothing). */
+const soundMiss = (r: SpeechResult) => r.syllables.some((s) => !s.heard || s.initial_ok === false || s.final_ok === false);
 /** For speaking, a tone focus means the tone as said (after tone changes). */
 const sylMatch = (i: Syl, f: Focus) => (!f.tones.length || f.tones.includes(i.surface_tone)) && (!f.syms.length || f.syms.some((x) => (i.initial + i.final).includes(x)));
 /** The Pinyin of a text, with the punctuation kept next to the word before it. */
@@ -85,13 +92,16 @@ export function SpeakingPractice() {
   const [error, setError] = useState("");
   const [fxKey, setFxKey] = useState(0);
   const [session, setSession] = useState({ n: 0, sum: 0, streak: 0 });
+  const [typedCheck, setTypedCheck] = useState<Check>("none");
+  const [typedNote, setTypedNote] = useState("");
   const { w: vw } = useViewport();
   const recorder = useRef<Recorder | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const loadId = useRef(0);
   // The card in progress: the cheat and the number of recordings already checked, for the stats.
-  const meta = useRef({ card: null as Card | null, cheat: false, tries: 0 });
+  // eventIds: the saved recordings of this card. misses: recordings without the cheat where a sound was heard wrong.
+  const meta = useRef({ card: null as Card | null, cheat: false, tries: 0, eventIds: [] as number[], misses: 0 });
   const firstSentence = useRef(Number(params.get("sentence")) || 0);
   const focus = useFocus();
   // The card order: a few new cards at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
@@ -120,8 +130,10 @@ export function SpeakingPractice() {
   const clearRecording = () => { setResult(null); setError(""); setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
   const show = useCallback((c: Card | null) => {
     clearRecording();
-    meta.current = { card: c, cheat: false, tries: 0 };
+    meta.current = { card: c, cheat: false, tries: 0, eventIds: [], misses: 0 };
     setCheated(false);
+    setTypedCheck("none");
+    setTypedNote("");
     setCard(c);
   }, []);
   const showSyllable = useCallback(async (s: SyllableItem) => {
@@ -216,6 +228,10 @@ export function SpeakingPractice() {
       // The first recording of a card is the test: right without the cheat moves it on in the schedule.
       if (m.tries === 0 && source !== "custom") review().answer(c.text, r.score >= RIGHT && !m.cheat);
       m.tries += 1;
+      if (r.event_id) m.eventIds.push(r.event_id);
+      // One-syllable cards: after 3 sound misses without the cheat, ask once what the learner said.
+      if (r.score < RIGHT && !m.cheat && soundMiss(r)) m.misses += 1;
+      if (c.items.filter((x) => x.type === "syllable").length === 1 && m.misses >= CHECK_AFTER && !m.cheat) setTypedCheck((s) => (s === "none" ? "open" : s));
       setResult(r);
       const g = grade(r.score);
       playSfx(g === "right" ? "right" : g === "close" ? "close" : "wrong");
@@ -223,6 +239,24 @@ export function SpeakingPractice() {
       setSession((s) => ({ n: s.n + 1, sum: s.sum + r.score, streak: g === "right" ? s.streak + 1 : 0 }));
       api.health().then(setHealth).catch(() => {});
     } catch (e) { setError((e as Error).message); }
+  };
+  /** The learner typed the sound they said. Same sound: the sound misses of this card count as right (the tones stay as checked). */
+  const checkTyped = async (typed: string): Promise<string | null> => {
+    const m = meta.current;
+    const c = m.card;
+    if (!c || !m.eventIds.length) return null;
+    const r = await api.confirmSpeech(m.eventIds, typed);
+    if (meta.current.card !== c) return null;
+    setTypedCheck("done");
+    if (r.match) {
+      setTypedNote("Thanks! The microphone heard the sound wrong, so these recordings count as right sounds. The tone is checked as before.");
+      setResult((x) => x && { ...x, syllables: x.syllables.map((s) => ({ ...s, initial_ok: true, final_ok: true })) });
+      playSfx("right");
+    } else {
+      setTypedNote("You typed " + typed + ". This one is " + pinyinOf(c.items) + ". Listen, then try again or skip.");
+      cheat();
+    }
+    return null;
   };
   const start = async () => {
     clearRecording();
@@ -263,7 +297,7 @@ export function SpeakingPractice() {
 
   const marks = useMemo(() => result?.syllables.map((s) => (!s.heard ? "#d23f3f" : s.tone_ok && s.initial_ok !== false && s.final_ok !== false ? "#2f9466" : "#d23f3f")), [result]);
   const ready = health?.speech_model === "ready";
-  const canRecord = ready && !!card && rec !== "analyzing";
+  const canRecord = ready && !!card && rec !== "analyzing" && typedCheck !== "open";
   const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? sentences.length > 0 : source === "rule" ? phrases.length > 0 : sylls.length > 0);
   const recordToggle = () => { if (rec === "idle") start(); else if (rec === "recording") stop(); };
 
@@ -342,6 +376,8 @@ export function SpeakingPractice() {
           {single && health && !health.speaker_hz && !result && (
             <div className="text-sm text-rough text-center max-w-md">Tip: record one full sentence first. The app then learns your voice, which makes single-syllable tone checks more accurate.</div>
           )}
+          {typedNote && <div className="text-sm text-center max-w-md cjk text-muted" role="status">{typedNote}</div>}
+          {typedCheck === "open" && rec === "idle" && <PinyinCheck example="po, ma, or zi" check={checkTyped} onClose={() => setTypedCheck("closed")} />}
           {error && <div className="text-bad text-sm">{error}</div>}
 
           <div className="w-full max-w-3xl">
@@ -351,6 +387,7 @@ export function SpeakingPractice() {
               {cheated ? <>▶ {phone ? "Hear" : "Hear it again"}</> : <>💡 Cheat</>} <Kbd className="max-md:!hidden">Space</Kbd>
             </button>
             {cheated && card.slow && <PlayButton src={card.slow} label="Slow" />}
+            {typedCheck === "closed" && !cheated && <button className="btn" onClick={() => setTypedCheck("open")} title="The microphone can mix up close sounds">Type what you said</button>}
             {mine && rec === "idle" && <PlayButton src={mine} label={phone ? "Mine" : "My recording"} />}
             <div className="flex-1 max-md:!hidden" />
             {canNext && (result

@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import auth, coach, db, levels, limits, llm, scoring, speaker, stats, symbols, tts
+from . import auth, coach, db, levels, limits, llm, scoring, speaker, stats, symbols, tts, typed_fix
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
@@ -356,8 +356,25 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_leng
     # Every syllable is saved: expected and heard tone, initial, and final, so the stats can show confusions.
     # "step": the coach step this recording belongs to. Only answers given inside a step count for it.
     # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
-    stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
-                       help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
+    eid = stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
+                             help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
+    r = coach.refresh()
+    return {**res, "event_id": eid, "notices": (r.get("levels") or {}).get("notices") or []}
+
+
+class ConfirmIn(BaseModel):
+    event_ids: list[int] = Field(min_length=1, max_length=20)
+    typed: str = Field(min_length=1, max_length=16)
+
+
+@app.post("/api/speech/confirm")
+def speech_confirm(body: ConfirmIn):
+    """After missed recordings of one single-syllable card, the learner typed the sound they said in Pinyin.
+    A match counts those misses as right (initials and finals only: the tones stay as measured)."""
+    try:
+        res = typed_fix.confirm_speaking(body.event_ids, body.typed)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     r = coach.refresh()
     return {**res, "notices": (r.get("levels") or {}).get("notices") or []}
 
@@ -431,6 +448,9 @@ def progress_event(body: EventIn):
         step = str(details["step"])
         details["step"] = int(step) if step.isdigit() else None
     eid = db.add_event(ev)
+    # A card the learner fixed by typing the Pinyin (Reading): older misses of a pair confirmed often enough are fixed too.
+    if any(u.get("source") == "typed" and u.get("ok") for u in ev.get("units") or []):
+        typed_fix.apply_pairs()
     r = coach.refresh()
     # Level notices (an unlock, a known item that dropped) go back with the answer, so the app can show them at once.
     return {"ok": True, "id": eid, "notices": (r.get("levels") or {}).get("notices") or []}

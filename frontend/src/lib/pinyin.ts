@@ -23,9 +23,10 @@ for (const [sym, a] of Object.entries(PINYIN_ANSWER)) {
   for (const s of [a.main, ...(a.name ? [a.name] : []), ...(EXTRA[sym] ?? [])]) BY_SPELLING[s] = sym;
 }
 
-/** Lower case, no spaces or tone digits, and the usual keyboard spellings of ü and ê (v, u:, e^). */
+/** Lower case, no spaces, tone digits, or tone marks, and the usual keyboard spellings of ü and ê (v, u:, e^). */
 export function normalizePinyin(text: string): string {
-  return text.normalize("NFC").toLowerCase().replace(/[\s1-5]/g, "").replace(/u:|v/g, "ü").replace(/e\^/g, "ê");
+  return text.normalize("NFD").replace(/[\u0300\u0301\u0304\u030C]/g, "").normalize("NFC").toLowerCase()
+    .replace(/[\s1-5]/g, "").replace(/u:|v/g, "ü").replace(/e\^/g, "ê");
 }
 
 /** The symbol a typed spelling stands for, or null when it is not the pinyin of any one symbol. */

@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from . import db, levels
+from . import db, levels, typed_fix
 from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
@@ -62,10 +62,10 @@ def speaking_units(res: dict) -> list[dict]:
     return out
 
 
-def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0):
+def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0) -> int:
     mode = mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
     ok = res["score"] >= 80
-    db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": ok, "score": res["score"],
+    return db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": ok, "score": res["score"],
                   "first_try": ok and not help and try_n == 0, "tries": try_n + 1, "help": help,
                   "details": {"heard": res.get("heard_raw"), "extra": len(res.get("extra") or []),
                               "audio_seconds": (res.get("timing") or {}).get("audio_seconds"), **({"step": step} if step else {})},
@@ -370,7 +370,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     return {"range": {"days": days, "since": since if days else first_day, "area": area},
             "overview": overview, "daily": daily, "areas": per_area, "confusion": confusion, "expected": expected,
             "items": items, "tone_ctx": tone_ctx, "strokes": stroke_list, "hours": by_hour, "sessions": sessions,
-            "rules": rule_stats(days),
+            "rules": rule_stats(days), "mic_pairs": typed_fix.mic_pairs(),
             "recent": recent(area=area), "records": records(), "challenges": challenges(op=op), "weak": weak(items, op=op), "levels": lv,
             "calendar": [{"day": dd, "minutes": round(s / 60, 1)} for dd, s in secs_all.items() if dd >= (today - timedelta(days=370)).isoformat()]}
 

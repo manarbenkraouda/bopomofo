@@ -6,16 +6,21 @@ import { onPlaying, playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { Listener, type Utterance } from "@/lib/listener";
+import { answerText, symbolOfPinyin } from "@/lib/pinyin";
 import { inSet, SET_LABEL, SYMBOL_NAME as NAME, type SymbolSet as Set_ } from "@/lib/quiz";
 import { useReview } from "@/lib/review";
 import { playSfx, type Sfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
 import { loadData, symbolAudio, type MoeRow } from "@/lib/zhuyin";
 import { FxFrame, StatusPill } from "@/components/quiz/Feedback";
+import { PinyinCheck } from "@/components/quiz/PinyinCheck";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
 
 type Status = "idle" | "listening" | "hearing" | "checking" | "wrong" | "right";
+/** The typed Pinyin check after 3 misses: not asked yet, open, closed with Esc (it can open again), or answered. */
+type Check = "none" | "open" | "closed" | "done";
+const CHECK_AFTER = 3;
 const SETS = Object.keys(SET_LABEL) as Set_[];
 
 export function ReadingQuiz() {
@@ -33,6 +38,8 @@ export function ReadingQuiz() {
   const [error, setError] = useState("");
   const [hint, setHint] = useState("");
   const [fxKey, setFxKey] = useState(0); // replays the result animation on every new result
+  const [check, setCheckState] = useState<Check>("none");
+  const [typedNote, setTypedNote] = useState("");
 
   const listener = useRef<Listener | null>(null);
   const curRef = useRef<MoeRow | null>(null);
@@ -43,6 +50,7 @@ export function ReadingQuiz() {
   const unmuteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const starting = useRef(false); // a start is in progress (the microphone permission can take a while)
   const shown = useRef(true); // false after the page is left
+  const checkRef = useRef<Check>("none");
   const focus = useFocus();
   // Learn mode (?learn=1): every card plays the symbol and shows its name, and the learner repeats it. Each right repetition counts.
   const learn = useSearchParams().get("learn") === "1";
@@ -57,6 +65,16 @@ export function ReadingQuiz() {
     l.muted = true;
     if (unmuteTimer.current) clearTimeout(unmuteTimer.current);
     unmuteTimer.current = setTimeout(() => { if (listener.current && !answerPlaying.current) listener.current.muted = false; }, ms + 150);
+  }, []);
+
+  // The microphone waits while the learner types the Pinyin.
+  const setCheck = useCallback((s: Check) => {
+    checkRef.current = s;
+    setCheckState(s);
+    const l = listener.current;
+    if (!l) return;
+    if (s === "open") l.muted = true;
+    else if (!answerPlaying.current) l.muted = false;
   }, []);
 
   useEffect(() => {
@@ -86,28 +104,31 @@ export function ReadingQuiz() {
     setTries(0);
     setLast(null);
     setHint("");
+    setTypedNote("");
+    setCheck("none");
     setStatus((s) => (s === "idle" ? s : "listening"));
     if (learn) playAudio(symbolAudio(row));
-  }, [pool, learn, review]);
+  }, [pool, learn, review, setCheck]);
 
   useEffect(() => { if (rows.length && ready) next(); }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const finishCard = useCallback((ok: boolean) => {
+  /** typedFix: the learner typed the right Pinyin after misses, so the misses were the microphone's. */
+  const finishCard = useCallback((ok: boolean, typedFix = false) => {
     const row = curRef.current;
     if (!row) return;
     const c = card.current;
-    const firstTry = ok && !c.revealed && c.tries === 0;
+    const firstTry = ok && !c.revealed && (c.tries === 0 || typedFix);
     // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
     review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
     setStats((s) => ({ cards: s.cards + 1, firstTry: s.firstTry + (firstTry ? 1 : 0), streak: firstTry ? s.streak + 1 : 0, right: s.right + (ok ? 1 : 0) }));
     const units: Unit[] = c.units.length ? c.units : [{ kind: "symbol", expected: row.sym, actual: null, ok: false, help: c.revealed }];
-    api.event({ area: "reading", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: c.tries + (ok ? 1 : 0), help: c.revealed, units,
-      details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined } });
+    api.event({ area: "reading", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: typedFix ? c.tries : c.tries + (ok ? 1 : 0), help: c.revealed, units,
+      details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined, typed_fix: typedFix || undefined } });
   }, [set, focus, learn, review]);
 
   const onUtterance = useCallback(async (u: Utterance) => {
     const row = curRef.current;
-    if (!row || busy.current) return;
+    if (!row || busy.current || checkRef.current === "open") return;
     busy.current = true;
     setHint("");
     setStatus("checking");
@@ -134,12 +155,14 @@ export function ReadingQuiz() {
       setTries(card.current.tries);
       setStatus("wrong");
       fx("wrong");
+      // After 3 misses without the answer shown, ask once what the learner said: the model can mix up close sounds.
+      if (c.tries >= CHECK_AFTER && !c.revealed && checkRef.current === "none") setCheck("open");
     } catch (e) {
       setError((e as Error).message);
       setStatus("listening");
     }
     busy.current = false;
-  }, [finishCard, next, fx]);
+  }, [finishCard, next, fx, setCheck]);
 
   const onUtteranceRef = useRef(onUtterance);
   useEffect(() => { onUtteranceRef.current = onUtterance; }, [onUtterance]);
@@ -210,6 +233,33 @@ export function ReadingQuiz() {
 
   const skip = () => { finishCard(false); next(); };
 
+  /** The learner typed the sound they said. Same symbol: the misses count as right. Another symbol: a real mix-up, and the answer shows. */
+  const checkTyped = async (typed: string): Promise<string | null> => {
+    const row = curRef.current;
+    if (!row) return null;
+    const sym = symbolOfPinyin(typed);
+    if (!sym) return "That is not a Pinyin syllable. Type the sound of one symbol, like b, bo, or an.";
+    const c = card.current;
+    const confirm = "r" + Date.now();
+    if (sym === row.sym) {
+      busy.current = true;
+      c.units = c.units.map((u) => (u.ok ? u : { ...u, ok: true, actual: u.expected, source: "typed", extra: { ...u.extra, heard: u.actual, typed, confirm } }));
+      setCheck("done");
+      setTypedNote("Thanks! The microphone heard it wrong, so these tries count as right.");
+      setStatus("right");
+      setFxKey((k) => k + 1);
+      fx("right");
+      finishCard(true, true);
+      advanceTimer.current = setTimeout(next, 2200);
+      return null;
+    }
+    c.units.push({ kind: "symbol", expected: row.sym, actual: sym, ok: false, try_n: c.units.length, source: "typed", extra: { typed, confirm } });
+    setCheck("done");
+    setTypedNote("You typed " + typed + ", which is " + sym + ". This symbol is " + answerText(row.sym) + ".");
+    reveal();
+    return null;
+  };
+
   const modelReady = health !== null && health !== "down" && health.speech_model === "ready";
 
   // Start the microphone by itself when the page opens and the model is ready, if the browser allows it
@@ -278,14 +328,17 @@ export function ReadingQuiz() {
           </div>
 
           <div className="h-6 text-sm text-center">
+            {typedNote ? <span className={"cjk " + (status === "right" ? "text-ok" : "text-muted")}>{typedNote}</span> : <>
             {hint && status !== "right" && status !== "checking" && !(status === "wrong" && last) && <span className="text-rough">{hint}</span>}
             {status === "wrong" && last && (
               <span className="text-bad cjk">
                 {last.heard ? <>I heard {last.heard}. Try again.</> : <>That was not clear enough. The closest symbol was {last.closest}. Try again.</>}
               </span>
             )}
-            {status === "wrong" && revealed && tries > 0 && <span className="text-muted"> Now say it yourself to continue.</span>}
+            {status === "wrong" && revealed && tries > 0 && <span className="text-muted"> Now say it yourself to continue.</span>}</>}
           </div>
+
+          {check === "open" && <PinyinCheck example="b, bo, or an" check={checkTyped} onClose={() => setCheck("closed")} />}
 
           <ActionBar tone={status === "right" ? "ok" : status === "wrong" ? "bad" : null}>
             {!running ? (
@@ -301,6 +354,9 @@ export function ReadingQuiz() {
               </>
             )}
             <button className="btn" onClick={reveal}>{revealed ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd></button>
+            {check === "closed" && !revealed && (
+              <button className="btn" onClick={() => setCheck("open")} title="The microphone can mix up close sounds">Type what you said</button>
+            )}
             {canSkip && (
               <button className="btn text-muted" onClick={skip} title="Skip this symbol for now">Skip <Kbd>N</Kbd></button>
             )}
