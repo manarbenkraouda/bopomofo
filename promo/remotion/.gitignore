@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+.env
+
+# Ignore the output video from Git but not videos you import into src/.
+out
+
+# Local x64 Node for rendering on Windows ARM64, QA frames, and temp renders.
+.tools
+qa
+*.tmp.mp4
+qa-45s

@@ -1,0 +1,11 @@
+node_modules/
+video/node_modules/
+renders/
+video/renders/
+video/.hyperframes/
+.hyperframes/
+qa/_*
+*.tmp
+*.log
+qa-45s/_*
+qa*/frame_*.png

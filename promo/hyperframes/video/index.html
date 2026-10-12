@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en" data-resolution="portrait">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Geist"; src: url("assets/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
+      @font-face { font-family: "Geist Mono"; src: url("assets/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; font-style: normal; }
+      @font-face { font-family: "Microsoft JhengHei"; src: local("Microsoft JhengHei"), local("MicrosoftJhengHeiRegular"); font-weight: 400; }
+      @font-face { font-family: "Microsoft JhengHei"; src: local("Microsoft JhengHei Bold"), local("MicrosoftJhengHeiBold"); font-weight: 700; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: #f5f1e8; }
+      #root { position: relative; width: 1080px; height: 1920px; overflow: hidden; background: #f5f1e8;
+        font-family: "Geist", "Microsoft JhengHei", sans-serif; color: #24201b; }
+      .cjk { font-family: "Microsoft JhengHei", sans-serif; }
+      .mono { font-family: "Geist Mono", "Microsoft JhengHei", monospace; font-variant-numeric: tabular-nums; }
+
+      .scene { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; overflow: hidden; background: #f5f1e8; }
+      #s1 { z-index: 1; } #s2 { z-index: 2; opacity: 0; } #s3 { z-index: 3; opacity: 0; } #s4 { z-index: 4; opacity: 0; }
+      #s5 { z-index: 5; opacity: 0; } #s6 { z-index: 6; opacity: 0; } #s7 { z-index: 7; opacity: 0; } #s8 { z-index: 8; opacity: 0; }
+      #s9 { z-index: 9; opacity: 0; }
+      .vband { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; z-index: 50; background: #b5452f;
+        clip-path: polygon(0% -60%, 50% -15%, 100% -60%, 100% -50%, 50% -5%, 0% -50%); }
+
+      /* background layer */
+      .bg { position: absolute; inset: 0; }
+      .glow { position: absolute; border-radius: 50%;
+        background: radial-gradient(circle, rgba(255,250,241,0.95) 0%, rgba(255,250,241,0.55) 45%, rgba(255,250,241,0) 70%); }
+      .ghost { position: absolute; font-weight: 700; color: #24201b; opacity: 0.045; line-height: 1; }
+      .vmark { position: absolute; background: #f3dcd3;
+        clip-path: polygon(0% 0%, 24% 0%, 50% 58%, 76% 0%, 100% 0%, 50% 100%); }
+
+      /* content */
+      .content { position: absolute; left: 0; top: 0; width: 100%; height: 100%; padding: 262px 140px 500px 80px;
+        display: flex; flex-direction: column; gap: 22px; }
+      .center { align-items: center; text-align: center; }
+      .h { font-weight: 800; font-size: 92px; line-height: 1.02; letter-spacing: -0.04em; color: #24201b; text-wrap: balance; max-width: 860px; }
+      .r { color: #b5452f; }
+      .sub { font-size: 42px; font-weight: 400; line-height: 1.18; color: #6f675b; letter-spacing: -0.01em; text-wrap: balance; max-width: 860px; }
+      .card { background: #fffdf8; border: 2px solid #e3dbcc; border-radius: 20px;
+        box-shadow: 0 18px 40px rgba(70,48,24,0.10), 0 2px 6px rgba(70,48,24,0.06); }
+      .label { font-size: 28px; font-weight: 600; letter-spacing: 0.02em; color: #6f675b; text-transform: uppercase; }
+
+      /* Bobo rig: pivot at the feet */
+      .stage { position: absolute; }
+      .disc { position: absolute; border-radius: 50%;
+        background: radial-gradient(circle at 50% 42%, #fffaf1 0%, #fbf4e8 55%, #f1e6d6 100%);
+        box-shadow: 0 0 0 14px rgba(255,250,241,0.55), 0 30px 70px rgba(120,86,40,0.14); }
+      .shadow { position: absolute; left: 22%; width: 56%; height: 34px; border-radius: 50%; background: rgba(60,40,20,0.16); filter: blur(6px); }
+      .b-pos, .b-sq, .b-idle { position: absolute; left: 0; top: 0; width: 100%; height: 100%; transform-origin: 50% 96%; }
+      .b-idle img { display: block; width: 100%; height: auto; }
+
+      /* scene 1 */
+      #s1 .h1a { font-size: 84px; }
+      #s1 .h1b { font-size: 100px; }
+      .tile-b { position: absolute; left: 750px; top: 640px; width: 150px; height: 150px; border-radius: 26px; background: #b5452f;
+        color: #fffaf1; font-size: 104px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 16px 30px rgba(181,69,47,0.30); }
+      .nametag { position: absolute; left: 240px; top: 1300px; width: 600px; height: 104px; border-radius: 52px; background: #fffdf8;
+        border: 2px solid #e3dbcc; box-shadow: 0 12px 30px rgba(70,48,24,0.12); display: flex; align-items: center; justify-content: center; gap: 22px; }
+      .nametag .n1 { font-size: 46px; font-weight: 800; letter-spacing: -0.03em; }
+      .nametag .n2 { font-size: 46px; font-weight: 700; color: #b5452f; }
+      .nametag .n3 { font-size: 38px; font-weight: 700; color: #6f675b; }
+
+      /* scene 2 */
+      .tiles { display: flex; gap: 20px; margin-top: 18px; }
+      .ptile { width: 152px; height: 196px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; position: relative; }
+      .ptile .hz { font-size: 82px; font-weight: 700; line-height: 1; }
+      .ptile .lb { font-size: 25px; font-weight: 600; color: #4d463c; }
+      .ptile .dot { position: absolute; top: -10px; right: 6px; width: 40px; height: 40px; border-radius: 50%; background: #2f9466;
+        display: flex; align-items: center; justify-content: center; }
+      .counter { margin-top: 26px; height: 380px; display: flex; align-items: center; gap: 30px; padding: 0 36px 0 26px; position: relative; }
+      .counter .slot { width: 320px; height: 320px; position: relative; flex: none; }
+      .counter .num { font-size: 150px; font-weight: 800; letter-spacing: -0.05em; line-height: 1; color: #24201b; }
+      .counter .what { font-size: 40px; font-weight: 500; color: #4d463c; margin-top: 10px; }
+
+      /* scene 3 */
+      .speak { padding: 30px 36px 26px; display: flex; flex-direction: column; align-items: center; }
+      .syl { display: flex; width: 780px; }
+      .syl .col { width: 390px; display: flex; flex-direction: column; align-items: center; position: relative; }
+      .syl .zy { font-size: 50px; font-weight: 700; color: #6f675b; letter-spacing: 0.04em; }
+      .syl .hz { font-size: 150px; font-weight: 700; line-height: 1.05; }
+      .ring { position: absolute; top: 62px; left: 105px; width: 180px; height: 180px; border-radius: 50%; border: 8px solid #d23f3f; }
+      .okbadge { position: absolute; top: 50px; right: 34px; width: 64px; height: 64px; border-radius: 50%; background: #2f9466;
+        display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 18px rgba(47,148,102,0.35); }
+      .legend { display: flex; gap: 34px; font-size: 26px; font-weight: 500; color: #6f675b; align-self: flex-start; margin: 4px 0 0 10px; }
+      .legend i { display: inline-block; width: 46px; height: 0; vertical-align: middle; margin-right: 10px; }
+      .chip { position: absolute; border-radius: 18px; }
+      .chip-res { left: 450px; top: 1060px; width: 470px; padding: 22px 26px; background: #f3dcd3; font-size: 33px; line-height: 1.24; font-weight: 500; }
+      .chip-res b { color: #b5452f; font-weight: 800; }
+
+      /* scene 4 */
+      .write { height: 540px; display: flex; align-items: center; gap: 30px; padding: 0 30px; }
+      .grid { width: 470px; height: 470px; position: relative; background: #fffaf1; border: 2px solid #e3dbcc; border-radius: 16px; flex: none; }
+      .strokes { flex: 1; display: flex; flex-direction: column; gap: 22px; }
+      .srow { display: flex; align-items: center; gap: 16px; font-size: 32px; font-weight: 600; position: relative; height: 70px; padding-right: 66px; white-space: nowrap; }
+      .srow .sn { width: 56px; height: 56px; border-radius: 50%; background: #efe8db; display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; }
+      .srow .st { position: absolute; right: 0; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+      .chip-bad { left: 450px; top: 1050px; padding: 18px 24px; background: #f3dcd3; color: #a3301f; font-size: 32px; font-weight: 700; }
+      .chip-good { left: 450px; top: 1150px; padding: 18px 24px; background: #dcefe4; color: #1f6e4a; font-size: 32px; font-weight: 700; }
+
+      /* scene 5 */
+      .stats { padding: 28px 36px 30px; display: flex; flex-direction: column; gap: 18px; }
+      .mix { display: flex; align-items: center; gap: 18px; }
+      .ztile { width: 96px; height: 96px; border-radius: 18px; background: #f5f1e8; border: 2px solid #e3dbcc; font-size: 64px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; }
+      .arrow { font-size: 44px; color: #6f675b; font-weight: 700; }
+      .mixtxt { font-size: 38px; font-weight: 600; margin-left: 10px; }
+      .mixtxt b { color: #d23f3f; font-weight: 800; }
+      .sep { height: 2px; background: #e3dbcc; }
+      .bars { display: flex; flex-direction: column; gap: 14px; }
+      .bar { display: flex; align-items: center; gap: 16px; height: 40px; }
+      .bar .bl { width: 120px; font-size: 28px; font-weight: 600; }
+      .bar .tr { width: 470px; height: 26px; border-radius: 13px; background: #efe8db; position: relative; overflow: hidden; }
+      .bar .fl { position: absolute; left: 0; top: 0; height: 100%; border-radius: 13px; transform-origin: 0 50%; }
+      .bar .bv { font-size: 30px; font-weight: 600; }
+      .weak { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+      .weak .wt { font-size: 36px; font-weight: 800; color: #b5452f; letter-spacing: -0.02em; }
+      .pillg { padding: 10px 20px; border-radius: 30px; background: #f7ead0; color: #7a520b; font-size: 30px; font-weight: 600; }
+
+      /* scene 6 */
+      .plan { padding: 22px 30px; display: flex; flex-direction: column; gap: 6px; }
+      .step { display: flex; align-items: center; gap: 22px; height: 108px; border-bottom: 2px solid #efe8db; }
+      .step:last-child { border-bottom: 0; }
+      .step .sn { width: 64px; height: 64px; border-radius: 50%; background: #b5452f; color: #fffaf1; font-size: 34px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; flex: none; }
+      .step .tt { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; }
+      .step .ev { font-size: 28px; font-weight: 500; color: #6f675b; margin-top: 4px; }
+      .howbtn { position: absolute; left: 460px; top: 1040px; padding: 16px 26px; border-radius: 30px; background: #24201b; color: #fffaf1; font-size: 32px; font-weight: 700; }
+      .evid { position: absolute; left: 460px; top: 1120px; width: 480px; height: 290px; padding: 22px 26px; transform-origin: 50% 0%; }
+      .evid .et { font-size: 30px; font-weight: 700; }
+      .evid .es { font-size: 26px; font-weight: 500; color: #6f675b; margin-top: 4px; }
+      .hb { display: flex; align-items: flex-end; gap: 26px; height: 150px; margin-top: 18px; padding-left: 8px; }
+      .hb .c { width: 92px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+      .hb .b { width: 70px; border-radius: 10px 10px 4px 4px; transform-origin: 50% 100%; }
+      .hb .n { font-size: 24px; font-weight: 600; color: #4d463c; }
+
+      /* scene 7 */
+      .prog { padding: 28px 36px; display: flex; flex-direction: column; gap: 20px; }
+      .prog .top { display: flex; justify-content: space-between; align-items: baseline; }
+      .prog .tt { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; }
+      .prog .tg { font-size: 30px; font-weight: 600; color: #6f675b; }
+      .ticks { display: flex; gap: 10px; }
+      .tick { width: 69px; height: 40px; border-radius: 10px; background: #efe8db; position: relative; overflow: hidden; }
+      .tick i { position: absolute; inset: 0; background: #2f9466; transform-origin: 0 50%; }
+      .prog .row { display: flex; align-items: baseline; gap: 18px; }
+      .pct { font-size: 70px; font-weight: 800; letter-spacing: -0.04em; color: #2f9466; }
+      .cnt { font-size: 30px; font-weight: 600; color: #6f675b; }
+      .toast { padding: 24px 30px; display: flex; gap: 22px; align-items: flex-start; border: 2px solid #b9dcc8; background: #f2faf5; }
+      .toast .ic { width: 60px; height: 60px; border-radius: 50%; background: #2f9466; flex: none; display: flex; align-items: center; justify-content: center; }
+      .toast .k { font-size: 26px; font-weight: 700; letter-spacing: 0.04em; color: #1f6e4a; text-transform: uppercase; }
+      .toast .m { font-size: 38px; font-weight: 600; line-height: 1.2; margin-top: 4px; }
+
+      /* scene 8 */
+      .rec { padding: 30px 34px; display: flex; gap: 30px; }
+      .symb { width: 250px; height: 250px; border-radius: 20px; background: #f5f1e8; border: 2px solid #e3dbcc; display: flex; align-items: center; justify-content: center;
+        font-size: 180px; font-weight: 700; flex: none; }
+      .rr { flex: 1; display: flex; flex-direction: column; gap: 18px; }
+      .input { height: 92px; border-radius: 16px; border: 3px solid #24201b; display: flex; align-items: center; padding: 0 24px; font-size: 58px; font-weight: 600; background: #fffaf1; }
+      .caret { width: 4px; height: 56px; background: #b5452f; margin-left: 4px; }
+      .keys { display: flex; gap: 14px; }
+      .key { height: 76px; min-width: 80px; padding: 0 20px; border-radius: 14px; border: 2px solid #cfc5b3; border-bottom-width: 6px; background: #fffdf8;
+        display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 600; }
+      .result { display: flex; align-items: center; gap: 18px; height: 60px; }
+      .okc { width: 56px; height: 56px; border-radius: 50%; background: #2f9466; display: flex; align-items: center; justify-content: center; }
+      .time { font-size: 40px; font-weight: 700; }
+      .stars { position: relative; font-size: 52px; letter-spacing: 6px; margin-left: auto; }
+      .stars .s0 { color: #e3dbcc; }
+      .stars .s1 { position: absolute; left: 0; top: 0; color: #d39418; display: flex; letter-spacing: 6px; }
+      .badge { position: absolute; left: 490px; top: 1130px; padding: 22px 34px; border-radius: 40px; background: #b5452f; color: #fffaf1;
+        font-size: 44px; font-weight: 800; letter-spacing: -0.02em; box-shadow: 0 14px 30px rgba(181,69,47,0.32); }
+
+      /* scene 9 */
+      .zfloat { position: absolute; width: 104px; height: 104px; border-radius: 22px; background: #fffdf8; border: 2px solid #e3dbcc;
+        display: flex; align-items: center; justify-content: center; font-size: 66px; font-weight: 700; color: #b5452f;
+        box-shadow: 0 10px 24px rgba(70,48,24,0.10); }
+      .cta { position: absolute; left: 230px; top: 1160px; width: 620px; height: 124px; border-radius: 62px; background: #b5452f; color: #fffaf1;
+        display: flex; align-items: center; justify-content: center; font-size: 60px; font-weight: 800; letter-spacing: -0.03em;
+        box-shadow: 0 18px 36px rgba(181,69,47,0.34); }
+      .tagline { position: absolute; left: 80px; top: 1310px; width: 860px; text-align: center; font-size: 46px; font-weight: 500; color: #4d463c; }
+      .confetti { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; }
+      .cf { position: absolute; width: 18px; height: 30px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="45" data-width="1080" data-height="1920" data-fps="60">
+      <audio id="mix" data-start="0" data-duration="45" data-track-index="5" src="assets/audio/promo-mix.wav" data-volume="1"></audio>
+
+      <!-- 1 · 0.0-2.5 · Meet your coach -->
+      <div id="s1" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow g1" style="left:-160px; top:420px; width:1400px; height:1400px"></div>
+          <div class="ghost cjk gh" style="left:-90px; top:1380px; font-size:560px">ㄅ</div>
+          <div class="ghost cjk gh2" style="left:640px; top:60px; font-size:360px">ㄆ</div>
+        </div>
+        <div class="content center">
+          <div class="h h1a">Learning Mandarin?</div>
+          <div class="h h1b r">Meet your coach.</div>
+        </div>
+        <div id="b1" class="stage" style="left:230px; top:620px; width:620px; height:650px">
+          <div class="disc" style="left:-50px; top:-40px; width:720px; height:720px"></div>
+          <div class="shadow" style="top:618px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-welcome.png" alt="Bobo waves" /></div></div></div>
+        </div>
+        <div class="tile-b cjk">ㄅ</div>
+        <div class="nametag"><span class="n1">Bobo</span><span class="n2 cjk">波波</span><span class="n3 cjk">ㄅㄛ ㄅㄛ</span></div>
+      </div>
+
+      <!-- 2 · 2.5-5.0 · Bobo watches every answer -->
+      <div id="s2" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-300px; top:700px; width:1200px; height:1200px"></div>
+          <div class="ghost cjk gh" style="left:560px; top:1300px; font-size:520px">認</div>
+        </div>
+        <div class="content">
+          <div class="h">Bobo watches every answer.</div>
+          <div class="sub">read · listen · speak · write · type</div>
+          <div class="tiles">
+            <div class="ptile card"><span class="hz cjk">讀</span><span class="lb">Read</span><span class="dot"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            <div class="ptile card"><span class="hz cjk">聽</span><span class="lb">Listen</span><span class="dot"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            <div class="ptile card"><span class="hz cjk">說</span><span class="lb">Speak</span><span class="dot"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            <div class="ptile card"><span class="hz cjk">寫</span><span class="lb">Write</span><span class="dot"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            <div class="ptile card"><span class="hz cjk">認</span><span class="lb">Recognize</span><span class="dot"><svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+          </div>
+          <div class="counter card">
+            <div class="slot">
+              <div id="b2" class="stage" style="left:40px; top:28px; width:240px; height:252px">
+                <div class="disc" style="left:-40px; top:-34px; width:320px; height:320px"></div>
+                <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-encourage.png" alt="Bobo, thumbs up" /></div></div></div>
+              </div>
+            </div>
+            <div>
+              <div class="num mono" id="count">0</div>
+              <div class="what">answers watched</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 · 5.0-9.0 · Feedback on every tone -->
+      <div id="s3" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-380px; top:820px; width:1100px; height:1100px"></div>
+          <div class="ghost cjk gh" style="left:600px; top:1340px; font-size:520px">ˇ</div>
+        </div>
+        <div class="content">
+          <div class="h">Feedback on every tone.</div>
+          <div class="speak card">
+            <div class="syl">
+              <div class="col"><span class="zy cjk">ㄋㄧˇ</span><span class="hz cjk">你</span><div class="ring"></div></div>
+              <div class="col"><span class="zy cjk">ㄏㄠˇ</span><span class="hz cjk">好</span>
+                <div class="okbadge"><svg width="36" height="36" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div></div>
+            </div>
+            <svg width="780" height="200" viewBox="0 0 780 200" style="margin-top:6px">
+              <line x1="20" y1="185" x2="760" y2="185" stroke="#e3dbcc" stroke-width="2"/>
+              <line x1="390" y1="10" x2="390" y2="185" stroke="#efe8db" stroke-width="2"/>
+              <path class="tg1" d="M 70 150 C 150 150, 250 110, 320 40" fill="none" stroke="#d39418" stroke-width="16" stroke-linecap="round" stroke-dasharray="2 26" opacity="0.9"/>
+              <path class="tg2" d="M 460 90 C 520 185, 605 190, 710 50" fill="none" stroke="#3b82c4" stroke-width="16" stroke-linecap="round" stroke-dasharray="2 26" opacity="0.9"/>
+              <path class="you1" pathLength="1" d="M 70 100 C 150 195, 240 195, 320 105" fill="none" stroke="#d23f3f" stroke-width="9" stroke-linecap="round" stroke-dasharray="1 1" stroke-dashoffset="0"/>
+              <path class="you2" pathLength="1" d="M 460 96 C 520 192, 605 196, 710 58" fill="none" stroke="#2f9466" stroke-width="9" stroke-linecap="round" stroke-dasharray="1 1" stroke-dashoffset="0"/>
+            </svg>
+            <div class="legend"><span><i style="border-top:6px dotted #6f675b"></i>target tone</span><span><i style="border-top:6px solid #24201b"></i>your voice</span></div>
+          </div>
+        </div>
+        <div id="b3" class="stage" style="left:50px; top:1040px; width:380px; height:398px">
+          <div class="disc" style="left:-20px; top:-10px; width:420px; height:420px"></div>
+          <div class="shadow" style="top:378px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-story-tones.png" alt="Bobo conducts tone curves" /></div></div></div>
+        </div>
+        <div class="chip chip-res">You read the written tone. <span class="cjk" style="font-weight:700">你</span> is said tone 2 here: <b>the 3-3 rule.</b></div>
+      </div>
+
+      <!-- 4 · 9.0-11.5 · ...and every stroke -->
+      <div id="s4" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-360px; top:820px; width:1100px; height:1100px"></div>
+          <div class="ghost cjk gh" style="left:560px; top:1330px; font-size:520px">寫</div>
+        </div>
+        <div class="content">
+          <div class="h">...and every stroke.</div>
+          <div class="write card">
+            <div class="grid" style="width:430px; height:430px">
+              <svg width="426" height="426" viewBox="0 0 100 100" style="position:absolute; left:0; top:0">
+                <line x1="50" y1="4" x2="50" y2="96" stroke="#ecdcc8" stroke-width="0.6" stroke-dasharray="2 2"/>
+                <line x1="4" y1="50" x2="96" y2="50" stroke="#ecdcc8" stroke-width="0.6" stroke-dasharray="2 2"/>
+                <line x1="8" y1="8" x2="92" y2="92" stroke="#f1e6d6" stroke-width="0.5" stroke-dasharray="2 2"/>
+                <line x1="92" y1="8" x2="8" y2="92" stroke="#f1e6d6" stroke-width="0.5" stroke-dasharray="2 2"/>
+                <path class="k1" pathLength="1" d="M 44 16 Q 38 32 22 44" fill="none" stroke="#24201b" stroke-width="7" stroke-linecap="round" stroke-dasharray="1 1"/>
+                <path class="k2" pathLength="1" d="M 32 34 L 72 34 Q 78 35 76 42 L 68 72 Q 64 86 50 82" fill="none" stroke="#d23f3f" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 1"/>
+                <path class="w1" pathLength="1" d="M 44 16 Q 38 32 22 44" fill="none" stroke="#2f9466" stroke-width="7" stroke-linecap="round" stroke-dasharray="1 1"/>
+                <path class="w2" pathLength="1" d="M 32 34 L 72 34 Q 78 35 76 42 L 68 72 Q 64 86 50 82" fill="none" stroke="#2f9466" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="1 1"/>
+                <circle class="pen" cx="50" cy="82" r="3.2" fill="#d23f3f" opacity="0"/>
+              </svg>
+            </div>
+            <div class="strokes">
+              <div class="label">Strokes</div>
+              <div class="srow"><span class="sn">1</span><span>Down-left</span>
+                <span class="st st1" style="background:#2f9466"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+              <div class="srow"><span class="sn">2</span><span>Right, down</span>
+                <span class="st st2x" style="background:#d23f3f"><svg width="28" height="28" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round"/></svg></span>
+                <span class="st st2" style="background:#2f9466"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>
+            </div>
+          </div>
+        </div>
+        <div id="b4" class="stage" style="left:40px; top:1030px; width:400px; height:419px">
+          <div class="disc" style="left:-20px; top:-14px; width:440px; height:440px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-writing.png" alt="Bobo writes" /></div></div></div>
+        </div>
+        <div class="chip chip-bad">Stroke 2: wrong direction</div>
+      </div>
+
+      <!-- 5 · 11.5-15.5 · Bobo finds your weak spots -->
+      <div id="s5" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-60px; top:900px; width:1200px; height:1200px"></div>
+          <div class="ghost cjk gh" style="left:-120px; top:1360px; font-size:520px">績</div>
+        </div>
+        <div class="content">
+          <div class="h">Bobo finds your weak spots.</div>
+          <div class="stats card">
+            <div class="label">Mix-ups</div>
+            <div class="mix"><span class="ztile cjk">ㄓ</span><span class="arrow">→</span><span class="ztile cjk">ㄗ</span>
+              <span class="mixtxt"><span class="cjk">ㄓ</span> taken for <span class="cjk">ㄗ</span>: <b class="mono">6x</b></span></div>
+            <div class="sep"></div>
+            <div class="label">Tones by ear</div>
+            <div class="bars">
+              <div class="bar"><span class="bl">Tone 1</span><span class="tr"><i class="fl" style="width:94%; background:#2f9466"></i></span><span class="bv mono">94%</span></div>
+              <div class="bar"><span class="bl">Tone 2</span><span class="tr"><i class="fl" style="width:91%; background:#d39418"></i></span><span class="bv mono">91%</span></div>
+              <div class="bar"><span class="bl">Tone 3</span><span class="tr"><i class="fl" style="width:88%; background:#3b82c4"></i></span><span class="bv mono">88%</span></div>
+              <div class="bar b4"><span class="bl" style="color:#b5452f">Tone 4</span><span class="tr"><i class="fl" style="width:78.6%; background:#d23f3f"></i></span><span class="bv mono" style="color:#b5452f">78.6%</span></div>
+            </div>
+            <div class="weak"><span class="wt">Tone 4 by ear: 78.6% on 28</span><span class="pillg">often heard as tone 2</span></div>
+          </div>
+        </div>
+        <div id="b5" class="stage" style="left:330px; top:1110px; width:400px; height:419px">
+          <div class="disc" style="left:-25px; top:-20px; width:450px; height:450px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-investigate.png" alt="Bobo investigates" /></div></div></div>
+        </div>
+      </div>
+
+      <!-- 6 · 15.5-20.5 · Then writes your plan -->
+      <div id="s6" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-380px; top:820px; width:1100px; height:1100px"></div>
+          <div class="ghost cjk gh" style="left:580px; top:1340px; font-size:520px">熊</div>
+        </div>
+        <div class="content">
+          <div class="h">Then writes your plan.</div>
+          <div class="sub">exact drills, with the numbers behind them</div>
+          <div class="plan card">
+            <div class="step"><span class="sn">1</span><div><div class="tt">Tone 4 by ear: target 90%</div><div class="ev mono">78.6% on 28</div></div></div>
+            <div class="step"><span class="sn">2</span><div><div class="tt"><span class="cjk">ㄓ</span> vs <span class="cjk">ㄗ</span>: type it</div><div class="ev mono">6 mix-ups</div></div></div>
+            <div class="step"><span class="sn">3</span><div><div class="tt">3-3 rule: say it aloud</div><div class="ev">you read the written tone</div></div></div>
+          </div>
+        </div>
+        <div id="b6" class="stage" style="left:40px; top:1040px; width:380px; height:398px">
+          <div class="disc" style="left:-20px; top:-10px; width:420px; height:420px"></div>
+          <div class="shadow" style="top:378px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-story-stats.png" alt="Bobo presents a chart" /></div></div></div>
+        </div>
+        <div class="howbtn">How do we know?</div>
+        <div class="evid card">
+          <div class="et">Tone 4 by ear: 78.6% on 28</div>
+          <div class="es">Heard as, last 28 answers</div>
+          <div class="hb">
+            <div class="c"><span class="n mono">22</span><span class="b" style="height:84px; background:#b5452f"></span><span class="n">tone 4</span></div>
+            <div class="c"><span class="n mono">5</span><span class="b" style="height:30px; background:#d39418"></span><span class="n">tone 2</span></div>
+            <div class="c"><span class="n mono">1</span><span class="b" style="height:10px; background:#2f9466"></span><span class="n">tone 1</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7 · 20.5-23.5 · Every 10 answers, Bobo adjusts -->
+      <div id="s7" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-60px; top:860px; width:1200px; height:1200px"></div>
+          <div class="ghost cjk gh" style="left:-100px; top:1350px; font-size:520px">十</div>
+        </div>
+        <div class="content">
+          <div class="h">Every 10 answers, Bobo adjusts.</div>
+          <div class="prog card">
+            <div class="top"><span class="tt">Step 1 · Tone 4 by ear</span><span class="tg mono">target 90%</span></div>
+            <div class="ticks"><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span><span class="tick"><i></i></span></div>
+            <div class="row"><span class="pct mono" id="pct">78.6%</span><span class="cnt mono" id="ans">0 of 10 answers</span></div>
+          </div>
+          <div class="toast card">
+            <span class="ic"><svg width="34" height="34" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <div><div class="k">Checkpoint</div><div class="m">Tone 4 is up to 86%. Narrowing to 4&nbsp;vs&nbsp;2.</div></div>
+          </div>
+        </div>
+        <div id="b7" class="stage" style="left:330px; top:1050px; width:420px; height:440px">
+          <div class="disc" style="left:-25px; top:-20px; width:470px; height:470px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-thinking.png" alt="Bobo thinks" /></div></div></div>
+        </div>
+      </div>
+
+      <!-- 8 · 23.5-26.5 · Keyboard first -->
+      <div id="s8" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-380px; top:840px; width:1100px; height:1100px"></div>
+          <div class="ghost cjk gh" style="left:580px; top:1340px; font-size:520px">ㄓ</div>
+        </div>
+        <div class="content">
+          <div class="h">Keyboard first. No guessing.</div>
+          <div class="sub"><span class="cjk" style="color:#d39418">★★★</span> only when it's right, fast, and on 2 days</div>
+          <div class="rec card">
+            <div class="symb cjk">ㄓ</div>
+            <div class="rr">
+              <div class="input mono"><span class="t1">z</span><span class="t2">h</span><span class="caret"></span></div>
+              <div class="keys"><span class="key mono kz">z</span><span class="key mono kh">h</span><span class="key mono ke">Enter ↵</span></div>
+              <div class="result">
+                <span class="okc"><svg width="32" height="32" viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="#fffaf1" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+                <span class="time mono">1.4 s</span>
+                <span class="stars cjk"><span class="s0">★★★</span><span class="s1"><span class="st">★</span><span class="st">★</span><span class="st">★</span></span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="b8" class="stage" style="left:50px; top:1040px; width:380px; height:398px">
+          <div class="disc" style="left:-20px; top:-10px; width:420px; height:420px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-story-plan.png" alt="Bobo guides the path" /></div></div></div>
+        </div>
+        <div class="badge">Level 2 open</div>
+      </div>
+
+      <!-- 9 · 26.5-30.0 · End card -->
+      <div id="s9" class="scene">
+        <div class="bg" data-layout-ignore>
+          <div class="glow" style="left:-160px; top:200px; width:1400px; height:1400px"></div>
+        </div>
+        <div class="vmark" style="left:110px; top:520px; width:860px; height:640px"></div>
+        <div class="zfloat cjk z1" style="left:90px; top:560px">ㄅ</div>
+        <div class="zfloat cjk z2" style="left:830px; top:600px">ㄆ</div>
+        <div class="zfloat cjk z3" style="left:110px; top:960px">ㄇ</div>
+        <div class="zfloat cjk z4" style="left:820px; top:990px">ㄈ</div>
+        <div id="b9" class="stage" style="left:270px; top:520px; width:540px; height:566px">
+          <div class="disc" style="left:-50px; top:-40px; width:640px; height:640px"></div>
+          <div class="shadow" style="top:546px"></div>
+          <div class="confetti" id="confetti" style="left:-270px; top:-520px"></div>
+          <div class="b-pos"><div class="b-sq"><div class="b-idle"><img src="assets/bobo/bobo-celebrate.png" alt="Bobo celebrates" /></div></div></div>
+        </div>
+        <div class="content center">
+          <div class="h" style="font-size:100px">Learn Bopomofo <span class="r">with Bobo.</span></div>
+        </div>
+        <div class="cta">bopomofo.app</div>
+        <div class="tagline">Your AI Mandarin coach</div>
+      </div>
+
+      <div id="vband" class="vband" data-layout-ignore></div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // ---------- helpers ----------
+      const CHEVRON = (side, mid) => "polygon(0% 0%, 100% 0%, 100% " + side + "%, 50% " + mid + "%, 0% " + side + "%)";
+      function vWipe(sel, T, dur) {
+        tl.set(sel, { opacity: 1, clipPath: CHEVRON(-60, -15) }, T);
+        tl.to(sel, { clipPath: CHEVRON(100, 145), duration: dur, ease: "power3.inOut" }, T);
+        tl.set(sel, { clipPath: "none" }, T + dur);
+        tl.fromTo("#vband",
+          { clipPath: "polygon(0% -60%, 50% -15%, 100% -60%, 100% -50%, 50% -5%, 0% -50%)" },
+          { clipPath: "polygon(0% 100%, 50% 145%, 100% 100%, 100% 110%, 50% 155%, 0% 110%)", duration: dur, ease: "power3.inOut", immediateRender: false }, T);
+      }
+      function push(outSel, inSel, T, axis) {
+        const prop = axis === "y" ? "y" : "x";
+        const dist = axis === "y" ? 1920 : 1080;
+        tl.set(inSel, { opacity: 1, [prop]: dist }, T);
+        tl.to(outSel, { [prop]: -dist, duration: 0.5, ease: "power3.inOut" }, T);
+        tl.to(inSel, { [prop]: 0, duration: 0.5, ease: "power3.inOut" }, T);
+      }
+      // Pop up from below: stretch in flight, squash on landing, settle (pivot at the feet).
+      function boboPop(id, t, rise) {
+        const s = "#" + id;
+        tl.from(s + " .disc", { scale: 0.2, opacity: 0, duration: 0.5, ease: "back.out(1.7)" }, t);
+        tl.from(s + " .b-pos", { y: rise, duration: 0.42, ease: "power2.out" }, t + 0.06);
+        tl.from(s + " .b-pos", { opacity: 0, duration: 0.14, ease: "none" }, t + 0.06);
+        tl.fromTo(s + " .b-sq", { scaleX: 0.82, scaleY: 1.2 }, { scaleX: 1.12, scaleY: 0.88, duration: 0.42, ease: "power2.in" }, t + 0.06);
+        tl.to(s + " .b-sq", { scaleX: 1, scaleY: 1, duration: 0.6, ease: "elastic.out(1, 0.45)" }, t + 0.48);
+      }
+      // Gentle bob (finite repeats, ends at rest).
+      function bob(id, t, cycles, amp, period) {
+        tl.to("#" + id + " .b-idle", { y: -amp, duration: period / 2, ease: "sine.inOut", yoyo: true, repeat: cycles * 2 - 1 }, t);
+      }
+      // Rotation about the feet (finite, ends at 0).
+      function sway(id, t, cycles, amp, period) {
+        const q = period / 4, k = [{ rotation: amp, duration: q }];
+        for (let i = 0; i < cycles; i++) { k.push({ rotation: -amp, duration: 2 * q }); if (i < cycles - 1) k.push({ rotation: amp, duration: 2 * q }); }
+        k.push({ rotation: 0, duration: q });
+        tl.to("#" + id + " .b-idle", { keyframes: k, ease: "sine.inOut" }, t);
+      }
+      function drawIn(sel, t, dur, reverse, ease) {
+        tl.fromTo(sel, { strokeDashoffset: reverse ? -1 : 1 }, { strokeDashoffset: 0, duration: dur, ease: ease || "power1.inOut" }, t);
+      }
+      function ambient(scene, t0, t1) {
+        tl.fromTo(scene + " .gh", { y: 40 }, { y: -40, duration: t1 - t0, ease: "none" }, t0);
+        tl.fromTo(scene + " .glow", { scale: 0.94 }, { scale: 1.04, duration: t1 - t0, ease: "sine.inOut" }, t0);
+      }
+
+      // ---------- 1 · 0.0-2.5 ----------
+      ambient("#s1", 0, 2.9);
+      tl.fromTo("#s1 .gh2", { y: -20 }, { y: 30, duration: 2.9, ease: "none" }, 0);
+      tl.from("#s1 .h1a", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 0.15);
+      boboPop("b1", 0.25, 760);
+      tl.from("#s1 .tile-b", { rotation: -540, scale: 0, opacity: 0, duration: 0.8, ease: "back.out(1.5)" }, 0.8);
+      tl.from("#s1 .h1b", { scale: 0.55, opacity: 0, duration: 0.5, ease: "back.out(2.2)" }, 1.05);
+      tl.from("#s1 .nametag", { y: 40, opacity: 0, duration: 0.5, ease: "expo.out" }, 1.25);
+      sway("b1", 1.1, 1, 4, 1.2);
+      bob("b1", 1.0, 2, 12, 0.75);
+      tl.to("#s1 .tile-b", { y: -14, rotation: 6, duration: 0.6, ease: "sine.inOut", yoyo: true, repeat: 1 }, 1.6);
+
+      // ---------- 2 · 2.5-5.0 ----------
+      vWipe("#s2", 2.3, 0.5);
+      ambient("#s2", 2.3, 5.3);
+      tl.from("#s2 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 2.55);
+      tl.from("#s2 .sub", { y: 24, opacity: 0, duration: 0.45, ease: "power2.out" }, 2.75);
+      tl.from("#s2 .ptile", { y: 70, scale: 0.6, opacity: 0, duration: 0.45, ease: "back.out(1.8)", stagger: 0.08 }, 2.85);
+      tl.from("#s2 .counter", { y: 60, opacity: 0, duration: 0.5, ease: "expo.out" }, 3.05);
+      boboPop("b2", 3.1, 260);
+      const cnt = { v: 0 }; const cntEl = document.getElementById("count");
+      tl.to(cnt, { v: 1284, duration: 1.5, ease: "power2.out", onUpdate: () => { cntEl.textContent = Math.round(cnt.v).toLocaleString("en-US"); } }, 3.25);
+      tl.from("#s2 .dot", { scale: 0, opacity: 0, duration: 0.3, ease: "back.out(2.5)", stagger: 0.22 }, 3.45);
+      bob("b2", 3.7, 1, 8, 0.9);
+
+      // ---------- 3 · 5.0-9.0 ----------
+      vWipe("#s3", 4.8, 0.5);
+      ambient("#s3", 4.8, 9.3);
+      tl.from("#s3 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 5.05);
+      tl.from("#s3 .speak", { y: 80, scale: 0.96, opacity: 0, duration: 0.6, ease: "expo.out" }, 5.25);
+      tl.from("#s3 .syl .zy", { y: -20, opacity: 0, duration: 0.4, ease: "power2.out", stagger: 0.1 }, 5.45);
+      tl.from("#s3 .syl .hz", { scale: 0.7, opacity: 0, duration: 0.5, ease: "back.out(2)", stagger: 0.1 }, 5.5);
+      tl.from("#s3 .tg1, #s3 .tg2", { opacity: 0, duration: 0.4, ease: "sine.out", stagger: 0.1 }, 5.75);
+      tl.from("#s3 .legend", { opacity: 0, y: 12, duration: 0.4, ease: "power1.out" }, 5.85);
+      boboPop("b3", 5.35, 500);
+      drawIn("#s3 .you1", 6.1, 0.5);
+      tl.from("#s3 .ring", { scale: 1.6, opacity: 0, duration: 0.35, ease: "power3.out" }, 6.62);
+      drawIn("#s3 .you2", 6.75, 0.5);
+      tl.from("#s3 .okbadge", { scale: 0, rotation: -90, opacity: 0, duration: 0.4, ease: "back.out(2.4)" }, 7.28);
+      tl.from("#s3 .chip-res", { y: 40, scale: 0.9, opacity: 0, duration: 0.5, ease: "back.out(1.6)" }, 7.4);
+      sway("b3", 6.05, 2, 5, 0.6);
+      bob("b3", 7.4, 2, 10, 0.8);
+
+      // ---------- 4 · 9.0-11.5 (push from the right: the story continues) ----------
+      push("#s3", "#s4", 8.8, "x");
+      ambient("#s4", 8.8, 11.8);
+      tl.from("#s4 .h", { x: 80, opacity: 0, duration: 0.5, ease: "power3.out" }, 9.05);
+      tl.from("#s4 .write", { y: 60, opacity: 0, duration: 0.5, ease: "expo.out" }, 9.15);
+      tl.from("#s4 .strokes .label, #s4 .srow", { x: 30, opacity: 0, duration: 0.35, ease: "power2.out", stagger: 0.07 }, 9.3);
+      boboPop("b4", 9.2, 480);
+      drawIn("#s4 .k1", 9.45, 0.3, false, "power2.in");
+      tl.from("#s4 .st1", { scale: 0, duration: 0.25, ease: "back.out(2.5)" }, 9.75);
+      drawIn("#s4 .k2", 9.85, 0.4, true, "power1.inOut");
+      tl.set("#s4 .pen", { opacity: 1 }, 9.84);
+      tl.fromTo("#s4 .pen", { attr: { cx: 50, cy: 82 } }, { keyframes: [
+        { attr: { cx: 68, cy: 72 }, duration: 0.12 }, { attr: { cx: 76, cy: 42 }, duration: 0.12 }, { attr: { cx: 72, cy: 34 }, duration: 0.04 },
+        { attr: { cx: 32, cy: 34 }, duration: 0.12 }, { opacity: 0, duration: 0.1 } ], ease: "none" }, 9.85);
+      tl.from("#s4 .st2x", { scale: 0, duration: 0.25, ease: "back.out(2.5)" }, 10.25);
+      tl.from("#s4 .chip-bad", { x: 60, opacity: 0, duration: 0.4, ease: "back.out(1.8)" }, 10.25);
+      tl.to("#s4 .k1, #s4 .k2", { opacity: 0.14, duration: 0.25, ease: "power1.out" }, 10.6);
+      drawIn("#s4 .w1", 10.65, 0.25, false, "power2.in");
+      drawIn("#s4 .w2", 10.9, 0.38, false, "power1.inOut");
+      tl.from("#s4 .st2", { scale: 0, duration: 0.25, ease: "back.out(2.5)" }, 11.25);
+      tl.to("#b4 .b-idle", { rotation: -3, duration: 0.3, ease: "sine.inOut", yoyo: true, repeat: 3 }, 9.8);
+      bob("b4", 10.9, 1, 8, 0.7);
+
+      // ---------- 5 · 11.5-15.5 ----------
+      vWipe("#s5", 11.3, 0.5);
+      ambient("#s5", 11.3, 15.8);
+      tl.from("#s5 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 11.55);
+      tl.from("#s5 .stats", { y: 80, opacity: 0, duration: 0.6, ease: "expo.out" }, 11.75);
+      tl.from("#s5 .mix > *", { scale: 0.5, opacity: 0, duration: 0.4, ease: "back.out(2)", stagger: 0.08 }, 12.0);
+      tl.from("#s5 .fl", { scaleX: 0, duration: 0.7, ease: "power3.out", stagger: 0.12 }, 12.4);
+      tl.from("#s5 .bv", { opacity: 0, x: -10, duration: 0.3, ease: "power1.out", stagger: 0.12 }, 12.7);
+      tl.from("#s5 .bar", { opacity: 0, duration: 0.3, ease: "none", stagger: 0.12 }, 12.3);
+      tl.to("#s5 .b4 .tr", { scale: 1.04, boxShadow: "0 0 0 6px rgba(210,63,63,0.28)", duration: 0.3, ease: "sine.inOut", yoyo: true, repeat: 5 }, 13.3);
+      tl.from("#s5 .weak .wt", { y: 20, opacity: 0, duration: 0.45, ease: "power3.out" }, 13.35);
+      tl.from("#s5 .weak .pillg", { scale: 0.6, opacity: 0, duration: 0.4, ease: "back.out(2)" }, 13.6);
+      boboPop("b5", 11.85, 480);
+      tl.to("#b5 .b-sq", { scale: 1.06, duration: 0.7, ease: "power2.inOut" }, 13.1);
+      tl.to("#b5 .b-idle", { rotation: -4, duration: 0.7, ease: "power2.inOut" }, 13.1);
+      tl.to("#b5 .b-idle", { rotation: 0, duration: 0.6, ease: "power2.inOut" }, 14.6);
+      tl.to("#b5 .b-sq", { scale: 1, duration: 0.6, ease: "power2.inOut" }, 14.6);
+      bob("b5", 12.6, 2, 8, 0.7);
+
+      // ---------- 6 · 15.5-20.5 (push up: the plan comes from the stats) ----------
+      push("#s5", "#s6", 15.3, "y");
+      ambient("#s6", 15.3, 20.8);
+      tl.from("#s6 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 15.55);
+      tl.from("#s6 .sub", { y: 24, opacity: 0, duration: 0.45, ease: "power2.out" }, 15.8);
+      tl.from("#s6 .plan", { y: 60, opacity: 0, duration: 0.5, ease: "expo.out" }, 15.95);
+      tl.from("#s6 .step", { x: 120, opacity: 0, duration: 0.5, ease: "back.out(1.4)", stagger: 0.32 }, 16.2);
+      boboPop("b6", 16.0, 480);
+      tl.from("#s6 .howbtn", { scale: 0.5, opacity: 0, duration: 0.4, ease: "back.out(2.2)" }, 17.3);
+      tl.to("#s6 .howbtn", { scale: 0.92, duration: 0.1, ease: "power1.in", yoyo: true, repeat: 1 }, 17.85);
+      tl.from("#s6 .evid", { scaleY: 0, opacity: 0, duration: 0.5, ease: "expo.out" }, 18.05);
+      tl.from("#s6 .evid .et, #s6 .evid .es", { opacity: 0, y: 10, duration: 0.35, ease: "power2.out", stagger: 0.1 }, 18.3);
+      tl.from("#s6 .hb .b", { scaleY: 0, duration: 0.6, ease: "power3.out", stagger: 0.12 }, 18.5);
+      tl.from("#s6 .hb .n", { opacity: 0, duration: 0.3, ease: "none", stagger: 0.06 }, 18.6);
+      sway("b6", 17.2, 2, 3, 1.1);
+      bob("b6", 18.6, 2, 9, 0.85);
+
+      // ---------- 7 · 20.5-23.5 ----------
+      vWipe("#s7", 20.3, 0.5);
+      ambient("#s7", 20.3, 23.8);
+      tl.from("#s7 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 20.55);
+      tl.from("#s7 .prog", { y: 70, opacity: 0, duration: 0.5, ease: "expo.out" }, 20.7);
+      tl.from("#s7 .tick i", { scaleX: 0, duration: 0.08, ease: "power1.out", stagger: 0.1 }, 20.95);
+      const ans = { v: 0 }; const ansEl = document.getElementById("ans");
+      tl.to(ans, { v: 10, duration: 1.0, ease: "none", onUpdate: () => { ansEl.textContent = Math.min(10, Math.floor(ans.v + 0.0001)) + " of 10 answers"; } }, 20.95);
+      const pc = { v: 78.6 }; const pcEl = document.getElementById("pct");
+      tl.to(pc, { v: 86, duration: 0.5, ease: "power2.out", onUpdate: () => { pcEl.textContent = (pc.v >= 85.95 ? "86" : pc.v.toFixed(1)) + "%"; } }, 21.95);
+      tl.from("#s7 .toast", { y: 50, scale: 0.92, opacity: 0, duration: 0.5, ease: "back.out(1.7)" }, 22.05);
+      boboPop("b7", 20.85, 480);
+      sway("b7", 21.4, 1, 4, 1.4);
+      bob("b7", 22.3, 1, 10, 0.9);
+
+      // ---------- 8 · 23.5-26.5 ----------
+      vWipe("#s8", 23.3, 0.5);
+      ambient("#s8", 23.3, 26.8);
+      tl.from("#s8 .h", { y: 60, opacity: 0, duration: 0.5, ease: "power3.out" }, 23.5);
+      tl.from("#s8 .sub", { y: 24, opacity: 0, duration: 0.4, ease: "power2.out" }, 23.65);
+      tl.from("#s8 .rec", { y: 60, opacity: 0, duration: 0.45, ease: "expo.out" }, 23.75);
+      tl.from("#s8 .symb", { scale: 0.6, rotation: -8, duration: 0.45, ease: "back.out(2)" }, 23.85);
+      boboPop("b8", 23.8, 480);
+      function press(sel, t) {
+        tl.to(sel, { y: 5, backgroundColor: "#f3dcd3", duration: 0.06, ease: "power1.in" }, t);
+        tl.to(sel, { y: 0, backgroundColor: "#fffdf8", duration: 0.14, ease: "power1.out" }, t + 0.06);
+      }
+      press("#s8 .kz", 24.25); tl.from("#s8 .t1", { opacity: 0, y: 10, duration: 0.1, ease: "power2.out" }, 24.27);
+      press("#s8 .kh", 24.45); tl.from("#s8 .t2", { opacity: 0, y: 10, duration: 0.1, ease: "power2.out" }, 24.47);
+      press("#s8 .ke", 24.7);
+      tl.from("#s8 .okc", { scale: 0, duration: 0.3, ease: "back.out(2.6)" }, 24.78);
+      tl.from("#s8 .time", { x: -16, opacity: 0, duration: 0.3, ease: "power2.out" }, 24.82);
+      tl.from("#s8 .stars .st", { scale: 0, opacity: 0, rotation: -90, duration: 0.3, ease: "back.out(3)", stagger: 0.13 }, 24.9);
+      tl.to("#s8 .input", { borderColor: "#2f9466", duration: 0.2, ease: "power1.out" }, 24.78);
+      tl.from("#s8 .badge", { scale: 0.3, opacity: 0, rotation: -10, duration: 0.5, ease: "back.out(2.2)" }, 25.2);
+      tl.to("#b8 .b-idle", { keyframes: [{ y: -40, duration: 0.18, ease: "power2.out" }, { y: 0, duration: 0.18, ease: "power2.in" }] }, 25.15);
+      tl.to("#b8 .b-sq", { keyframes: [{ scaleX: 1.08, scaleY: 0.92, duration: 0.08 }, { scaleX: 1, scaleY: 1, duration: 0.25, ease: "elastic.out(1,0.5)" }] }, 25.51);
+      sway("b8", 25.8, 1, 3, 0.6);
+
+      // ---------- 9 · 26.5-30.0 · end card, V wipe, hold the last 1.5 s ----------
+      vWipe("#s9", 26.3, 0.7);
+      tl.fromTo("#s9 .glow", { scale: 0.95 }, { scale: 1.03, duration: 1.9, ease: "sine.inOut" }, 26.5);
+      tl.from("#s9 .vmark", { scaleY: 0, transformOrigin: "50% 0%", opacity: 0, duration: 0.6, ease: "expo.out" }, 26.75);
+      tl.from("#s9 .h", { y: 60, opacity: 0, duration: 0.55, ease: "power3.out" }, 26.7);
+      boboPop("b9", 26.75, 600);
+      // hop: anticipate, jump with stretch, land with squash, settle
+      tl.to("#b9 .b-sq", { scaleX: 1.12, scaleY: 0.86, duration: 0.12, ease: "power2.out" }, 27.3);
+      tl.to("#b9 .b-pos", { y: -130, duration: 0.3, ease: "power2.out" }, 27.42);
+      tl.to("#b9 .b-sq", { scaleX: 0.9, scaleY: 1.12, duration: 0.18, ease: "power1.out" }, 27.42);
+      tl.to("#b9 .b-sq", { scaleX: 1, scaleY: 1, duration: 0.12, ease: "power1.inOut" }, 27.6);
+      tl.to("#b9 .b-pos", { y: 0, duration: 0.25, ease: "power2.in" }, 27.73);
+      tl.to("#b9 .b-sq", { scaleX: 1.14, scaleY: 0.86, duration: 0.08, ease: "power2.out" }, 27.98);
+      tl.to("#b9 .b-sq", { scaleX: 1, scaleY: 1, duration: 0.4, ease: "elastic.out(1, 0.5)" }, 28.06);
+      tl.to("#b9 .shadow", { scale: 0.6, opacity: 0.5, duration: 0.3, ease: "power2.out", yoyo: true, repeat: 1 }, 27.42);
+      tl.from("#s9 .zfloat", { scale: 0, opacity: 0, rotation: (i) => [-30, 25, 20, -25][i], duration: 0.5, ease: "back.out(2)", stagger: 0.08 }, 27.0);
+      tl.to("#s9 .zfloat", { y: (i) => [-16, 14, -12, 16][i], duration: 0.65, ease: "sine.inOut", yoyo: true, repeat: 1 }, 27.15);
+      tl.from("#s9 .cta", { y: 50, scale: 0.8, opacity: 0, duration: 0.5, ease: "back.out(1.8)" }, 27.2);
+      tl.from("#s9 .tagline", { y: 20, opacity: 0, duration: 0.45, ease: "power2.out" }, 27.45);
+      // confetti behind Bobo (never over his chest), done by 28.4
+      (function () {
+        let a = 7;
+        const rnd = () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+        const cols = ["#b5452f", "#d39418", "#2f9466", "#3b82c4", "#f3dcd3", "#d23f3f"];
+        const box = document.getElementById("confetti");
+        for (let i = 0; i < 44; i++) {
+          const d = document.createElement("div");
+          d.className = "cf";
+          d.style.background = cols[i % cols.length];
+          d.style.left = "530px"; d.style.top = "760px";
+          box.appendChild(d);
+          const ang = (i / 44) * Math.PI * 2 + rnd() * 0.3;
+          const r = 300 + rnd() * 260;
+          const dx = Math.cos(ang) * r, dy = Math.sin(ang) * r * 0.85 - 120;
+          const t0 = 27.98 + rnd() * 0.06;
+          tl.fromTo(d, { x: 0, y: 0, scale: 0.4, rotation: 0 },
+            { x: dx, y: dy, scale: 1, rotation: (rnd() - 0.5) * 720, duration: 0.24, ease: "power3.out" }, t0);
+          tl.to(d, { y: dy + 90 + rnd() * 60, rotation: "+=" + Math.round((rnd() - 0.5) * 360), opacity: 0, duration: 0.24 - (t0 - 27.98), ease: "power1.in" }, t0 + 0.24);
+        }
+        tl.set("#confetti .cf", { opacity: 0 }, 0);
+        tl.set("#confetti .cf", { opacity: 1 }, 27.97);
+      })();
+      // end hold: everything is still from 28.5 to 30.0
+      // hide each finished scene once the next one fully covers it
+      [["#s1", 2.8], ["#s2", 5.3], ["#s3", 9.3], ["#s4", 11.8], ["#s5", 15.8], ["#s6", 20.8], ["#s7", 23.8], ["#s8", 27.0]]
+        .forEach(([sel, t]) => tl.set(sel, { visibility: "hidden" }, t));
+      // time stretch: all timings above are on the 30 s timeline; the master plays them 1.5x slower (45 s)
+      const STRETCH = 1.5;
+      tl.paused(false);
+      tl.timeScale(1 / STRETCH);
+      const master = gsap.timeline({ paused: true });
+      master.add(tl, 0);
+      window.__timelines["main"] = master;
+    </script>
+  </body>
+</html>
+
