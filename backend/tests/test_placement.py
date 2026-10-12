@@ -5,7 +5,10 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from collections import Counter
+
 from app import auth, coach, db, levels, main, placement
+from app.zhuyin import analyze_text
 
 A = {"Authorization": "Bearer token-a"}
 B = {"Authorization": "Bearer token-b"}
@@ -49,8 +52,8 @@ def unlocks(user="user_a"):
 
 
 def test_place_needs_the_alphabet_first_then_syllables_then_sentences():
-    good = {"cards": 10, "sounds": 90, "tones": 90, "missed": []}
-    bad = {"cards": 10, "sounds": 50, "tones": 90, "missed": []}
+    good = {"cards": len(placement.SYLLABLES), "sounds": 90, "tones": 90, "missed": []}
+    bad = {"cards": len(placement.SYLLABLES), "sounds": 50, "tones": 90, "missed": []}
     few = {"cards": placement.MIN_SYLLABLES - 1, "sounds": 100, "tones": 100, "missed": []}
     alpha = {"right": placement.ALPHA_PASS}
     assert placement.place(alpha, good, good)["level"] == 4
@@ -64,12 +67,24 @@ def test_place_needs_the_alphabet_first_then_syllables_then_sentences():
     assert placement.place(None, good, good) == {"level": 1, "alphabet_known": False, "syllables_ok": True, "sentences_ok": True, "chapters": True}
 
 
+def test_the_voice_part_covers_every_symbol_every_tone_and_every_tone_rule():
+    syl = [[i for i in analyze_text(t) if i["type"] == "syllable"] for t in placement.SYLLABLES]
+    assert all(len(s) == 1 for s in syl) and len(set(placement.SYLLABLES)) == len(placement.SYLLABLES)
+    assert set(levels.SYMS) <= set("".join(s[0]["zhuyin"] for s in syl))  # all 37 symbols
+    tones = Counter(s[0]["surface_tone"] for s in syl)
+    assert all(tones[t] >= 8 for t in (1, 2, 3, 4))
+    sent = [i for t, _ in placement.SENTENCES for i in analyze_text(t) if i["type"] == "syllable"]
+    assert {"3-3", "bu", "yi"} <= {i.get("rule") for i in sent} and any(i["surface_tone"] == 5 for i in sent)
+    assert placement.MIN_SYLLABLES <= len(placement.SYLLABLES) and placement.MIN_SENTENCES <= len(placement.SENTENCES)
+
+
 def test_only_everyday_and_fluent_learners_take_the_test(client):
     assert onboard(client, "words", "some")["placement"] == "none"
     assert client.post("/api/placement/finish", json={}, headers=A).status_code == 409
     assert onboard(client, "fluent", "none", headers=B)["placement"] == "due"
     c = client.get("/api/placement", headers=B).json()
-    assert c["status"] == "due" and not c["alphabet"] and len(c["syllables"]) == 10 and len(c["sentences"]) == 4
+    assert c["status"] == "due" and not c["alphabet"]
+    assert len(c["syllables"]) == len(placement.SYLLABLES) and len(c["sentences"]) == len(placement.SENTENCES)
     assert c["sentences"][0]["items"][0]["zhuyin"]  # the Bopomofo comes from the same analyzer as Speaking
 
 

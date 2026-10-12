@@ -3,7 +3,8 @@
 Two parts, both saved as normal answers through the normal endpoints, so the stats, the stars, and the coach see them:
   1. The alphabet (only when the learner said they know some Bopomofo): each of the 37 symbols, type its sound in pinyin.
      These are Recognize answers (area "recognize", details.placement).
-  2. The voice: say 10 single syllables, then 4 short sentences. These are Speaking answers (modes "syllable" and "sentence");
+  2. The voice: say 42 single syllables (every initial, medial, and final, and the four tones), then 12 sentences (the neutral tone and
+     the tone rules 3-3, 不, 一). These are Speaking answers (modes "syllable" and "sentence");
      the speech model checks each initial, final, and tone, with the tone changes.
 
 finish() reads the saved answers of the test (by event id, only the learner's own rows) and places the learner:
@@ -27,15 +28,21 @@ ALPHA_PASS = levels.NEED_SYMS  # 34 of 37 (90%), the same share as the level 1 g
 ALPHA_OPEN = 22  # 60%: open every alphabet chapter, but the alphabet is not known yet
 SOUNDS_PASS = 80  # percent of initials and finals right
 TONES_PASS = 75  # percent of tones right
-MIN_SYLLABLES = 6  # fewer recorded syllables: the syllable part does not count
-MIN_SENTENCES = 2
+MIN_SYLLABLES = 30  # of 42: fewer recorded syllables (too many skipped), and the syllable part does not count
+MIN_SENTENCES = 8  # of 12
 MAX_AGE = 6 * 3600  # answers older than this are not part of this test
 
-# The voice test. Syllables: hard initials (ㄓ ㄔ ㄕ ㄖ, ㄐ ㄑ ㄒ, ㄗ ㄘ ㄙ), ü, -n and -ng, and the four tones.
-SYLLABLES = ["八", "茶", "水", "去", "熱", "字", "魚", "冷", "心", "吃"]
-# Sentences: every tone, the neutral tone, the 3-3 rule (你好) and the 不 rule (不太).
+# The voice test, about 10 minutes with the alphabet. Syllables: each of the 21 initials, the 3 medials, and the 13 finals at least once
+# (tests/test_placement.py checks it), alone and in pairs (ㄧㄢ ㄨㄥ ㄩㄝ ...), and 9-12 syllables of each tone. Common characters only.
+SYLLABLES = ["八", "婆", "買", "飛", "到", "頭", "難", "冷", "歌", "看", "很", "家", "去", "學", "知", "吃", "水", "熱", "字", "菜", "四",
+             "忙", "二", "魚", "五", "衣", "天", "心", "中", "火", "月", "想", "錢", "好", "書", "人", "遠", "雲", "聽", "晚", "要", "對"]
+# Sentences: every tone, the neutral tone, the 3-3 rule (also in chains), 不 before tone 4, and 一 before tones 1, 3, and 4.
 SENTENCES = [("你好嗎？", "How are you?"), ("你要喝什麼？", "What do you want to drink?"),
-             ("這個不太貴。", "This one is not too expensive."), ("我們明天去台北。", "Tomorrow we go to Taipei.")]
+             ("這個不太貴。", "This one is not too expensive."), ("我們明天去台北。", "Tomorrow we go to Taipei."),
+             ("我不知道。", "I don't know."), ("我想買一杯咖啡。", "I want to buy a cup of coffee."),
+             ("一起去吃飯吧！", "Let's go eat together!"), ("他是我的老師。", "He is my teacher."),
+             ("這裡的水果很好吃。", "The fruit here is very good."), ("一共多少錢？", "How much is it in total?"),
+             ("你喜歡學中文嗎？", "Do you like learning Chinese?"), ("我每天早上喝茶。", "I drink tea every morning.")]
 
 
 def due(settings: dict | None = None) -> bool:
@@ -90,7 +97,7 @@ def score_voice(rows: list[dict], mode: str) -> dict:
     ton = [r for r in rs if r["kind"] == "tone" and r["ok"] is not None]
     return {"cards": len({r["id"] for r in rs}), "sounds": _pct(sum(bool(r["ok"]) for r in snd), len(snd)),
             "tones": _pct(sum(bool(r["ok"]) for r in ton), len(ton)),
-            "missed": sorted({r["expected"] for r in rs if r["kind"] in ("initial", "final") and not r["ok"] and r["expected"] != "∅"})[:12]}
+            "missed": sorted({r["expected"] for r in rs if r["kind"] in ("initial", "final") and not r["ok"] and r["expected"] != "∅"})[:20]}
 
 
 def _good(v: dict, need: int) -> bool:

@@ -434,7 +434,7 @@ function Done({ d, mic, test }: { d: Draft; mic: Mic; test: boolean }) {
       <div className="flex flex-col gap-1.5">
         <h1 className="text-2xl font-bold md:text-3xl">You&apos;re all set, {d.name.trim()}!</h1>
         <p className="mx-auto max-w-sm text-muted">
-          {test ? "I’m Bobo (波波), your coach. You already speak Mandarin, so let’s find your level first: a short test of the symbols and your voice, about 5 minutes."
+          {test ? "I’m Bobo (波波), your coach. You already speak Mandarin, so let’s find your level first: a test of the symbols and your voice, about 10 minutes."
             : "I’m Bobo (波波), your coach. I’m writing your first plan from your answers. It is ready in about a minute."}
         </p>
       </div>

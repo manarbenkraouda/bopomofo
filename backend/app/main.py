@@ -569,8 +569,9 @@ def placement_get():
 
 
 class PlacementIn(BaseModel):
-    alphabet_ids: list[int] = Field(default_factory=list, max_length=60)
-    voice_ids: list[int] = Field(default_factory=list, max_length=60)
+    # 37 symbols; 42 syllables and 12 sentences (placement.py), with room for content changes.
+    alphabet_ids: list[int] = Field(default_factory=list, max_length=120)
+    voice_ids: list[int] = Field(default_factory=list, max_length=120)
     voice_skipped: bool = False
 
 

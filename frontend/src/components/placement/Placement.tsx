@@ -16,14 +16,18 @@ import { BoboPose } from "@/components/mascot/Bobo";
 /**
  * The placement test, once, after the onboarding of a learner who speaks everyday Mandarin or more (backend/app/placement.py).
  * 1. The alphabet (only for learners who know some Bopomofo): each of the 37 symbols, type its pinyin. One try each.
- * 2. The voice: say 10 syllables, then 4 sentences. One recording each; the speech check scores sounds and tones.
+ * 2. The voice: say 42 syllables (every symbol and tone), then 12 sentences. One recording each; the speech check scores sounds and tones.
+ * About 10 minutes. A reload resumes where the learner stopped.
  * Every answer is saved as a normal Recognize or Speaking answer. At the end the server scores the answers and opens levels.
  * Keyboard: Enter checks and continues, Space records and stops (and is "I don't know" in the alphabet), → skips a card.
  */
 
 type Part = "loading" | "intro" | "alphabet" | "voice" | "saving" | "result";
-type Draft = { part: Part; order: string; i: number; vi: number; alphaIds: number[]; voiceIds: number[] };
+type Draft = { part: Part; order: string; i: number; vi: number; alphaIds: number[]; voiceIds: number[]; ts?: number };
+// The test in progress, kept on the device: closing the tab and coming back resumes it. The server counts answers of the last
+// 6 hours only (placement.MAX_AGE), so an older draft starts again.
 const DRAFT_KEY = "zhuyin.placement";
+const DRAFT_MAX_MS = 5 * 3600 * 1000;
 const MAX_SECONDS = { syllable: 5, sentence: 10 } as const;
 
 const shuffle = (s: string) => {
@@ -57,8 +61,8 @@ export function Placement() {
       if (c.status === "done" && c.result) { setResult(c.result); setD((x) => ({ ...x, part: "result" })); return; }
       if (c.status !== "due") { router.replace("/"); return; }
       try {
-        const saved = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "null") as Draft | null;
-        if (saved && ["alphabet", "voice"].includes(saved.part) && saved.order.length === c.symbols.length) {
+        const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null") as Draft | null;
+        if (saved && ["alphabet", "voice"].includes(saved.part) && saved.order.length === c.symbols.length && Date.now() - (saved.ts ?? 0) < DRAFT_MAX_MS) {
           ids.current = { alphaIds: saved.alphaIds, voiceIds: saved.voiceIds };
           setD(saved);
           return;
@@ -67,7 +71,9 @@ export function Placement() {
       setD({ part: "intro", order: shuffle(c.symbols), i: 0, vi: 0, alphaIds: [], voiceIds: [] });
     }).catch((e) => setError((e as Error).message));
   }, [router]);
-  useEffect(() => { if (d.part === "alphabet" || d.part === "voice") sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d)); }, [d]);
+  useEffect(() => {
+    if (d.part === "alphabet" || d.part === "voice") localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...d, ts: d.ts ?? Date.now() }));
+  }, [d]);
 
   const cards: Card[] = content ? [
     ...content.syllables.map((s) => ({ ...s, mode: "syllable" as const })),
@@ -89,11 +95,12 @@ export function Placement() {
       if (c?.result) setResult(c.result);
       else { setError((e as Error).message); setD((x) => ({ ...x, part: "voice" })); return; }
     }
-    sessionStorage.removeItem(DRAFT_KEY);
+    localStorage.removeItem(DRAFT_KEY);
     setD((x) => ({ ...x, part: "result" }));
   }, []);
 
-  const start = () => { playSfx("tick"); setD((x) => ({ ...x, part: content?.alphabet ? "alphabet" : "voice" })); };
+  // ts: when the test started. The draft is dropped once the first answers are too old for the server.
+  const start = () => { playSfx("tick"); setD((x) => ({ ...x, part: content?.alphabet ? "alphabet" : "voice", ts: Date.now() })); };
   const skipAll = () => void finish(true, true);
 
   // The intro and the result screens: Enter is the main button.
@@ -104,6 +111,9 @@ export function Placement() {
 
   const total = (content?.alphabet ? d.order.length : 0) + cards.length;
   const doneCount = d.part === "alphabet" ? d.i : d.part === "voice" ? (content?.alphabet ? d.order.length : 0) + d.vi : d.part === "result" || d.part === "saving" ? total : 0;
+  const first = content?.alphabet ? 1 : 0; // part numbers: the alphabet part comes first when there is one
+  const partLabel = d.part === "alphabet" ? "Part 1 · Symbols"
+    : cards[d.vi]?.mode === "sentence" ? "Part " + (first + 2) + " · Sentences" : "Part " + (first + 1) + " · Sounds";
 
   return (
     <div className="flex h-full flex-col">
@@ -111,7 +121,7 @@ export function Placement() {
         <div className="mx-auto flex h-14 w-full max-w-2xl items-center gap-3 px-3 md:h-16 md:px-6">
           {d.part === "alphabet" || d.part === "voice" ? (
             <>
-              <span className="w-24 shrink-0 text-xs font-semibold text-muted">{d.part === "alphabet" ? "Part 1 · Symbols" : (content?.alphabet ? "Part 2" : "Part 1") + " · Voice"}</span>
+              <span className="w-28 shrink-0 text-xs font-semibold text-muted">{partLabel}</span>
               <div className="relative h-3.5 flex-1 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={doneCount}>
                 <div className="absolute inset-y-0 left-0 rounded-full bg-accent transition-all duration-500" style={{ width: (100 * doneCount) / Math.max(1, total) + "%" }} />
               </div>
@@ -123,7 +133,7 @@ export function Placement() {
       <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-5 pb-[calc(var(--ab-space,0px)+1.25rem)] pt-2 md:pt-6">
           {d.part === "loading" && <div className="m-auto text-muted">{error || "Loading…"}</div>}
-          {d.part === "intro" && content && <Intro alphabet={content.alphabet} cards={cards.length} />}
+          {d.part === "intro" && content && <Intro alphabet={content.alphabet} syllables={content.syllables.length} sentences={content.sentences.length} />}
           {d.part === "alphabet" && (
             <Alphabet key={d.i} sym={d.order[d.i]}
               onAnswer={(p) => {
@@ -159,17 +169,18 @@ export function Placement() {
   );
 }
 
-function Intro({ alphabet, cards }: { alphabet: boolean; cards: number }) {
+function Intro({ alphabet, syllables, sentences }: { alphabet: boolean; syllables: number; sentences: number }) {
   const parts: [string, string, string][] = [
     ...(alphabet ? [["ㄅ", "The symbols", "See each of the 37 symbols and type its sound in pinyin. One try each."] as [string, string, string]] : []),
-    ["說", "Your voice", "Say " + cards + " sounds and short sentences. Bobo checks every initial, final, and tone."],
+    ["音", "Sounds", "Say " + syllables + " syllables: every Bopomofo sound and all four tones. Bobo checks each initial, final, and tone."],
+    ["說", "Sentences", "Say " + sentences + " short sentences, with the neutral tone and the tone changes of 3-3, 不, and 一."],
   ];
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 py-4 text-center">
       <BoboPose pose="investigate" className="zq-pop w-40 md:w-48" priority />
       <div className="flex flex-col gap-1.5">
         <h1 className="text-2xl font-bold md:text-3xl">Let&apos;s find your level</h1>
-        <p className="mx-auto max-w-sm text-muted">You already speak Mandarin. Show me what you know, and you skip the parts you don&apos;t need. About 5 minutes.</p>
+        <p className="mx-auto max-w-sm text-muted">You already speak Mandarin. Show me what you know, and you skip the parts you don&apos;t need. About 10 minutes: find a quiet place.</p>
       </div>
       <div className="card w-full divide-y divide-line overflow-hidden text-left">
         {parts.map(([icon, label, sub], n) => (
@@ -179,7 +190,7 @@ function Intro({ alphabet, cards }: { alphabet: boolean; cards: number }) {
           </div>
         ))}
       </div>
-      <p className="text-sm text-muted">No pressure: a wrong answer only means you practice it first.</p>
+      <p className="text-sm text-muted">No pressure: a wrong answer only means you practice it first. You can stop and come back: the test waits where you left it.</p>
     </div>
   );
 }
@@ -387,7 +398,7 @@ function Result({ r }: { r: PlacementResult }) {
       {missed.length > 0 && (
         <div className="flex flex-col items-center gap-2">
           <p className="text-sm text-muted">Sounds to practice first</p>
-          <div className="flex flex-wrap justify-center gap-1.5">{missed.slice(0, 10).map((m) => <span key={m} className="chip cjk">{m}</span>)}</div>
+          <div className="flex flex-wrap justify-center gap-1.5">{missed.slice(0, 16).map((m) => <span key={m} className="chip cjk">{m}</span>)}</div>
         </div>
       )}
     </div>
