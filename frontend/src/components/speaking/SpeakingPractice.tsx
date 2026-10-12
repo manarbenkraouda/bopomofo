@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { api, ttsUrl, type Health, type Sentence, type SpeechResult, type Syl, type TextItem } from "@/lib/api";
+import { api, ttsUrl, type Health, type RulePhrase, type Sentence, type SpeechResult, type Syl, type TextItem } from "@/lib/api";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, matches, useFocus, type Focus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
@@ -17,11 +17,14 @@ import { PitchChart } from "@/components/PitchChart";
 import { ZhuyinText } from "@/components/ZhuyinText";
 import { Burst, FxFrame, StatusPill, useCountUp, type FxStatus } from "@/components/quiz/Feedback";
 import { Kbd } from "@/components/shell/Kbd";
+import { RulesGuide, ruleLine, type Rules } from "@/components/listening/RuleQuiz";
+import { useLevels } from "@/lib/levels";
 
-type Source = "sentence" | "syllable" | "custom";
-type Card = { text: string; items: TextItem[]; english?: string; audio: string; slow?: string };
-const SOURCES: Source[] = ["sentence", "syllable", "custom"];
-const SOURCE_LABEL: Record<Source, string> = { sentence: "Sentences", syllable: "Syllables", custom: "My own text" };
+type Source = "rule" | "sentence" | "syllable" | "custom";
+type Card = { text: string; items: TextItem[]; english?: string; audio: string; slow?: string; rule?: RulePhrase };
+const SOURCES: Source[] = ["rule", "sentence", "syllable", "custom"];
+const SOURCE_LABEL: Record<Source, string> = { rule: "Tone rules", sentence: "Sentences", syllable: "Syllables", custom: "My own text" };
+const RULE_NAME: Record<string, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
 const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 ? "close" : "wrong");
 const verdict = (score: number) => (score >= 85 ? "Excellent! " : score >= 60 ? "Almost: " : "Keep practicing: ") + score;
 /** The score of a right recording, as the backend saves it (stats.log_speaking). */
@@ -31,6 +34,29 @@ const sylMatch = (i: Syl, f: Focus) => (!f.tones.length || f.tones.includes(i.su
 /** The Pinyin of a text, with the punctuation kept next to the word before it. */
 const pinyinOf = (items: TextItem[]) => items.map((i) => (i.type === "syllable" ? i.pinyin : i.text)).join(" ").replace(/\s+([，。！？、；：,.!?;:])/g, "$1");
 const sentenceCard = (s: Sentence): Card => ({ text: s.hanzi, items: s.items, english: s.english, audio: ttsUrl(s.hanzi), slow: ttsUrl(s.hanzi, -35) });
+const ruleCard = (p: RulePhrase): Card => ({ text: p.text, items: p.items, english: p.english, audio: ttsUrl(p.text), slow: ttsUrl(p.text, -35), rule: p });
+/** The syllables whose said tone is not the written tone, with the rule that changes them. */
+const changed = (items: TextItem[]) => items.filter((i): i is Syl => i.type === "syllable" && i.surface_tone !== i.tone);
+const saidZhuyin = (s: Syl) => s.zhuyin.replace(/[ˊˇˋ˙]/g, "") + ({ 1: "", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "" } as Record<number, string>)[s.surface_tone];
+
+/** Before recording: every tone the rules change in this text, said plainly. The Bopomofo shows the written tone only. */
+function ToneChanges({ items }: { items: TextItem[] }) {
+  const list = changed(items);
+  if (!list.length) return null;
+  return (
+    <div className="flex flex-col items-center gap-1 text-sm cjk max-w-2xl" role="note">
+      <div className="text-muted">The tone changes here. Say it this way:</div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {list.map((s, i) => (
+          <span key={i} className="rounded-lg border border-accent/40 bg-accent/5 px-2.5 py-1">
+            <b>{s.char}</b> <span className="text-muted line-through decoration-1">{s.zhuyin}</span> → <b className="text-accent">{saidZhuyin(s)}</b>
+            <span className="text-muted"> · {s.rule ? RULE_NAME[s.rule] : "tone change"}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Speaking, as a quiz: one card at a time. Read it aloud and record.
@@ -39,9 +65,15 @@ const sentenceCard = (s: Sentence): Card => ({ text: s.hanzi, items: s.items, en
 export function SpeakingPractice() {
   const params = useSearchParams();
   const [health, setHealth] = useState<Health | null>(null);
-  const [source, setSource] = useState<Source>(() => (params.get("text") ? "custom" : params.get("source") === "syllable" ? "syllable" : params.get("source") === "custom" ? "custom" : "sentence"));
+  const [source, setSource] = useState<Source>(() => (params.get("text") ? "custom" : (["syllable", "custom", "rule"] as const).find((s) => s === params.get("source")) ?? "sentence"));
+  // Only the card types of the learner's level: a locked one (also from a link) falls back to the first open one.
+  const { open, known } = useLevels();
+  const sources = SOURCES.filter((s) => open("speaking/" + s));
+  const openKey = sources.join(",");
+  useEffect(() => { if (known && sources.length && !sources.includes(source)) setSource(sources[0]); }, [known, openKey, source]); // eslint-disable-line react-hooks/exhaustive-deps
   const [allSentences, setSentences] = useState<Sentence[] | null>(null);
   const [allSylls, setSylls] = useState<SyllableItem[]>([]);
+  const [ruleData, setRuleData] = useState<{ rules: Rules; phrases: RulePhrase[] } | null>(null);
   const [card, setCard] = useState<Card | null>(null);
   const [custom, setCustom] = useState(params.get("text") ?? "");
   const [bopo, setBopo] = useState(true);
@@ -73,13 +105,17 @@ export function SpeakingPractice() {
     return focus.active ? all.filter((s) => s.items.some((i) => i.type === "syllable" && sylMatch(i, focus))) : all;
   }, [allSentences, focus]);
   const fSyl = useMemo(() => allSylls.filter((s) => matches(s.zhuyin, focus)), [allSylls, focus]);
+  const fRule = useMemo(() => (ruleData?.phrases ?? []).filter((p) => !focus.rules.length || focus.rules.includes(p.rule)), [ruleData, focus]);
   const sentences = fSent.length ? fSent : allSentences ?? [];
   const sylls = fSyl.length ? fSyl : allSylls;
+  const phrases = fRule.length ? fRule : ruleData?.phrases ?? [];
   const sentenceKey = sentences.map((s) => s.id).join(",");
   const syllKey = sylls.map((s) => s.id).join(",");
+  const phraseKey = phrases.map((p) => p.text).join(",");
   /** The next sentence or syllable from the schedule. The key is the text, as saved with each recording. */
   const nextSentence = () => { const t = review().next(sentences.map((s) => s.hanzi)); return sentences.find((s) => s.hanzi === t); };
   const nextSyllable = () => { const t = review().next(sylls.map((s) => s.char)); return sylls.find((s) => s.char === t); };
+  const nextPhrase = () => { const t = review().next(phrases.map((p) => p.text)); return phrases.find((p) => p.text === t); };
 
   const clearRecording = () => { setResult(null); setError(""); setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };
   const show = useCallback((c: Card | null) => {
@@ -110,12 +146,13 @@ export function SpeakingPractice() {
     poll();
     loadData().then((d) => setSylls(d.syllables));
     api.sentences().then((r) => setSentences(r.sentences)).catch((e) => { setSentences([]); setError(String(e.message ?? e)); });
+    api.rules().then(setRuleData).catch(() => {});
     if (params.get("text")) applyText(params.get("text") ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // A link with ?source= picks the card type.
   const sourceParam = params.get("source");
-  useEffect(() => { if (sourceParam === "sentence" || sourceParam === "syllable") setSource(sourceParam); }, [sourceParam]);
+  useEffect(() => { if (sourceParam === "sentence" || sourceParam === "syllable" || sourceParam === "rule") setSource(sourceParam); }, [sourceParam]);
   // A new set of sentences starts from the schedule. A link with ?sentence= starts on that one.
   useEffect(() => {
     if (source !== "sentence" || !sentences.length || !scheduled) return;
@@ -131,6 +168,13 @@ export function SpeakingPractice() {
     if (s) showSyllable(s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, syllKey, scheduled]);
+  useEffect(() => {
+    if (source !== "rule" || !phrases.length || !scheduled) return;
+    const p = nextPhrase();
+    loadId.current++;
+    if (p) show(ruleCard(p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, phraseKey, scheduled]);
   useEffect(() => { if (source === "custom" && !params.get("text")) { loadId.current++; show(null); } }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
@@ -144,6 +188,9 @@ export function SpeakingPractice() {
     } else if (source === "syllable" && sylls.length) {
       const s = nextSyllable();
       if (s) showSyllable(s);
+    } else if (source === "rule" && phrases.length) {
+      const p = nextPhrase();
+      if (p) show(ruleCard(p));
     } else if (source === "custom") {
       loadId.current++;
       show(null);
@@ -217,7 +264,7 @@ export function SpeakingPractice() {
   const marks = useMemo(() => result?.syllables.map((s) => (!s.heard ? "#d23f3f" : s.tone_ok && s.initial_ok !== false && s.final_ok !== false ? "#2f9466" : "#d23f3f")), [result]);
   const ready = health?.speech_model === "ready";
   const canRecord = ready && !!card && rec !== "analyzing";
-  const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? sentences.length > 0 : sylls.length > 0);
+  const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? sentences.length > 0 : source === "rule" ? phrases.length > 0 : sylls.length > 0);
   const recordToggle = () => { if (rec === "idle") start(); else if (rec === "recording") stop(); };
 
   useHotkeys("speaking", [
@@ -230,7 +277,7 @@ export function SpeakingPractice() {
     { keys: ["KeyZ"], label: bopo ? "Hide Bopomofo" : "Show Bopomofo", run: () => setBopo((b) => !b), bar: false },
     { keys: ["KeyU"], label: "Upload a recording", run: () => fileRef.current?.click(), when: !!card && rec === "idle" && ready, bar: false },
     { keys: ["Ctrl+Enter"], label: "Practice this text", run: () => applyText(custom), when: source === "custom" && !card && !!custom.trim(), input: true, bar: false },
-    ...cycleKeys("Card type", SOURCES, source, setSource),
+    ...cycleKeys("Card type", sources.length ? sources : SOURCES, source, setSource, sources.length > 1),
   ]);
 
   const single = card ? card.items.filter((x) => x.type === "syllable").length === 1 : false;
@@ -246,8 +293,8 @@ export function SpeakingPractice() {
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex flex-wrap items-center gap-2">
-        {SOURCES.map((s) => <button key={s} className="chip" data-active={source === s} onClick={() => setSource(s)}>{SOURCE_LABEL[s]}</button>)}
-        <FocusChip focus={focus} empty={focus.active && (source === "sentence" ? !fSent.length : !fSyl.length)} />
+            {sources.length > 1 && sources.map((s) => <button key={s} className="chip" data-active={source === s} onClick={() => setSource(s)}>{SOURCE_LABEL[s]}</button>)}
+        <FocusChip focus={focus} empty={focus.active && (source === "sentence" ? !fSent.length : source === "rule" ? !fRule.length : !fSyl.length)} />
         <button className="chip cjk" data-active={bopo} onClick={() => setBopo((b) => !b)} title="Show or hide the Bopomofo (Z)">注音</button>
         <div className="ml-auto text-sm text-muted">
           <b className="text-ink">{session.streak}</b> streak{session.n > 0 && <> · avg <b className="text-ink">{avg}</b> of {session.n}</>}
@@ -287,6 +334,10 @@ export function SpeakingPractice() {
             {cheated && card.items.length > 0 && <div className="text-lg md:text-xl text-accent tracking-wide">{pinyinOf(card.items)}</div>}
             {card.english && <div className="text-muted">{card.english}</div>}
           </div>
+          {/* The rule drill tests the rule: its answer shows after the cheat or the check. Everywhere else, tone changes show before recording. */}
+          {(source !== "rule" || cheated || result) && <ToneChanges items={card.items} />}
+          {card.rule && ruleData && (cheated || result) && <div className="text-sm text-muted text-center max-w-xl cjk">{ruleLine(card.rule, ruleData.rules)}</div>}
+          {card.rule && !cheated && !result && <div className="text-sm text-muted text-center max-w-xl">Say it with the tone rules: the Bopomofo shows the written tone.</div>}
 
           {single && health && !health.speaker_hz && !result && (
             <div className="text-sm text-rough text-center max-w-md">Tip: record one full sentence first. The app then learns your voice, which makes single-syllable tone checks more accurate.</div>
@@ -332,6 +383,7 @@ export function SpeakingPractice() {
       )}
 
       {result && card && <ResultView key={fxKey} result={result} onHear={hearSyllable} />}
+      {ruleData && (source === "rule" || (card && changed(card.items).length > 0)) && <RulesGuide rules={ruleData.rules} />}
     </div>
   );
 }
@@ -365,8 +417,11 @@ function ResultView({ result, onHear }: { result: SpeechResult; onHear: (char: s
                 <span className="ml-auto text-sm">{ok ? <span className="text-ok">✓</span> : <span className="text-bad">✗</span>}</span>
               </div>
               <div className="text-xs text-muted mt-1 cjk">
-                {s.expected.surface_tone !== s.expected.tone ? "said as tone " + s.expected.surface_tone + " · " : ""}heard <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
+                {s.expected.surface_tone !== s.expected.tone && <>written {s.expected.zhuyin} · say <b className="text-accent">{saidZhuyin(s.expected)}</b>{s.expected.rule ? " (" + RULE_NAME[s.expected.rule] + ")" : ""} · </>}
+                heard <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
               </div>
+              {s.rule_error === "literal" && <div className="mt-2 text-xs font-semibold text-bad">You read the written tone. The {RULE_NAME[s.rule ?? ""] ?? "tone rule"} changes it here.</div>}
+              {s.rule_error === "over" && <div className="mt-2 text-xs font-semibold text-bad">The {RULE_NAME[s.rule ?? ""]} does not apply here: keep the written tone.</div>}
               {!ok && (
                 <div className="flex gap-1 mt-2 flex-wrap">
                   <Badge ok={s.heard ? s.initial_ok : false} label="initial" />
@@ -377,7 +432,7 @@ function ResultView({ result, onHear }: { result: SpeechResult; onHear: (char: s
               {s.messages.length > 0 && <ul className="mt-2 text-xs leading-snug list-disc pl-4 cjk">{s.messages.map((m, k) => <li key={k}>{m}</li>)}</ul>}
               {s.tone_source === "pitch" && <div className="text-[11px] text-muted mt-1">Tone estimated from your voice.</div>}
               {s.tone_source === "model+pitch" && <div className="text-[11px] text-muted mt-1">Low falling tone 3 (Taiwan style), from your pitch range.</div>}
-              {s.uncertain && !s.tone_ok && <div className="text-[11px] text-rough mt-1">Hard to hear: it sounded between tone {s.model_tone} and tone {s.pitch_tone}.</div>}
+              {s.uncertain && !s.tone_ok && !s.rule_error && <div className="text-[11px] text-rough mt-1">Hard to hear: it sounded between tone {s.model_tone} and tone {s.pitch_tone}.</div>}
             </button>
           );
         })}

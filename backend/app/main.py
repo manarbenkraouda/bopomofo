@@ -19,7 +19,7 @@ from . import auth, coach, db, levels, limits, llm, scoring, speaker, stats, sym
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
-from .zhuyin import analyze_text
+from .zhuyin import RULES, analyze_text, rule_phrases
 
 # Every route needs a signed-in Clerk user, except auth.PUBLIC. Each user sees only their own data (see db.py).
 app = FastAPI(title="bopomofo API", dependencies=[Depends(auth.require_user)])
@@ -485,6 +485,18 @@ def coach_get():
 def alphabet_get():
     """Which of the 37 symbols the learner knows, for the Symbols screen. Read only: it does not refresh the plan."""
     return coach.alphabet_status()
+
+
+_RULE_PHRASES: list[dict] | None = None
+
+
+@app.get("/api/rules")
+def rules_get():
+    """The tone change rules (3-3, 不, 一) and the short phrases of the rule exercises, with the written and the said tone."""
+    global _RULE_PHRASES
+    if _RULE_PHRASES is None:
+        _RULE_PHRASES = rule_phrases()
+    return {"rules": RULES, "phrases": _RULE_PHRASES}
 
 
 @app.get("/api/levels")

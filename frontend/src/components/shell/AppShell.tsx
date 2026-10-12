@@ -16,6 +16,8 @@ import { StepBanner } from "./StepBanner";
 import { BoboPose, routeIcon } from "@/components/mascot/Bobo";
 import Image from "next/image";
 import { AiEnergyBadge, AiEnergyWait, AiQuotaProvider } from "@/components/quota/AiQuota";
+import { LevelsProvider, useLevels } from "@/lib/levels";
+import { LockedScreen, UnlockOverlay } from "@/components/levels/LevelUi";
 
 type Overlay = null | "palette" | "help" | "goto";
 
@@ -41,7 +43,7 @@ export function Frame({ children }: { children: React.ReactNode }) {
       </main>
     );
   }
-  return <AiQuotaProvider><OnboardingGate /><AppShell>{children}</AppShell></AiQuotaProvider>;
+  return <AiQuotaProvider><LevelsProvider><OnboardingGate /><AppShell>{children}</AppShell></LevelsProvider></AiQuotaProvider>;
 }
 
 /** Sends a learner who has not finished the onboarding to it, and keeps the daily goal the same on every device. */
@@ -63,6 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [full, setFull] = useState(false);
   const [toast, setToast] = useState("");
+  const [unlock, setUnlock] = useState<LevelNotice | null>(null);
   const [health, setHealth] = useState<Health | null | "down">(null);
   const [dayStreak, setDayStreak] = useState<number | null>(null);
   const sfxOn = usePref(SFX_KEY, "on") !== "off";
@@ -73,10 +76,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const profileGaps = profile ? missingFacts(profile).length : 0;
   const todayRef = useRef(today);
   useEffect(() => { todayRef.current = today; }, [today]);
+  const { lv, routeOpen, refresh } = useLevels();
+  const routes = ROUTES.filter((r) => routeOpen(r.href));
+  const locked = !!lv && !routeOpen(route.href);
+  const shownNotices = useRef(new Set<number>());
 
   useEffect(() => {
-    if (route.area === "practice") localStorage.setItem(LAST_KEY, route.href);
-  }, [route]);
+    if (route.area === "practice" && !locked) localStorage.setItem(LAST_KEY, route.href);
+  }, [route, locked]);
 
   // Backend status for the top bar: quick polls while the speech model loads, slow polls after.
   useEffect(() => {
@@ -113,15 +120,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       toastTimer = setTimeout(() => setToast(""), 5000);
     }, 5000);
     // Level messages come back with an answer: a new level or new symbols, or a known item that needs a review.
+    // An unlock gets Bobo's celebration; a review or a comeback gets a short toast. Each message shows once.
     const levelNotice = (e: Event) => {
-      const list = (e as CustomEvent<LevelNotice[]>).detail || [];
+      const list = ((e as CustomEvent<LevelNotice[]>).detail || []).filter((n) => !shownNotices.current.has(n.id));
       if (!list.length) return;
-      const last = list[list.length - 1];
-      setToast((last.kind === "drop" ? "↻ " : "★ ") + last.title + ". " + last.text);
-      if (list.some((n) => n.kind === "unlock")) playSfx("right");
+      for (const n of list) shownNotices.current.add(n.id);
+      refresh();
+      const unlocks = list.filter((n) => n.kind === "unlock");
+      if (unlocks.length) { setUnlock(unlocks[unlocks.length - 1]); playSfx("right"); }
+      const other = list.filter((n) => n.kind !== "unlock");
+      if (other.length) {
+        const last = other[other.length - 1];
+        setToast((last.kind === "drop" ? "↻ " : "★ ") + last.title + ". " + last.text);
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => setToast(""), 7000);
+      }
       api.levelsSeen(list.map((n) => n.id));
-      clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => setToast(""), 7000);
     };
     window.addEventListener("zs:levels", levelNotice);
     window.addEventListener("keydown", act);
@@ -137,7 +151,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("pointerup", drop);
       document.removeEventListener("fullscreenchange", fs);
     };
-  }, []);
+  }, [refresh]);
 
   const close = () => setOverlay(null);
   const go = (href: string) => { setOverlay(null); router.push(href); };
@@ -157,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pageKeys = layers.filter((l) => l.order === 1).flatMap((l) => l.keys);
   const commands: Command[] = [
     ...pageKeys.filter((k) => k.run && k.when !== false && k.keys.length).map((k) => ({ group: route.label, label: k.label, caps: capsOf(k), run: () => k.run!(new KeyboardEvent("keydown")) })),
-    ...ROUTES.map((r) => ({ group: "Go to", label: r.label, hint: r.desc, caps: ["G", keyCaps(r.key)[0]], run: () => router.push(r.href) })),
+    ...routes.map((r) => ({ group: "Go to", label: r.label, hint: r.desc, caps: ["G", keyCaps(r.key)[0]], run: () => router.push(r.href) })),
     { group: "App", label: sfxOn ? "Mute sounds" : "Turn sounds on", caps: ["M"], run: toggleSfx },
     { group: "App", label: full ? "Leave full screen" : "Full screen", caps: ["Alt", "Enter"], run: toggleFull },
     { group: "App", label: theme === "dark" ? "Light theme" : "Dark theme", run: toggleTheme },
@@ -168,22 +182,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="shell">
-      <Rail path={path} profileGaps={profileGaps} />
+      <Rail path={path} profileGaps={profileGaps} routes={routes} locked={ROUTES.length - routes.length} />
       <TopBar route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} full={full}
         onSfx={toggleSfx} onFull={toggleFull} onHelp={() => setOverlay("help")} onPalette={() => setOverlay("palette")} />
       <MobileTop route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} onSfx={toggleSfx} lesson={lesson} />
       <main className="min-h-0 overflow-x-hidden overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 py-3 pb-[calc(var(--ab-space,0px)+0.75rem)] md:px-6 md:py-5 lg:px-10">
-          {lesson && <Suspense fallback={null}><StepBanner /></Suspense>}
+          {lesson && !locked && <Suspense fallback={null}><StepBanner /></Suspense>}
           {!lesson && path !== "/settings" && <AiEnergyWait />}
-          {children}
+          {locked ? <LockedScreen route={route} /> : children}
         </div>
       </main>
       <ControlsBar />
       {!lesson && <BottomNav path={path} profileGaps={profileGaps} />}
-      {overlay === "goto" && <GotoOverlay onGo={go} onClose={close} />}
+      {overlay === "goto" && <GotoOverlay routes={routes} onGo={go} onClose={close} />}
       {overlay === "palette" && <Palette commands={commands} onClose={close} />}
-      {overlay === "help" && <HelpOverlay route={route} onClose={close} />}
+      {overlay === "help" && <HelpOverlay route={route} routes={routes} onClose={close} />}
+      {unlock && !overlay && <UnlockOverlay notice={unlock} onGo={(href) => { setUnlock(null); router.push(href); }} onClose={() => setUnlock(null)} />}
       {toast && <div className="fixed left-1/2 top-16 z-50 max-w-[90vw] -translate-x-1/2 rounded-full bg-ok px-5 py-2 text-center font-semibold text-white shadow-lg zq-pop" role="status">{toast}</div>}
     </div>
   );
@@ -194,7 +209,8 @@ function NudgeDot({ gaps }: { gaps: number }) {
   return <><i className="nudge-dot" aria-hidden="true" /><span className="sr-only">: {gaps} profile facts missing</span></>;
 }
 
-function Rail({ path, profileGaps }: { path: string; profileGaps: number }) {
+/** The side rail: only the screens that are open at the learner's level, and one link to the path for the rest. */
+function Rail({ path, profileGaps, routes, locked }: { path: string; profileGaps: number; routes: RouteInfo[]; locked: number }) {
   const item = (r: RouteInfo) => {
     const active = r.href === "/" ? path === "/" : path.startsWith(r.href);
     const nudge = r.href === "/profile" && profileGaps > 0;
@@ -210,13 +226,17 @@ function Rail({ path, profileGaps }: { path: string; profileGaps: number }) {
   return (
     <nav className="row-span-3 hidden flex-col items-center gap-1 overflow-y-auto border-r border-line bg-card py-3 md:flex">
       <Link href="/" title="Home (G then H)" className={"cjk mb-2 grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl text-white shadow transition " + (path === "/" ? "bg-accent ring-4 ring-accent-soft" : "bg-accent/85 hover:bg-accent")}>注</Link>
-      {ROUTES.filter((r) => r.area === "progress").map(item)}
+      {routes.filter((r) => r.area === "progress").map(item)}
       <div className="my-1.5 h-px w-8 shrink-0 bg-line" />
-      {ROUTES.filter((r) => r.area === "practice").map(item)}
-      <div className="my-1.5 h-px w-8 shrink-0 bg-line" />
-      {ROUTES.filter((r) => r.area === "study").map(item)}
+      {routes.filter((r) => r.area === "practice" || r.area === "study").map(item)}
+      {locked > 0 && (
+        <Link href="/levels" className="rail-item opacity-60 hover:opacity-100" title={locked + " more screens open at higher levels (G then V)"}>
+          <span className="text-[17px] leading-none">🔒</span>
+          <span className="text-[10px] leading-none">+{locked}</span>
+        </Link>
+      )}
       <div className="mt-auto" />
-      {ROUTES.filter((r) => r.area === "me").map(item)}
+      {routes.filter((r) => r.area === "me").map(item)}
     </nav>
   );
 }
@@ -340,7 +360,7 @@ function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
   );
 }
 
-const TABS = ["/", "/coach", "/stats", "/symbols", "/sentences", "/settings"];
+const TABS = ["/", "/levels", "/coach", "/stats", "/symbols", "/settings"];
 
 /** Phone bottom tab bar (hidden inside practice modes, where ✕ leads back to Home). The profile is inside Settings on a phone. */
 function BottomNav({ path, profileGaps }: { path: string; profileGaps: number }) {

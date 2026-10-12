@@ -5,7 +5,7 @@ import numpy as np
 
 from . import pitch
 from .asr import recognizer
-from .zhuyin import syllables_of, zhuyin_of
+from .zhuyin import KEEP_LINE, rule_line, syllables_of, tested_rule, zhuyin_of
 
 TONE_HINTS = {
     1: "Tone 1: keep it high and flat.",
@@ -132,6 +132,9 @@ def analyze(audio: np.ndarray, text: str, speaker_ref: float | None = None) -> d
         else:
             r["initial_ok"] = r["final_ok"] = None  # single syllable, judged by pitch only
         want = e["surface_tone"]
+        rule = e.get("rule") if e["surface_tone"] != e["tone"] else None
+        r["rule"] = tested_rule(e)
+        r["rule_error"] = None
         if want == 5:
             r["tone_ok"] = model_tone in (5, None) or heard_tone == 5
         else:
@@ -143,12 +146,24 @@ def analyze(audio: np.ndarray, text: str, speaker_ref: float | None = None) -> d
         if not r["tone_ok"]:
             if heard_tone is None:
                 r["messages"].append("Tone: not clear enough to judge.")
+            elif rule:
+                # The written Bopomofo shows the dictionary tone; a rule changes it here. Say so first and clearly.
+                literal = heard_tone == e["tone"]
+                r["rule_error"] = "literal" if literal else "other"
+                said = zhuyin_of(e["initial"], e["final"], want)
+                lead = (f"You read the written tone ({e['zhuyin']}, tone {e['tone']}). " if literal
+                        else f"You said tone {heard_tone}. ")
+                r["messages"].append(lead + rule_line(e["char"], e["tone"], want, rule) + f" Say {said} here.")
+                r["messages"].append(TONE_HINTS[want])
+            elif r["rule"] in KEEP_LINE and heard_tone in ((2,) if r["rule"] == "bu" else (2, 4)):
+                # 不 or 一 that keep the written tone here: changing it is a rule error too.
+                r["rule_error"] = "over"
+                r["messages"].append(f"You said tone {heard_tone}. " + KEEP_LINE[r["rule"]])
+                r["messages"].append(TONE_HINTS[want])
             elif want == 5:
                 r["messages"].append(f"Tone: this is a neutral tone; you said tone {heard_tone}. " + TONE_HINTS[5])
             else:
                 r["messages"].append(f"Tone: you said tone {heard_tone}, the target is tone {want}. " + TONE_HINTS[want])
-            if e["surface_tone"] != e["tone"]:
-                r["messages"].append(f"Tone change: {e['char']} is tone {e['tone']}, but here it is said as tone {e['surface_tone']}.")
         results.append(r)
 
     total = sum(3 for _ in results)

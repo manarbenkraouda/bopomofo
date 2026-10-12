@@ -111,6 +111,7 @@ def test_coach_does_not_retry_another_model_on_quota(pg, monkeypatch):
 def test_due_checkpoint_waits_for_the_refill(pg, monkeypatch):
     freeze(monkeypatch, at("2026-10-11T12:00:00"))
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # keep the tone step; this test is about the checkpoint wait
+    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
     coach.build("test", run_pipeline=lambda *args: {"steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3], "target": 50}, set())], "diagnosis": "x"})
     sid = coach.state()["steps"][0]["id"]
     for _ in range(coach.CHECK_EVERY):

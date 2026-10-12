@@ -9,6 +9,7 @@ import { PHONE, useViewport } from "@/lib/useFit";
 import { FINALS, INITIALS, loadData, MEDIALS, NOTES, PINYIN_OF, splitZhuyin, symbolAudio, syllableAudio, type MoeRow, type StrokeData, type SyllableItem } from "@/lib/zhuyin";
 import { Kbd } from "@/components/shell/Kbd";
 import { StrokeAnim } from "@/components/StrokeAnim";
+import { exerciseOf, useLevels } from "@/lib/levels";
 
 const TONES = [
   { sym: "ˉ", n: 1, name: "Tone 1", short: "flat", desc: "High and flat. No mark is written.", ex: "媽" },
@@ -70,6 +71,9 @@ export function SymbolChart() {
   const x = info.get(cur);
   const say = tone ? "/listening?tones=" + tone.n : sayHref([cur], x?.phase === "repeat" || !x);
   const write = tone ? "/speaking?source=syllable&tones=" + tone.n : writeHref([cur], x?.phase === "repeat" || !x);
+  // Writing and speaking open at higher levels: until then, the Symbols screen offers only the open exercises.
+  const { open } = useLevels();
+  const canWrite = open(exerciseOf(write) ?? "");
 
   // Play a symbol; a tone mark plays its example syllable.
   const hear = (s: string) => {
@@ -100,7 +104,7 @@ export function SymbolChart() {
     { keys: ["Space"], label: "Sound", run: () => hear(cur), when: !!d },
     { keys: ["Enter"], label: "Strokes", run: () => setPlay((p) => p + 1), when: cur !== "ˉ" },
     { keys: ["KeyR"], label: tone ? "Hear the tone" : "Say it", run: () => router.push(say) },
-    { keys: ["KeyW"], label: tone ? "Say the tone" : "Write it", run: () => router.push(write) },
+    { keys: ["KeyW"], label: tone ? "Say the tone" : "Write it", run: () => router.push(write), when: canWrite },
     { keys: ["KeyN"], label: "Learn the next symbols", run: () => router.push(sayHref(next, nextLearn)), when: next.length > 0, bar: false },
     { keys: ["KeyP"], label: hints ? "Hide Pinyin" : "Show Pinyin", run: () => setHints(!hints), bar: false },
     { keys: ["Escape"], label: "Close", run: () => setSheet(false), when: sheet, bar: false },
@@ -151,7 +155,7 @@ export function SymbolChart() {
               </div>
               <div className="flex gap-2">
                 <Link className="btn btn-accent flex-1 justify-center whitespace-nowrap !py-2.5" href={sayHref(next, nextLearn)}>讀 Learn them <Kbd className="max-md:!hidden">N</Kbd></Link>
-                <Link className="btn flex-1 justify-center whitespace-nowrap !py-2.5" href={writeHref(next, nextLearn)}>寫 Write them</Link>
+                {open("dictation") && <Link className="btn flex-1 justify-center whitespace-nowrap !py-2.5" href={writeHref(next, nextLearn)}>寫 Write them</Link>}
               </div>
             </div>
           )}
@@ -202,7 +206,7 @@ export function SymbolChart() {
             {sheet && !wide && <div className="m-sheet-backdrop" onClick={() => setSheet(false)} />}
             <aside data-open={sheet} className="m-sheet card p-5 lg:sticky lg:top-0 lg:max-h-[calc(100dvh-150px)] lg:overflow-y-auto">
               <Detail s={cur} d={d} x={x} reps={reps} next={next.includes(cur)} play={play} size={phone ? 168 : 200}
-                say={say} write={write} onHear={() => hear(cur)} onReplay={() => setPlay((p) => p + 1)} onStep={step} onClose={() => setSheet(false)} />
+                say={say} write={canWrite ? write : ""} onHear={() => hear(cur)} onReplay={() => setPlay((p) => p + 1)} onStep={step} onClose={() => setSheet(false)} />
             </aside>
           </>
         )}
@@ -318,7 +322,7 @@ function Detail({ s, d, x, reps, next, play, size, say, write, onHear, onReplay,
 
       <div className="flex flex-col gap-2 max-lg:sticky max-lg:-bottom-4 max-lg:-mx-5 max-lg:-mb-1 max-lg:border-t max-lg:border-line max-lg:bg-card max-lg:px-5 max-lg:py-3">
         <Link className="btn btn-accent justify-center !py-2.5" href={say}>{tone ? "聽 Hear " + tone.name.toLowerCase() : "讀 Say it"} <Kbd className="max-md:!hidden">R</Kbd></Link>
-        <Link className="btn justify-center !py-2.5" href={write}>{tone ? "說 Say " + tone.name.toLowerCase() : "寫 Write it"} <Kbd className="max-md:!hidden">W</Kbd></Link>
+        {write && <Link className="btn justify-center !py-2.5" href={write}>{tone ? "說 Say " + tone.name.toLowerCase() : "寫 Write it"} <Kbd className="max-md:!hidden">W</Kbd></Link>}
       </div>
     </div>
   );

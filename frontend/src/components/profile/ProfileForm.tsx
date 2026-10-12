@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type Profile, type Sentence, type Summary, type Totals } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
+import { useLevels } from "@/lib/levels";
 import { missingFacts, setProfileCache } from "@/lib/profile";
 import { playSfx } from "@/lib/sfx";
 import { Kbd } from "@/components/shell/Kbd";
@@ -76,6 +77,7 @@ function Highlight({ text, words }: { text: string; words: string[] }) {
  * and the facts in grouped lists. Tap a row to edit it; each fact saves by itself.
  */
 export function ProfileForm() {
+  const { routeOpen } = useLevels();
   const [p, setP] = useState<Profile>({});
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -269,7 +271,7 @@ export function ProfileForm() {
             <section className="card p-5 lg:col-start-2 lg:row-start-2">
               <div className="mb-3 flex items-baseline justify-between gap-2">
                 <h2 className="font-semibold">In your sentences</h2>
-                <Link href="/sentences" className="text-sm text-accent hover:underline">All →</Link>
+                {routeOpen("/sentences") && <Link href="/sentences" className="text-sm text-accent hover:underline">All →</Link>}
               </div>
               <div className="flex flex-col gap-3">
                 {used.map(({ s, hits, keys: ks }) => (

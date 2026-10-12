@@ -4,7 +4,17 @@ import type { Story } from "@/components/story/types";
 export type Syl = {
   type: "syllable"; char: string; zhuyin: string; initial: string; final: string;
   tone: number; surface_tone: number; pinyin: string; alt_tones: number[];
+  /** The tone change rule that sets surface_tone here: "3-3", "bu" (不) or "yi" (一). */
+  rule?: RuleId | null;
 };
+export type RuleId = "3-3" | "bu" | "yi";
+export type ToneRule = { name: string; short: string; explain: string };
+/** A short phrase of the tone rule exercises. target: the index of the tested syllable. changes: false when the written tone stays. */
+export type RulePhrase = { text: string; english: string; target: number; rule: RuleId; changes: boolean; char: string;
+  written: number; said: number; zhuyin: string; said_zhuyin: string; items: TextItem[] };
+export type RuleStat = { rule: RuleId; name: string; short: string; n: number; ok: number; acc: number | null; recent: number | null; recent_n: number;
+  errors: Record<string, number>; literal: number; areas: Record<string, { n: number; ok: number; acc: number | null }>;
+  chars: { char: string; n: number; ok: number }[]; quiz_href: string; speak_href: string };
 export type TextItem = Syl | { type: "text"; text: string };
 /** practice: how often the sentence was said aloud (Speaking), with the best and last score. Null when never said. */
 export type Sentence = { id: number; hanzi: string; english: string; words: { text: string; english: string }[]; topic: string; level: string; created: number; items: TextItem[];
@@ -13,6 +23,8 @@ export type SpeechSyllable = {
   expected: Syl; heard: { initial: string | null; final: string | null; tone: number | null; zhuyin: string | null } | null;
   initial_ok: boolean | null; final_ok: boolean | null; tone_ok: boolean; messages: string[];
   model_tone?: number | null; pitch_tone?: number | null; tone_source?: "model" | "pitch" | "model+pitch"; span?: [number, number] | null; uncertain?: boolean;
+  /** The tone rule this syllable tests, and the error: "literal" (read the written tone), "over" (changed 不/一 where it stays), "other". */
+  rule?: RuleId | null; rule_error?: "literal" | "over" | "other" | null;
 };
 export type SpeechResult = {
   text: string; score: number; syllables: SpeechSyllable[]; extra: { zhuyin: string; span: [number, number] }[];
@@ -29,9 +41,9 @@ export type Summary = {
 
 /** One part of an answer: what was expected and what the learner actually produced. */
 export type Unit = {
-  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order";
+  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order" | "sandhi";
   expected: string | number; actual?: string | number | null; ok?: boolean | null;
-  pos?: number; try_n?: number; help?: boolean; ctx?: string; source?: string; uncertain?: boolean; extra?: Record<string, unknown>;
+  pos?: number; try_n?: number; help?: boolean; ctx?: string; lex?: string | number; source?: string; uncertain?: boolean; extra?: Record<string, unknown>;
 };
 export type PracticeEvent = {
   area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking"; mode?: string; item: string; ok: boolean;
@@ -69,16 +81,18 @@ export type Stats = {
   weak: WeakItem[];
   calendar: { day: string; minutes: number }[];
   levels: Levels;
+  rules: RuleStat[];
 };
 export type Health = { ok: boolean; speech_model: "ready" | "loading" | "error"; speech_error: string | null; llm_model: string; llm_configured: boolean; speaker_hz: number | null };
 
-export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "recognize_symbols" | "write_symbols" | "write_syllables";
+export type StepType = "speak_sentences" | "speak_sounds" | "listen_tones" | "listen_sounds" | "read_symbols" | "recognize_symbols" | "write_symbols" | "write_syllables" | "tone_rules";
 export type CoachNote = { kind: string; text: string; ts: number };
 export type CoachStep = {
   id: number; plan_id: number; pos: number; type: StepType; title: string; why: string; target: number; minutes: number;
   status: "open" | "done" | "skipped"; skip_reason: string | null; done_ts: number | null; area: string; href: string;
   params: { tones?: number[]; syms?: string[]; unit?: string; source?: string; deck?: string[]; deck_why?: string; ids?: number[]; texts?: string[];
-    reps?: number; min_score?: number; focus?: { tones: number[]; pairs: string[]; syms: string[] }; written?: number };
+    reps?: number; min_score?: number; focus?: { tones: number[]; pairs: string[]; syms: string[] }; written?: number;
+    rules?: RuleId[]; mode?: "quiz" | "speak"; learn?: boolean };
   finding_ids: string[]; review: string; note: CoachNote | null; progress: number; tried: number; right: number;
   items?: { text: string; passes: number; tries: number; best: number | null; last: number | null }[];
 };
@@ -281,6 +295,8 @@ export const api = {
   levelsSeen: (ids: number[]) => call<{ ok: boolean }>("/api/levels/seen", json({ ids })).catch(() => ({ ok: false })),
   /** Which of the 37 symbols the learner knows. Read only, so the Symbols screen can load it on every visit. */
   alphabet: () => call<Alphabet>("/api/alphabet"),
+  /** The tone change rules and the phrases of the rule exercises. */
+  rules: () => call<{ rules: Record<RuleId, ToneRule>; phrases: RulePhrase[] }>("/api/rules"),
   coachPlan: (reason = "") => call<CoachState>("/api/coach/plan", json({ reason })),
   skipStep: (id: number, reason: "too_hard" | "too_easy" | "not_now") => call<CoachState>("/api/coach/step/" + id + "/skip", json({ reason })),
   coachStep: (id: number) => call<StepState>("/api/coach/step/" + id),

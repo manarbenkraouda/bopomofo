@@ -31,7 +31,7 @@ from urllib.parse import quote
 
 from . import db, levels, limits, llm, stats
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
-from .zhuyin import analyze_text
+from .zhuyin import RULES, analyze_text
 
 SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
 BOPOMOFO = set(SYMS)
@@ -41,10 +41,11 @@ STALE_UNITS = 400  # after this many new answers, the plan may no longer match t
 CHECK_EVERY = 10  # answers in a step between two checkpoint calls
 MAX_SENTENCES = 6
 TYPES = {"speak_sentences": "speaking", "speak_sounds": "speaking", "listen_tones": "listening", "listen_sounds": "listening",
-         "read_symbols": "reading", "recognize_symbols": "recognize", "write_symbols": "dictation", "write_syllables": "writing"}
+         "read_symbols": "reading", "recognize_symbols": "recognize", "write_symbols": "dictation", "write_syllables": "writing",
+         "tone_rules": "listening"}
 DECK_TYPES = {"listen_tones", "listen_sounds", "speak_sounds", "write_syllables"}
 DEFAULT_TARGET = {"speak_sounds": 10, "listen_tones": 20, "listen_sounds": 15, "read_symbols": 10, "recognize_symbols": 15, "write_symbols": 10,
-                  "write_syllables": 10}
+                  "write_syllables": 10, "tone_rules": 12}
 SYMBOL_TYPES = {"read_symbols", "recognize_symbols", "write_symbols"}  # one symbol per answer, focus = single symbols
 SYLLABLES_FILE = ROOT.parent / "frontend" / "public" / "data" / "syllables.json"
 LIVE = True  # False in tests: no background threads and no model calls
@@ -55,6 +56,8 @@ MEASURES = {
     "recognize": ("see a Bopomofo symbol and type its sound in pinyin, silently (alphabet: symbol to sound, no speaking)", True),
     "listening/tone": ("hear a syllable and name its tone; no Bopomofo needed", False),
     "listening/zhuyin": ("hear a syllable and pick its Bopomofo spelling; needs the alphabet", True),
+    "listening/rule": ("see a short word in Bopomofo and pick the tone that is said for one syllable after the tone rules (3-3, 不, 一);"
+                       " measures rule knowledge, not hearing; needs the alphabet", True),
     "dictation": ("hear a symbol name and write the symbol by hand (alphabet: sound to symbol)", True),
     "writing": ("hear a syllable or word and write its Bopomofo by hand, with the tone mark; needs the alphabet", True),
     "speaking": ("say a sentence or syllable; the speech model checks each initial, final, and tone; no Bopomofo needed", False),
@@ -62,6 +65,7 @@ MEASURES = {
 # The alphabet comes first: below this many known symbols, every plan starts with the next symbols to learn,
 # and drills that show Bopomofo wait. This is a rule of the app, not a model decision.
 ALPHABET_GATE = 30
+RULES_GATE = True  # the tone rules (3-3, 不, 一) must be known before sentence steps
 NEEDS_ALPHABET = {"listen_sounds", "write_syllables"}
 ALPHABET_STEPS = {"read_symbols", "recognize_symbols", "write_symbols"}
 # Coach notes the learner sees: checkpoint notes and the learner line of a debrief. The rest ("debrief", "skip") is for the next plan.
@@ -70,6 +74,10 @@ VISIBLE_NOTES = "(kind LIKE 'checkpoint:%' OR kind='debrief:learner')"
 # Recall tests (name it from memory) start only after this many right repetitions of the symbol.
 LEARN_REPS = 10
 MAX_LEARNING = 8  # no new symbols while this many symbols are seen but not known yet
+# The tone rules (3-3, 不, 一) come before sentences: the written Bopomofo shows the dictionary tone, not the tone said.
+# While a rule is not known (levels: ★★★ in the rule quiz or the rule phrases), every plan starts with rule steps and has no
+# sentence steps. This is a rule of the app, not a model decision.
+RULE_STEPS_BLOCK = {"speak_sentences"}
 
 _refresh_lock = threading.RLock()
 _checking: set[int] = set()
@@ -438,6 +446,66 @@ def needs_alphabet(c: dict) -> bool:
                                         or (c["area"] == "listening" and c["unit"] in ("initial", "final")))
 
 
+# ---------- the tone rule gate (3-3, 不, 一) ----------
+
+def rules_status(lv: dict | None = None) -> dict:
+    """Which tone rules are known (★★★ in the rule quiz or in the rule phrases), from the level stars.
+    gate: the rule exercises are open and a rule is not known yet."""
+    lv = lv or levels.status()
+    stars = lv.get("stars") or {}
+    per = {}
+    for rid in RULES:
+        q = (stars.get("listening/rule") or {}).get("rule:" + rid) or {}
+        s = (stars.get("speaking/rule") or {}).get("rule:" + rid) or {}
+        per[rid] = {"quiz_stars": q.get("stars", 0), "quiz_tests": q.get("tests", 0), "quiz_acc": q.get("acc"), "quiz_reps": q.get("reps", 0),
+                    "speak_stars": s.get("stars", 0), "speak_tests": s.get("tests", 0), "speak_acc": s.get("acc"),
+                    "known": max(q.get("stars", 0), s.get("stars", 0)) >= 3}
+    open_ = levels.is_open("listening/rule", {"exercises": lv["exercises"]})
+    missing = [r for r, v in per.items() if not v["known"]]
+    return {"open": open_, "known": [r for r in per if per[r]["known"]], "missing": missing, "per_rule": per,
+            "gate": RULES_GATE and open_ and bool(missing)}
+
+
+def _rule_names(ids: list[str]) -> str:
+    return ", ".join(RULES[r]["name"] for r in ids)
+
+
+def rules_gate(steps: list[dict], rs: dict, op: dict | None = None) -> tuple[list[dict], list[str]]:
+    """While a tone rule is not known: the plan starts with rule steps, and the sentence steps wait. New rules start in learn
+    mode (the rule and the answer are shown first), then a quiz from memory, then the phrases said aloud once the quiz is accurate.
+    Returns the steps and the titles of the removed steps."""
+    if not rs["gate"]:
+        return steps, []
+    op = op or levels.opened()
+    miss = rs["missing"]
+    per = rs["per_rule"]
+    meta = {"finding_ids": [], "review": "Added by the tone rule: the tone changes come before sentences.", "rule": "tone_rules"}
+    first: list[dict] = []
+    new = [r for r in miss if per[r]["quiz_reps"] < 6 and per[r]["quiz_tests"] < 3]
+    if new:
+        first.append({"type": "tone_rules", "title": "Learn the tone rules: " + _rule_names(new), "params": {"rules": new, "mode": "quiz", "learn": True},
+                      "minutes": 4, "meta": dict(meta), "target": 4 * len(new),
+                      "why": "The Bopomofo shows the dictionary tone, but some tones change in words. Learn when and how, before sentences."})
+    first.append({"type": "tone_rules", "title": "Tone rules from memory: " + _rule_names(miss), "params": {"rules": miss, "mode": "quiz"},
+                  "minutes": 5, "meta": dict(meta), "target": max(10, 4 * len(miss)),
+                  "why": "Pick the tone you say, not the tone you see. Knowing this keeps you from reading 我很好 tone by tone."})
+    speak = [r for r in miss if per[r]["quiz_stars"] >= 2]
+    if speak and levels.step_allowed("tone_rules", {"mode": "speak"}, op):
+        first.append({"type": "tone_rules", "title": "Say the tone rules: " + _rule_names(speak), "params": {"rules": speak, "mode": "speak"},
+                      "minutes": 5, "meta": dict(meta), "target": max(8, 3 * len(speak)),
+                      "why": "You know the rule. Now say short words with it, until it comes without thinking."})
+    kept = [s for s in steps if s["type"] not in RULE_STEPS_BLOCK and not (s["type"] == "speak_sounds" and s["params"].get("source") == "sentence")
+            and not (s["type"] == "tone_rules" and (s.get("meta") or {}).get("rule") != "tone_rules")]
+    removed = [s["title"] for s in steps if s not in kept]
+    return first + kept, removed
+
+
+def rules_sentence(rs: dict) -> str:
+    """The sentence of the diagnosis while the tone rule gate is active. The app writes it, so it always matches the steps."""
+    return (f"Tone rules first: some tones change in words ({_rule_names(rs['missing'])}), and the Bopomofo does not show it."
+            " Sentences wait until you know these rules.")
+
+
 # ---------- the stats digest ----------
 
 def digest(lv: dict | None = None) -> dict:
@@ -482,7 +550,7 @@ def digest(lv: dict | None = None) -> dict:
     def is_mastered(i):
         return (i["acc"] or 0) >= 92 and i["n"] >= 20
 
-    skills = [i for i in items if i["n"] >= 3 and i["kind"] in ("tone", "initial", "final", "symbol")]
+    skills = [i for i in items if i["n"] >= 3 and i["kind"] in ("tone", "initial", "final", "symbol", "sandhi")]
     mastered = [f"{i['area']} {i['kind']} {i['expected']}" for i in skills if is_mastered(i)]
     weak = [row(i) for i in skills if not is_mastered(i)]
 
@@ -553,6 +621,15 @@ def digest(lv: dict | None = None) -> dict:
     never = {a: "".join(s for s in SYMS if s not in practiced[a]) for a in ("reading", "recognize", "dictation", "writing")}
     from . import story
     story_numbers = story.story_stats(units, events, secs, today)
+    rs = rules_status(lv)
+    rule_rows = [{k: v for k, v in r.items() if not k.endswith("_href")} for r in stats.rule_stats(45)]
+    tone_rules = {"rules": {rid: {"name": r["name"], "rule": r["short"]} for rid, r in RULES.items()},
+                  "by_rule": [{**r, **rs["per_rule"][r["rule"]]} for r in rule_rows],
+                  "known": rs["known"], "not_known": rs["missing"], "rule_active": rs["gate"], "exercises_open": rs["open"],
+                  "error_kinds": {"literal": "read the written (dictionary) tone where the rule changes it",
+                                  "over": "changed 不 or 一 where it keeps its written tone", "other": "another tone",
+                                  "help": "right only with help"},
+                  "steps_the_app_adds_first": [s["title"] for s in rules_gate([], rs, op)[0]]}
 
     lib = _q("SELECT id, hanzi, english, level, topic FROM sentences ORDER BY id DESC LIMIT 300")
     lib_id = {s["hanzi"]: s["id"] for s in lib}
@@ -598,6 +675,8 @@ def digest(lv: dict | None = None) -> dict:
                                  "right_repetitions": {x["sym"]: x["reps"] for x in alpha["symbols"] if x["reps"]},
                                  "repetitions_before_tests": LEARN_REPS,
                                  "steps_the_app_adds_first": [s["title"] for s in alphabet_gate([], alpha, op)[0]]},
+                     "tone_rules": {"known": rs["known"], "not_known": rs["missing"], "rule_active": rs["gate"],
+                                    "steps_the_app_adds_first": tone_rules["steps_the_app_adds_first"]},
                      "level": levels.coach_view(lv),
                      "mastered": mastered,
                      "detailed_answers": detail["n"], "detailed_log_since": detail["since"],
@@ -608,6 +687,7 @@ def digest(lv: dict | None = None) -> dict:
                            "expected_to_said": tables.get("speaking", {}), "contexts_weakest_first": contexts,
                            "syllables_weakest_first": syl_rows("speaking")},
         "sounds": {"skills": pick(lambda r: r["unit"] in ("initial", "final")), "mixups": mixups},
+        "tone_rules": tone_rules,
         "symbols": {"skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),
                     "recognize_mixups": recognize_mixups,
                     "stroke_problems": stroke_out, "stroke_order_errors": dict(order_err.most_common(12)), "never_practiced": never},
@@ -653,6 +733,7 @@ DOMAINS = {
     "tones_listening": "tones in listening (the tone quiz and the Bopomofo quiz): which tone is taken for which, and on which syllables",
     "tones_speaking": "tones in speaking: which tone the learner says instead, and in which context (tone before and after, tone changes, position)",
     "sounds": "initials and finals in listening and speaking: which sounds are mixed up, in which direction",
+    "tone_rules": "the tone rules (3-3: tone 3 before tone 3 is said tone 2; 不 before tone 4 is said tone 2; 一 is tone 2 before tone 4 and tone 4 before tones 1-3), in the rule quiz and in every recording: which rule fails, the kind of error (literal = the learner read the written tone; over = changed 不/一 where it stays), and on which characters",
     "symbols": "the 37 Bopomofo symbols and the tone marks in reading (saying them), recognize (typing their pinyin silently; recognize_mixups says which symbol the typed pinyin stands for), dictation and writing (writing them by hand): recall, symbols taken for others, stroke order, stroke problems, symbols never practiced",
     "sentences": "recorded sentences: which sentences score low, which syllables fail in them, and which material fits the level",
 }
@@ -701,6 +782,10 @@ Step types (only these; the app measures each one from the answers given inside 
   Use it to drill symbol recall without speaking, and to contrast symbols taken for each other (put both in "syms").
 - write_symbols: {"syms":[single symbols],"target":N}  Hear a symbol and write it. N right on the first try.
 - write_syllables: {"tones":[1-5],"syms":[Bopomofo],"target":N}  Hear a syllable, write it with its tone mark. N right parts.
+- tone_rules: {"rules":["3-3"|"bu"|"yi"],"mode":"quiz"|"speak","target":N}  The tone rules. quiz: see a short word in Bopomofo
+  (written with the dictionary tone) and pick the tone that is said. speak: say short words that use the rule. N right answers on
+  the rule. Use it when "tone_rules" shows rule errors, also when they come from sentences (literal errors: the learner reads the
+  written tone).
 Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "sentence" or with speak_sentences, never on single syllables.
 For listen_tones, listen_sounds, speak_sounds with source syllable, and write_syllables, a later stage picks the exact syllables from your
 focus and the learner's history: give the focus, not the syllables.
@@ -723,6 +808,12 @@ ALPHABET_MILESTONE_RULE = """
 Alphabet rule (overview.alphabet.rule_active is true): the learner does not know the Bopomofo alphabet yet and learns it by repetition.
 The app has its own milestone for it ("Know the alphabet"). Do not set milestones that test the symbols: no unit "symbol", no area
 reading, recognize, dictation, or writing, and no listening initial or final. Set milestones for tones and speaking only."""
+
+TONE_RULES_RULE = """
+Tone rule (overview.tone_rules.rule_active is true): the learner does not know every tone rule yet. The Bopomofo shows the
+dictionary tone, so a learner who does not know the rules reads sentences with wrong tones. The app itself puts the rule steps
+first (overview.tone_rules.steps_the_app_adds_first): they are part of THIS plan. Do not plan speak_sentences or speak_sounds with
+source "sentence", and do not plan tone_rules steps yourself. The app writes the sentence of the diagnosis about the rules: do not repeat it."""
 
 
 def level_rule(op: dict, task: str = "plan") -> str:
@@ -776,7 +867,8 @@ MILESTONES = """Task: set the milestones: 3 to 5 skill goals that take several p
 You get the overview, the top findings, the active milestones with their current values, and a menu of measurable skills with current values.
 - Keep an active milestone that is still useful and not reached: put its id in "keep".
 - A new milestone must be measurable: {"title","why","area","unit","expected","min_acc","window"}. area: reading|recognize|listening|dictation|writing|speaking.
-  unit: tone|initial|final|symbol|score (score is speaking only: the average score, with expected []). It is reached when the last "window"
+  unit: tone|initial|final|symbol|sandhi|score (score is speaking only: the average score, with expected []; sandhi: a tone rule, expected
+  ["3-3"|"bu"|"yi"], area listening for the rule quiz or speaking for every recording). It is reached when the last "window"
   first-try answers of that unit reach min_acc percent right (score: the average of the last "window" recordings).
 - Set the goal above the current value but reachable, usually 10 to 25 points higher. Do not pick a goal that is already reached.
 - The title states the same numbers as min_acc and window, for example "Tone 4 by ear: 90% of the last 40".
@@ -843,7 +935,7 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
     if t not in TYPES:
         return None
     op = op or levels.opened()
-    if not levels.step_allowed(t, {"source": s.get("source")} if t == "speak_sounds" else None, op):
+    if not levels.step_allowed(t, {"source": s.get("source"), "mode": s.get("mode")} if t in ("speak_sounds", "tone_rules") else None, op):
         return None
     meta = {"finding_ids": [_text(x, 60) for x in (s.get("finding_ids") or []) if x][:6], "review": ""}
     if t == "speak_sentences":
@@ -883,6 +975,14 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
                 return None
         elif t == "listen_sounds":
             p = {"syms": _syms(s.get("syms"))}
+        elif t == "tone_rules":
+            src = s.get("params") if isinstance(s.get("params"), dict) else s
+            rules = [r for r in dict.fromkeys(str(x) for x in (src.get("rules") or [])) if r in RULES] or list(RULES)
+            p = {"rules": rules, "mode": "speak" if src.get("mode") == "speak" else "quiz"}
+            if src.get("learn"):
+                p["learn"] = True
+            if not levels.step_allowed(t, p, op):
+                return None
         elif t in SYMBOL_TYPES:
             p = {"syms": [x for x in _syms(s.get("syms"), single=True) if x in op["symbols"]]}
         else:
@@ -897,10 +997,15 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
 
 
 def clean_milestone(m: dict) -> dict | None:
-    if m.get("area") not in TYPES.values() or m.get("unit") not in ("tone", "initial", "final", "symbol", "score", "alphabet"):
+    if m.get("area") not in TYPES.values() or m.get("unit") not in ("tone", "initial", "final", "symbol", "score", "alphabet", "sandhi"):
         return None
     unit = m["unit"]
-    exp = [str(t) for t in _tones(m.get("expected"))] if unit == "tone" else _syms(m.get("expected")) if unit not in ("score", "alphabet") else []
+    if unit == "sandhi":
+        exp = [r for r in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if r in RULES]
+        if m["area"] not in ("listening", "speaking"):
+            return None
+    else:
+        exp = [str(t) for t in _tones(m.get("expected"))] if unit == "tone" else _syms(m.get("expected")) if unit not in ("score", "alphabet") else []
     if unit not in ("score", "alphabet") and not exp:
         return None
     if unit == "score" and m["area"] != "speaking":
@@ -919,7 +1024,8 @@ def clean_milestone(m: dict) -> dict | None:
 
 def _focus_of(s: dict) -> dict:
     p = s["params"]
-    return {k: p[k] for k in ("unit", "tones", "syms", "source", "deck", "texts", "ids", "reps", "min_score", "focus") if p.get(k) not in (None, [], "")}
+    return {k: p[k] for k in ("unit", "tones", "syms", "source", "deck", "texts", "ids", "reps", "min_score", "focus", "rules", "mode", "learn")
+            if p.get(k) not in (None, [], "")}
 
 
 # ---------- the pipeline ----------
@@ -1083,7 +1189,8 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     _stage("Choosing your next steps")
     s = d["sentences"]
     op = d["_open"]
-    task = PLAN + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + level_rule(op)
+    rules_on = TONE_RULES_RULE if d["overview"]["tone_rules"]["rule_active"] else ""
+    task = PLAN + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + rules_on + level_rule(op)
     plan = await call("plan", task, {"reason": reason, "overview": d["overview"], "pace": pace, "findings": findings[:30], "strengths": strengths,
                                      "unknown": unknown, "too_advanced": advanced,
                                      "reusable_sentences": {"weak": s["weak"], "library_not_practiced": s["library_not_practiced"]},
@@ -1119,7 +1226,7 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
     draft = [{"pos": i, "type": x["type"], "title": x["title"], "why": x["why"], "focus": _focus_of(x), "target": x["target"],
               "minutes": x["minutes"], "finding_ids": x["meta"]["finding_ids"]} for i, x in enumerate(steps)]
     review_r, ms_r = await asyncio.gather(
-        call("review", REVIEW + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + level_rule(op),
+        call("review", REVIEW + (ALPHABET_RULE if d["overview"]["alphabet"]["rule_active"] else "") + rules_on + level_rule(op),
              {"draft": draft, "findings": findings[:30], "pace": pace, "overview": d["overview"]}, run),
         milestones_call(d, findings, run), return_exceptions=True)
     diagnosis = _text(plan.get("diagnosis"), 1200)
@@ -1150,6 +1257,9 @@ def rules_plan(d: dict) -> dict:
             steps.append({"type": "speak_sounds", "unit": u, "syms": [x] + other[:1], "source": "syllable", "title": f"Say {x}" + (f" vs {other[0]}" if other else ""), "why": why, "target": 10})
         elif a == "listening" and u in ("initial", "final"):
             steps.append({"type": "listen_sounds", "syms": [x] + other[:1], "title": f"Hear {x}" + (f" vs {other[0]}" if other else ""), "why": why, "target": 12})
+        elif u == "sandhi" and x in RULES:
+            steps.append({"type": "tone_rules", "rules": [x], "mode": "speak" if a == "speaking" else "quiz", "title": f"Practice the {RULES[x]['name']}",
+                          "why": RULES[x]["short"], "target": 10})
         elif u == "symbol" and a in ("reading", "recognize", "dictation"):
             grouped[a].append(x)
         if len(steps) >= 4:
@@ -1204,10 +1314,16 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
     out["steps"] = [s for s in out["steps"] if levels.step_allowed(s["type"], s["params"], op)]
     alpha = alphabet_status()
     out["steps"], removed = alphabet_gate(out["steps"], alpha, op)
+    # The tone rules come before sentences: rule steps right after the alphabet steps, and no sentence steps until they are known.
+    rs = rules_status(lv)
+    n_alpha = sum(1 for s in out["steps"] if (s.get("meta") or {}).get("rule") == "alphabet")
+    ruled, removed_r = rules_gate(out["steps"][n_alpha:], rs, op)
+    out["steps"] = (out["steps"][:n_alpha] + ruled)[:7]
+    removed += removed_r
     # Known items that dropped get a short review right after the alphabet steps.
     review = levels.remediation(lv)
     if review:
-        n = sum(1 for s in out["steps"] if (s.get("meta") or {}).get("rule") == "alphabet")
+        n = sum(1 for s in out["steps"] if (s.get("meta") or {}).get("rule") in ("alphabet", "tone_rules"))
         out["steps"] = (out["steps"][:n] + review + out["steps"][n:])[:7]
         out["diagnosis"] = ("Review first: " + ", ".join(s["title"].removeprefix("Review: ") for s in review)
                             + " slipped below your known level. " + (out.get("diagnosis") or ""))
@@ -1215,11 +1331,14 @@ def build(reason: str, run_pipeline=None, as_next: bool = False) -> int:
         out["diagnosis"] = "Tone quizzes train your ear, but they do not show that you know the symbols. " + out["diagnosis"]
     if alpha["gate"] and alpha["next_group"]:
         out["diagnosis"] = alphabet_sentence(alpha) + " " + (out.get("diagnosis") or "")
+    if rs["gate"]:
+        out["diagnosis"] = rules_sentence(rs) + " " + (out.get("diagnosis") or "")
     _stage("Saving your plan")
     models = Counter(r["model"] for r in _q("SELECT model FROM coach_calls WHERE run=? AND ok=1", (run,)))
     model = ", ".join(m for m, _ in models.most_common(3)) or None
     raw = {k: out.get(k) for k in ("findings", "strengths", "unknown", "too_advanced", "pace", "review")}
     raw["alphabet_rule"] = {"active": alpha["gate"], "known": alpha["known_count"], "next": alpha["next_group"], "removed_steps": removed}
+    raw["tone_rule"] = {"active": rs["gate"], "known": rs["known"], "missing": rs["missing"], "removed_steps": removed_r}
     raw["level_rule"] = {"level": lv["level"], "exercises": lv["exercises"], "step_types": lv["step_types"],
                          "review": [s["title"] for s in review], "drops": lv["drops"]}
     now = time.time()
@@ -1342,6 +1461,9 @@ def _hit(step: dict, r: dict) -> bool:
         return r["kind"] == "tone" and (not tones or r["expected"] in tones)
     if t == "listen_sounds":
         return r["kind"] in ("initial", "final") and (not syms or _match(r["expected"], syms, False))
+    if t == "tone_rules":
+        rules = p.get("rules") or []
+        return r["kind"] == "sandhi" and (p.get("learn") or r["try_n"] == 0) and (not rules or r["expected"] in rules)
     if t in ("read_symbols", "recognize_symbols", "write_symbols"):
         # Learn mode counts every right repetition; a recall step counts first tries only.
         return r["kind"] == "symbol" and (p.get("learn") or r["try_n"] == 0) and (not syms or r["expected"] in syms)
@@ -1368,7 +1490,7 @@ def step_progress(step: dict, detail: bool = False) -> dict:
             out["blocks"] = [round(sum(r["score"] for r in rows[i:i + 10]) / len(rows[i:i + 10])) for i in range(0, len(rows), 10)]
         return out
     rows = _q("SELECT u.kind, u.expected, u.actual, u.ok, u.help, u.try_n, e.item FROM units u JOIN events e ON e.id = u.event_id"
-              f" WHERE {STEP_SQL} AND u.ok IS NOT NULL AND u.kind IN ('tone','initial','final','symbol') ORDER BY u.id", (sid,))
+              f" WHERE {STEP_SQL} AND u.ok IS NOT NULL AND u.kind IN ('tone','initial','final','symbol','sandhi') ORDER BY u.id", (sid,))
     mine = [r for r in rows if _hit(step, r)]
     good = [bool(r["ok"]) and (p.get("learn") or not r["help"]) for r in mine]
     out = {"progress": sum(good), "tried": len(mine), "right": sum(good)}
@@ -1392,7 +1514,8 @@ def _before(step: dict, ts: float) -> dict:
                   (since, ts, *texts))
         return {"recordings": len(rows), "average_score": round(sum(r["score"] for r in rows) / len(rows)) if rows else None}
     rows = _q("SELECT kind, expected, actual, ok, help, try_n FROM units WHERE area=? AND ts>=? AND ts<? AND ok IS NOT NULL AND try_n=0"
-              " AND kind IN ('tone','initial','final','symbol')", (TYPES[step["type"]], since, ts))
+              " AND kind IN ('tone','initial','final','symbol','sandhi')",
+              ("speaking" if step["type"] == "tone_rules" and step["params"].get("mode") == "speak" else TYPES[step["type"]], since, ts))
     mine = [r for r in rows if _hit(step, r)]
     ok = sum(1 for r in mine if r["ok"] and not r["help"])
     return {"answers": len(mine), "right_pct": stats._pct(ok, len(mine))}
@@ -1407,6 +1530,7 @@ def href(step: dict) -> str:
          "listen_tones": f"/listening?quiz=tone&tones={tones}", "listen_sounds": f"/listening?quiz=zhuyin&syms={syms}",
          "read_symbols": f"/reading?syms={syms}", "write_symbols": f"/dictation?syms={syms}",
          "recognize_symbols": f"/recognize?syms={syms}",
+         "tone_rules": ("/speaking?source=rule" if p.get("mode") == "speak" else "/listening?quiz=rule") + "&rules=" + quote(",".join(p.get("rules") or [])),
          "write_syllables": "/writing?mode=syllable" + (f"&tones={tones}" if tones else "") + (f"&syms={syms}" if syms else "")}[t]
     if p.get("deck") and t in DECK_TYPES:
         q += "&items=" + quote(",".join(p["deck"]))
@@ -1436,7 +1560,7 @@ def milestone_progress(c: dict, lv: dict | None = None) -> dict:
         value = round(sum(r["score"] for r in rows) / n, 1) if n else None
     else:
         rows = _q("SELECT expected, ok, help FROM units WHERE area=? AND kind=? AND try_n=0 AND ok IS NOT NULL ORDER BY id DESC LIMIT 2000", (c["area"], c["unit"]))
-        exact = c["unit"] in ("tone", "symbol", "initial")
+        exact = c["unit"] in ("tone", "symbol", "initial", "sandhi")
         rows = [r for r in rows if _match(r["expected"], c["expected"], exact)][: c["window"]]
         n = len(rows)
         value = round(100 * sum(1 for r in rows if r["ok"] and not r["help"]) / n, 1) if n else None
@@ -1497,6 +1621,9 @@ def apply_checkpoint(s: dict, prog: dict, r: dict) -> dict:
         syms = [x for x in _syms(r.get("syms")) if x in (p.get("syms") or [])]
         if syms:
             p["syms"] = syms
+        rules = [x for x in dict.fromkeys(str(v) for v in (r.get("rules") or [])) if x in (p.get("rules") or [])]
+        if rules:
+            p["rules"] = rules
         deck = [z for z in dict.fromkeys(str(x).strip() for x in r.get("deck") or []) if z in (p.get("deck") or [])]
         if len(deck) >= 4:
             p["deck"] = deck

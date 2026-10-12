@@ -25,6 +25,7 @@ import time
 from dataclasses import dataclass
 
 from . import db
+from .zhuyin import RULES
 
 SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
 INITIALS, FINALS, MEDIALS = SYMS[:21], SYMS[21:34], SYMS[34:]
@@ -60,6 +61,9 @@ EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
     "listening/zhuyin": ("Bopomofo quiz", "/listening?quiz=zhuyin", Spec("listening", "zhuyin", ("initial", "final", "tone"), 4000, 20, 10, 90)),
     "writing/syllable": ("Write syllables", "/writing?mode=syllable", Spec("writing", "syllable", ("symbol", "tone"), None, 10, 5, 90)),
     "speaking/syllable": ("Say syllables", "/speaking?source=syllable", Spec("speaking", "syllable", ("tone", "initial", "final"), None, 10, 5, 85)),
+    # Tone rules (3-3, 不, 一): the written Bopomofo keeps the dictionary tone, so these are learned before sentences.
+    "listening/rule": ("Tone rules", "/listening?quiz=rule", Spec("listening", "rule", ("sandhi",), 6000, 10, 6, 90)),
+    "speaking/rule": ("Say tone rules", "/speaking?source=rule", Spec("speaking", "rule", ("sandhi",), None, 10, 5, 85)),
     "speaking/sentence": ("Say sentences", "/speaking?source=sentence", Spec("speaking", "sentence", ("tone", "initial", "final"), None, 10, 5, 85)),
     "writing/word": ("Write words", "/writing?mode=word", Spec("writing", "word", ("symbol", "tone"), None, 10, 5, 90)),
     "sentences": ("Sentences", "/sentences", None),
@@ -67,6 +71,7 @@ EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
 }
 TONES4 = ["tone:1", "tone:2", "tone:3", "tone:4"]
 TONES5 = TONES4 + ["tone:5"]
+RULE_ITEMS = ["rule:" + r for r in RULES]
 NEED_SYMS = math.ceil(SHARE * len(SYMS))
 
 # The unlock tree. A level opens its exercises; its goals open the next level.
@@ -77,11 +82,12 @@ LEVELS: list[dict] = [
     {"n": 2, "key": "write", "title": "Write the alphabet", "opens": ["dictation", "writing/symbol"],
      "about": "Hear a symbol and write it by hand.",
      "goals": [{"key": "write", "label": "Write the symbols", "items": list(SYMS), "modes": ["dictation", "writing/symbol"], "need": NEED_SYMS}]},
-    {"n": 3, "key": "syllables", "title": "Syllables", "opens": ["listening/zhuyin", "writing/syllable", "speaking/syllable"],
-     "about": "Put the symbols together: hear, write, and say whole syllables.",
+    {"n": 3, "key": "syllables", "title": "Syllables", "opens": ["listening/zhuyin", "writing/syllable", "speaking/syllable", "listening/rule", "speaking/rule"],
+     "about": "Put the symbols together: hear, write, and say whole syllables. Learn the tone rules: some tones change in words.",
      "goals": [{"key": "sounds", "label": "Know the sounds in syllables", "items": list(SYMS),
                 "modes": ["listening/zhuyin", "writing/syllable", "speaking/syllable"], "need": NEED_SYMS},
-               {"key": "tones", "label": "Hear the four tones", "items": TONES4, "modes": ["listening/tone"], "need": 4}]},
+               {"key": "tones", "label": "Hear the four tones", "items": TONES4, "modes": ["listening/tone"], "need": 4},
+               {"key": "rules", "label": "Know the tone rules", "items": RULE_ITEMS, "modes": ["listening/rule", "speaking/rule"], "need": len(RULE_ITEMS)}]},
     {"n": 4, "key": "sentences", "title": "Words and sentences", "opens": ["speaking/sentence", "writing/word", "sentences"],
      "about": "Say whole sentences, with every tone, and write words.",
      "goals": [{"key": "speak", "label": "Say the five tones in sentences", "items": TONES5, "modes": ["speaking/sentence"], "need": 5}]},
@@ -96,12 +102,15 @@ PLACEMENT_MODES = {"reading", "recognize", "dictation", "writing/symbol"}
 
 # Coach step types and the exercise each one needs. speak_sounds depends on its source.
 STEP_EXERCISE = {"read_symbols": "reading", "recognize_symbols": "recognize", "listen_tones": "listening/tone", "write_symbols": "dictation",
-                 "listen_sounds": "listening/zhuyin", "write_syllables": "writing/syllable", "speak_sentences": "speaking/sentence"}
+                 "listen_sounds": "listening/zhuyin", "write_syllables": "writing/syllable", "speak_sentences": "speaking/sentence",
+                 "tone_rules": "listening/rule"}
 
 
 def step_exercise(step_type: str, params: dict | None = None) -> str:
     if step_type == "speak_sounds":
         return "speaking/sentence" if (params or {}).get("source") == "sentence" else "speaking/syllable"
+    if step_type == "tone_rules":
+        return "speaking/rule" if (params or {}).get("mode") == "speak" else "listening/rule"
     return STEP_EXERCISE.get(step_type, "")
 
 
@@ -110,9 +119,9 @@ def exercise_of(href: str) -> str | None:
     path, _, query = (href or "").partition("?")
     q = dict(p.partition("=")[::2] for p in query.split("&") if p)
     if path == "/listening":
-        return "listening/zhuyin" if q.get("quiz") == "zhuyin" else "listening/tone"
+        return {"zhuyin": "listening/zhuyin", "rule": "listening/rule"}.get(q.get("quiz", ""), "listening/tone")
     if path == "/speaking":
-        return "speaking/" + (q.get("source") if q.get("source") in ("syllable", "custom") else "custom" if q.get("text") else "sentence")
+        return "speaking/" + (q.get("source") if q.get("source") in ("syllable", "custom", "rule") else "custom" if q.get("text") else "sentence")
     if path == "/writing":
         return "writing/" + (q.get("mode") if q.get("mode") in ("symbol", "word") else "syllable")
     key = path.strip("/")
@@ -177,10 +186,14 @@ def milestone_exercises(c: dict) -> list[str]:
     if u in ("alphabet", "level"):
         return []
     if a == "listening":
+        if u == "sandhi":
+            return ["listening/rule"]
         return ["listening/zhuyin"] if u in ("initial", "final") else ["listening/tone", "listening/zhuyin"]
     if a == "writing":
         return ["writing/symbol", "writing/syllable", "writing/word"]
     if a == "speaking":
+        if u == "sandhi":
+            return ["speaking/rule", "speaking/sentence", "speaking/custom"]
         return ["speaking/sentence"] if u == "score" else ["speaking/syllable", "speaking/sentence", "speaking/custom"]
     return [a] if a in EXERCISES else []
 
@@ -228,6 +241,8 @@ def item_stars(tests: list[tuple[bool, int | None, str]], reps: int, spec: Spec,
 def _keys_of(kind: str, expected: str) -> list[str]:
     if kind == "tone":
         return ["tone:" + expected] if expected in ("1", "2", "3", "4", "5") else []
+    if kind == "sandhi":
+        return ["rule:" + expected] if expected in RULES else []
     return list(dict.fromkeys(ch for ch in expected if ch in BOPOMOFO))
 
 
@@ -293,7 +308,7 @@ def _built(c) -> bool:
 _HISTORY_SQL = (
     "SELECT u.area, u.mode, u.kind, u.expected, u.ok, u.help, u.try_n, u.day, u.ts, u.event_id, e.ms,"
     " COALESCE(e.details::jsonb ->> 'learn', 'false') NOT IN ('false', '0', '') AS learn"
-    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND u.kind IN ('symbol','tone','initial','final')"
+    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND u.kind IN ('symbol','tone','initial','final','sandhi')"
     " ORDER BY u.ts, u.id")
 
 
@@ -421,6 +436,8 @@ def _notice(c, kind: str, key: str, title: str, text: str) -> None:
 
 
 def _label(item: str) -> str:
+    if item.startswith("rule:"):
+        return RULES[item[5:]]["name"] if item[5:] in RULES else item
     return ("neutral tone" if item == "tone:5" else "tone " + item[5:]) if item.startswith("tone:") else item
 
 
@@ -545,7 +562,8 @@ def coach_view(st: dict) -> dict:
 
 REMEDY = {"reading": "read_symbols", "recognize": "recognize_symbols", "dictation": "write_symbols", "writing/symbol": "write_symbols",
           "listening/tone": "listen_tones", "listening/zhuyin": "listen_sounds", "writing/syllable": "write_syllables", "writing/word": "write_syllables",
-          "speaking/syllable": "speak_sounds", "speaking/sentence": "speak_sounds", "speaking/custom": "speak_sounds"}
+          "speaking/syllable": "speak_sounds", "speaking/sentence": "speak_sounds", "speaking/custom": "speak_sounds",
+          "listening/rule": "tone_rules", "speaking/rule": "tone_rules"}
 
 
 def remediation(st: dict, limit: int = 2) -> list[dict]:
@@ -557,13 +575,17 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
     meta = {"finding_ids": [], "review": "Added by the level rule: a known item dropped.", "rule": "remediation"}
     for ex, items in by.items():
         t = REMEDY.get(ex)
-        if not t or not step_allowed(t, {"source": "sentence" if ex == "speaking/sentence" else "syllable"}, {"exercises": st["exercises"]}):
+        rp = {"source": "sentence" if ex == "speaking/sentence" else "syllable", "mode": "speak" if ex == "speaking/rule" else "quiz"}
+        if not t or not step_allowed(t, rp, {"exercises": st["exercises"]}):
             continue
         tones = [int(i[5:]) for i in items if i.startswith("tone:")]
+        rules = [i[5:] for i in items if i.startswith("rule:")]
         syms = [i for i in items if i in BOPOMOFO][:6]
         names = " ".join(_label(i) for i in items[:6])
         base = {"title": f"Review: {names}"[:80], "minutes": 4, "meta": dict(meta), "why": "You knew these well before. A short review brings them back."}
-        if t in ("read_symbols", "recognize_symbols", "write_symbols") and syms:
+        if t == "tone_rules" and rules:
+            out.append({**base, "type": t, "params": {"rules": rules, "mode": rp["mode"]}, "target": 10})
+        elif t in ("read_symbols", "recognize_symbols", "write_symbols") and syms:
             out.append({**base, "type": t, "params": {"syms": syms}, "target": max(6, 2 * len(syms))})
         elif t == "listen_tones" and tones:
             tt = sorted(set([x for x in tones if x != 5] or [1]) | ({1, 4} if len(tones) < 2 else set()))[:4]

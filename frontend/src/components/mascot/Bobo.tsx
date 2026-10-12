@@ -81,7 +81,7 @@ export function BoboPose({ pose, className = "", priority = false, bob = false }
 
 /** The pose that goes with each screen. */
 const ROUTE_POSE: Record<string, Pose> = {
-  "/": "welcome", "/coach": "thinking", "/stats": "investigate", "/reading": "reading", "/listening": "listening", "/dictation": "writing",
+  "/": "welcome", "/levels": "plan", "/coach": "thinking", "/stats": "investigate", "/reading": "reading", "/listening": "listening", "/dictation": "writing",
   "/speaking": "speaking", "/writing": "writing", "/recognize": "thinking", "/symbols": "reading", "/sentences": "speaking", "/profile": "welcome", "/settings": "bubbletea",
 };
 export const poseFor = (r: RouteInfo): Pose => ROUTE_POSE[r.href] ?? "welcome";

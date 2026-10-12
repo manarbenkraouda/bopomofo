@@ -4,6 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AI_QUOTA_EVENT, api, type AiQuota } from "@/lib/api";
+import { useLevels } from "@/lib/levels";
 import { quotaCountdown, quotaSeconds } from "@/lib/quota-clock";
 import { playSfx } from "@/lib/sfx";
 import { BoboPose } from "@/components/mascot/Bobo";
@@ -96,6 +97,7 @@ function EnergyIcon({ sleeping = false }: { sleeping?: boolean }) {
 /** The full refill card: no penalty, and no rewards or practice scores for waiting. */
 export function AiEnergyCard({ compact = false }: { compact?: boolean }) {
   const { quota, blocked, refilled } = useAiQuota();
+  const { routeOpen } = useLevels();
   const secondsLeft = useContext(ClockContext);
   if (!quota) return null;
   const time = quotaCountdown(secondsLeft);
@@ -127,7 +129,7 @@ export function AiEnergyCard({ compact = false }: { compact?: boolean }) {
           <p className="mb-3 text-sm text-muted">Keep your streak going. Saved lessons and practice still work while your AI rests.</p>
           <div className="flex flex-wrap gap-2">
             <Link href="/listening" className="btn btn-accent flex-1 justify-center font-semibold">Practice tones</Link>
-            <Link href="/sentences" className="btn flex-1 justify-center font-semibold">Saved sentences</Link>
+            {routeOpen("/sentences") && <Link href="/sentences" className="btn flex-1 justify-center font-semibold">Saved sentences</Link>}
           </div>
         </div>
       )}

@@ -10,6 +10,7 @@ from app import coach, db, stats
 def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)
+    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
 
 
 def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):

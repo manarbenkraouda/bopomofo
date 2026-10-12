@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import random
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
 from . import db, levels
-from .zhuyin import zhuyin_of
+from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
 PRIOR = 4.0  # weight of the skill average in the weak score, in answers
@@ -50,11 +51,19 @@ def speaking_units(res: dict) -> list[dict]:
         whole = bool(h) and bool(s.get("tone_ok")) and s.get("initial_ok") is not False and s.get("final_ok") is not False
         said_as = zhuyin_of(e.get("initial") or "", e.get("final") or "", e["surface_tone"]) if e.get("final") is not None else e.get("zhuyin")
         out.append({**base, "kind": "syllable", "expected": said_as, "actual": h.get("zhuyin") if h else "?", "ok": whole})
+        # Tone rules: one "sandhi" unit per syllable that tests a rule. actual: the tone said. extra.error:
+        # "literal" = read the written tone where the rule changes it, "over" = changed 不/一 where it keeps its tone.
+        rule = tested_rule(e)
+        if rule:
+            err = None if s.get("tone_ok") else (s.get("rule_error") or "other")
+            out.append({**base, "kind": "sandhi", "expected": rule, "actual": heard_tone, "ok": s.get("tone_ok"),
+                        "lex": e["tone"], "next": tones[i + 1] if i + 1 < len(tones) else None,
+                        "extra": {"said": e["surface_tone"], "error": err, "zhuyin": e.get("zhuyin")}})
     return out
 
 
 def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0):
-    mode = mode if mode in ("sentence", "syllable", "custom") else ("syllable" if len(text) == 1 else "sentence")
+    mode = mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
     ok = res["score"] >= 80
     db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": ok, "score": res["score"],
                   "first_try": ok and not help and try_n == 0, "tries": try_n + 1, "help": help,
@@ -108,6 +117,10 @@ def _seconds_by_day(events: list[dict], saved: dict[str, int]) -> dict[str, int]
 
 def _href(area: str, kind: str, expected: str, also: list | None = None) -> str | None:
     vals = [expected] + [a for a in (also or []) if a and a not in ("∅", "?", expected)]
+    if kind == "sandhi":
+        if expected not in RULES:
+            return None
+        return ("/speaking?source=rule&rules=" if area == "speaking" else "/listening?quiz=rule&rules=") + quote(expected)
     if kind == "tone":
         t = ",".join(v for v in vals if v in ("1", "2", "3", "4", "5"))
         base = {"listening": "/listening?quiz=tone&tones=", "speaking": "/speaking?source=syllable&tones=", "writing": "/writing?mode=syllable&tones="}
@@ -128,7 +141,48 @@ def _href(area: str, kind: str, expected: str, also: list | None = None) -> str 
 def _label(kind: str, expected: str) -> str:
     if kind == "tone":
         return "Neutral tone" if expected == "5" else "Tone " + expected
+    if kind == "sandhi":
+        return RULES[expected]["name"] if expected in RULES else expected
     return expected
+
+
+# ---------- tone rules (sandhi) ----------
+
+def rule_stats(days: int | None = None) -> list[dict]:
+    """Per tone rule: first tries in the rule quiz (listening/rule) and in every recording (speaking), the kind of error
+    (literal: read the written tone; over: changed 不/一 where the tone stays; other), the last 7 days, and the hardest characters."""
+    rows = _rows("SELECT day, area, expected, actual, ok, help, ctx, extra FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
+                 " AND day>=? ORDER BY ts", (_since(days),))
+    week_ago = (db.local_today() - timedelta(days=7)).isoformat()
+    out = []
+    for rid, r in RULES.items():
+        rs = [x for x in rows if x["expected"] == rid]
+        good = [x for x in rs if _good(x)]
+        err: Counter = Counter()
+        chars: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+        areas: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+        for x in rs:
+            g = _good(x)
+            areas[x["area"]][0] += 1
+            areas[x["area"]][1] += g
+            chars[x["ctx"] or "?"][0] += 1
+            chars[x["ctx"] or "?"][1] += g
+            if not g:
+                ex = x["extra"]
+                if isinstance(ex, str):
+                    try:
+                        ex = json.loads(ex)
+                    except ValueError:
+                        ex = {}
+                err[(ex or {}).get("error") or ("help" if x["ok"] else "other")] += 1
+        recent = [x for x in rs if x["day"] > week_ago]
+        out.append({"rule": rid, "name": r["name"], "short": r["short"], "n": len(rs), "ok": len(good), "acc": _pct(len(good), len(rs)),
+                    "recent": _pct(sum(_good(x) for x in recent), len(recent)), "recent_n": len(recent),
+                    "errors": dict(err), "literal": err.get("literal", 0),
+                    "areas": {a: {"n": v[0], "ok": v[1], "acc": _pct(v[1], v[0])} for a, v in areas.items()},
+                    "chars": sorted(({"char": c, "n": v[0], "ok": v[1]} for c, v in chars.items()), key=lambda c: (c["ok"] / c["n"], -c["n"]))[:5],
+                    "quiz_href": "/listening?quiz=rule&rules=" + quote(rid), "speak_href": "/speaking?source=rule&rules=" + quote(rid)})
+    return out
 
 
 # ---------- per item ----------
@@ -316,6 +370,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     return {"range": {"days": days, "since": since if days else first_day, "area": area},
             "overview": overview, "daily": daily, "areas": per_area, "confusion": confusion, "expected": expected,
             "items": items, "tone_ctx": tone_ctx, "strokes": stroke_list, "hours": by_hour, "sessions": sessions,
+            "rules": rule_stats(days),
             "recent": recent(area=area), "records": records(), "challenges": challenges(op=op), "weak": weak(items, op=op), "levels": lv,
             "calendar": [{"day": dd, "minutes": round(s / 60, 1)} for dd, s in secs_all.items() if dd >= (today - timedelta(days=370)).isoformat()]}
 
@@ -461,15 +516,26 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
             out.append({"id": "speak-" + kind, "area": "speaking", "title": f"Say the {kind} {i['expected']} right 6 times",
                         "why": f"{i['acc']:.0f}% right on {i['n']} tries.{said}", "target": 6,
                         "progress": count("speaking", kind, {i["expected"]}), "href": _href("speaking", kind, i["expected"])})
+    # Tone rules: the weakest rule, in the quiz or in recordings.
+    rw = sorted((i for i in items if i["kind"] == "sandhi" and i["n"] >= 4 and i["expected"] in RULES and i["post"] < 90), key=lambda i: i["post"])
+    if rw:
+        i = rw[0]
+        name = RULES[i["expected"]]["name"]
+        out.append({"id": "rule-" + i["expected"], "area": i["area"], "title": f"Use the {name} right 8 times",
+                    "why": f"{i['acc']:.0f}% right on {i['n']} tries. {RULES[i['expected']]['short']}", "target": 8,
+                    "progress": sum(1 for u in now if u["kind"] == "sandhi" and u["expected"] == i["expected"] and u["ok"] and not u["help"]),
+                    "href": _href(i["area"], "sandhi", i["expected"])})
     # Tones first (the main goal of the app), then the others in a daily order.
     rnd = random.Random(t)
     rnd.shuffle(out)
     out = [c for c in out if levels.is_open(levels.exercise_of(c["href"]), op)]
-    out.sort(key=lambda c: 0 if c["id"] in ("speak-tone", "hear-tone") else 1)
+    out.sort(key=lambda c: 0 if c["id"] in ("speak-tone", "hear-tone") or c["id"].startswith("rule-") else 1)
     out = out[:4]
     fill = [
         {"id": "warm-listen", "area": "listening", "title": "Answer 20 listening questions", "why": "Daily ear training.", "target": 20,
-         "progress": sum(1 for e in now_ev if e["area"] == "listening"), "href": "/listening?quiz=tone"},
+         "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] != "rule"), "href": "/listening?quiz=tone"},
+        {"id": "warm-rules", "area": "listening", "slot": "rules", "title": "Answer 10 tone rule questions", "why": "Know how tones change in words before you say sentences.",
+         "target": 10, "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] == "rule"), "href": "/listening?quiz=rule"},
         {"id": "warm-read", "area": "reading", "title": "Read 15 symbols out loud", "why": "Daily reading.", "target": 15,
          "progress": sum(1 for e in now_ev if e["area"] == "reading"), "href": "/reading"},
         {"id": "warm-speak", "area": "speaking", "title": "Record 5 sentences", "why": "Daily speaking.", "target": 5,
@@ -483,9 +549,10 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     for f in fill:
         if len(out) >= 4:
             break
-        if f["area"] not in have and levels.is_open(levels.exercise_of(f["href"]), op):
+        slot = f.pop("slot", f["area"])
+        if slot not in have and levels.is_open(levels.exercise_of(f["href"]), op):
             out.append(f)
-            have.add(f["area"])
+            have.add(slot)
     for c in out:
         c["progress"] = min(c["progress"], c["target"])
         c["done"] = c["progress"] >= c["target"]

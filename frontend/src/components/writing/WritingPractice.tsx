@@ -19,6 +19,7 @@ import { Burst, FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Fee
 import { Sheet } from "./Sheet";
 import { BOX, gradeSheet, segment, shiftOf, clusterStrokes, type Graded, type Row } from "./segment";
 import { Guide, ResultOverlay, UserStrokes, COLORS } from "./Overlay";
+import { useLevels } from "@/lib/levels";
 
 type Mode = "symbol" | "syllable" | "word";
 type Group = { char?: string; zhuyin: string };
@@ -42,6 +43,11 @@ export function WritingPractice() {
   const [data, setData] = useState<{ strokes: StrokeData; table: MoeRow[]; syllables: SyllableItem[] } | null>(null);
   const [T, setT] = useState<Templates | null>(null);
   const [mode, setMode] = useState<Mode>("syllable");
+  // Only the modes of the learner's level: at level 2, Writing opens on single symbols.
+  const { open, known } = useLevels();
+  const modes = MODES.filter((m) => open("writing/" + m));
+  const openKey = modes.join(",");
+  useEffect(() => { if (known && modes.length && !modes.includes(mode)) setMode(modes[0]); }, [known, openKey, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const [item, setItem] = useState<Item | null>(null);
   const [strokes, setStrokes] = useState<Pt[][]>([]);
   const [graded, setGraded] = useState<Graded[] | null>(null);
@@ -199,7 +205,7 @@ export function WritingPractice() {
     { keys: ["Delete"], label: "Clear", run: () => setStrokes([]), when: !graded && strokes.length > 0 },
     { keys: ["KeyT"], label: guide ? "Hide trace guide" : "Trace guide", run: () => setGuide((v) => !v) },
     { keys: ["KeyW"], label: "Watch the strokes again", run: () => setAnim(Date.now()), when: !!graded, bar: false },
-    ...cycleKeys("Mode", MODES, mode, switchMode),
+    ...cycleKeys("Mode", modes.length ? modes : MODES, mode, switchMode, modes.length > 1),
   ]);
 
   if (!data || !T) return <div className="text-muted">Loading stroke data…</div>;
@@ -275,7 +281,7 @@ export function WritingPractice() {
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex flex-wrap items-center gap-2">
-        {MODES.map((m) => <button key={m} className="chip" data-active={mode === m} onClick={() => switchMode(m)}>{MODE_LABEL[m]}</button>)}
+            {modes.length > 1 && modes.map((m) => <button key={m} className="chip" data-active={mode === m} onClick={() => switchMode(m)}>{MODE_LABEL[m]}</button>)}
         <FocusChip focus={focus} />
         <button className="chip flex items-center gap-1.5" data-active={guide} onClick={() => setGuide(!guide)}>Trace guide <Kbd className="max-md:!hidden">T</Kbd></button>
         <div className="ml-auto text-sm text-muted">

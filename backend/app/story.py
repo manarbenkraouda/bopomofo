@@ -17,6 +17,7 @@ from . import coach, db
 TONE = {"1": "tone 1", "2": "tone 2", "3": "tone 3", "4": "tone 4", "5": "the neutral tone"}
 MODE_LABEL = {"reading": "reading symbols aloud", "recognize": "recognizing symbols silently (typing their pinyin)",
               "listening/tone": "the tone quiz (by ear)", "listening/zhuyin": "picking Bopomofo by ear",
+              "listening/rule": "the tone rules quiz (3-3, 不, 一)",
               "dictation": "writing symbols you hear", "writing": "writing syllables", "speaking": "speaking"}
 UNIT_WORD = {"%": "", "min": "minutes", "days": "days", "answers": "answers", "times": "times", "symbols": "symbols", "points": "points"}
 
@@ -119,6 +120,12 @@ def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict |
     for r in d.get("_skills") or []:
         if r["unit"] in ("initial", "final", "symbol"):
             add(f"skill.{r['area']}.{r['unit']}.{r['x']}.pct", f"{r['x']} right ({r['area']})", r["right_pct"], "%")
+    for r in (d.get("tone_rules") or {}).get("by_rule") or []:
+        if r.get("n"):
+            k = "rule." + r["rule"].replace("-", "")
+            add(k + ".pct", f"right on the {r['name']}", r.get("acc"), "%")
+            add(k + ".answers", f"answers on the {r['name']}", r["n"], "answers")
+            add(k + ".literal", f"times you read the written tone where the {r['name']} changes it", r.get("literal"), "times")
 
     a = ov.get("alphabet") or {}
     if a:

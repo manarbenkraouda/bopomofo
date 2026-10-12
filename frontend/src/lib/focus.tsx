@@ -1,14 +1,18 @@
 "use client";
 // "Focus" filters from the stats screen: /listening?tones=3,2 or /dictation?syms=ㄗ,ㄘ,ㄙ.
 // Every practice mode reads them, so a weak spot opens as a short, targeted drill.
-// The coach adds two more: ?items= (the exact syllables of a deck, Bopomofo with tone mark) and ?ids= (sentence ids for Speaking).
+// The coach adds more: ?items= (the exact syllables of a deck, Bopomofo with tone mark), ?ids= (sentence ids for Speaking),
+// and ?rules= (tone change rules: 3-3, bu, yi) for the tone rule exercises.
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { useHotkeys } from "./hotkeys";
 import { splitZhuyin } from "./zhuyin";
+import type { RuleId } from "./api";
 
-export type Focus = { tones: number[]; syms: string[]; items: string[]; ids: number[]; active: boolean; label: string };
+export type Focus = { tones: number[]; syms: string[]; items: string[]; ids: number[]; rules: RuleId[]; active: boolean; label: string };
+const RULE_IDS: RuleId[] = ["3-3", "bu", "yi"];
+const RULE_LABEL: Record<RuleId, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
 
 export function useFocus(): Focus {
   const q = useSearchParams();
@@ -16,15 +20,18 @@ export function useFocus(): Focus {
   const s = q.get("syms") ?? "";
   const it = q.get("items") ?? "";
   const id = q.get("ids") ?? "";
+  const ru = q.get("rules") ?? "";
   return useMemo(() => {
     const tones = t.split(",").map(Number).filter((n) => n >= 1 && n <= 5);
     const syms = s.split(",").map((x) => x.trim()).filter((x) => x && x !== "∅");
     const items = it.split(",").map((x) => x.trim()).filter(Boolean);
     const ids = id.split(",").map(Number).filter((n) => n > 0);
+    const rules = RULE_IDS.filter((r) => ru.split(",").includes(r));
     const label = [tones.map((n) => (n === 5 ? "neutral tone" : "tone " + n)).join(" / "), syms.join(" "),
-      items.length ? items.length + " coach syllables" : "", ids.length ? ids.length + " coach sentences" : ""].filter(Boolean).join(" · ");
-    return { tones, syms, items, ids, active: tones.length + syms.length + items.length + ids.length > 0, label };
-  }, [t, s, it, id]);
+      items.length ? items.length + " coach syllables" : "", ids.length ? ids.length + " coach sentences" : "",
+      rules.map((r) => RULE_LABEL[r]).join(" / ")].filter(Boolean).join(" · ");
+    return { tones, syms, items, ids, rules, active: tones.length + syms.length + items.length + ids.length + rules.length > 0, label };
+  }, [t, s, it, id, ru]);
 }
 
 /** A syllable matches when it is in the coach deck; without a deck, when its tone is one of the tones and it contains one of the symbols. */
@@ -43,7 +50,7 @@ function useClearHref() {
   const path = usePathname();
   const q = useSearchParams();
   const rest = new URLSearchParams(q.toString());
-  for (const k of ["tones", "syms", "items", "ids", "step", "learn"]) rest.delete(k);
+  for (const k of ["tones", "syms", "items", "ids", "rules", "step", "learn"]) rest.delete(k);
   return path + (rest.size ? "?" + rest.toString() : "");
 }
 

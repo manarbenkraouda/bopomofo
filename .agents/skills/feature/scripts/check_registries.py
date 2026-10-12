@@ -15,7 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app import coach, db, stats, story  # noqa: E402
+from app import coach, db, levels, stats, story  # noqa: E402
 
 FE = ROOT / "frontend" / "src"
 missing: list[str] = []
@@ -46,7 +46,9 @@ def note(ok: bool, msg: str):
 
 
 charts = read("components/stats/charts.tsx")
-dash = read("components/home/Dashboard.tsx")
+levels_ui = read("lib/levels.tsx")
+route_ex = line_of(levels_ui, "export const ROUTE_EXERCISES")
+ui_exercises = {e for e in re.findall(r'"([a-z]+(?:/[a-z]+)?)"', route_ex.split("=", 1)[-1])}
 api = read("lib/api.ts")
 coach_ui = read("components/coach/Coach.tsx")
 focus = read("lib/focus.tsx")
@@ -63,10 +65,18 @@ for a in stats.AREAS:
         need(a in line_of(charts, "export const " + name), f"area {a}: missing in {name} (components/stats/charts.tsx)")
     need(a in stats.VERB, f"area {a}: missing in stats.VERB")
     need(q in line_of(api, "area: \"reading\""), f"area {a}: missing in the PracticeEvent area union (lib/api.ts)")
-    need(q in line_of(dash, "const AREA_OF"), f"area {a}: missing in AREA_OF (components/home/Dashboard.tsx)")
+    need(f'"/{a}"' in route_ex, f"area {a}: no route in ROUTE_EXERCISES (lib/levels.tsx)")
     note(a in coach.TYPES.values(), f"area {a}: no coach step type trains it (coach.TYPES)")
     need(any(k == a or k.startswith(a + "/") for k in coach.MEASURES), f"area {a}: missing in coach.MEASURES (what the mode measures)")
     note(a in inspect.getsource(stats.challenges), f"area {a}: no daily challenge in stats.challenges()")
+
+# Exercises: the level tree (backend/app/levels.py EXERCISES) and the UI routes (lib/levels.tsx ROUTE_EXERCISES) list the same ones.
+for e in sorted(set(levels.EXERCISES) - ui_exercises):
+    need(False, f"exercise {e}: in levels.EXERCISES but no route in ROUTE_EXERCISES (lib/levels.tsx)")
+for e in sorted(ui_exercises - set(levels.EXERCISES)):
+    need(False, f"exercise {e}: in ROUTE_EXERCISES (lib/levels.tsx) but missing in levels.EXERCISES")
+for e in sorted(levels.EXERCISES):
+    need(any(e in lv.get("opens", []) for lv in levels.LEVELS), f"exercise {e}: no level opens it (levels.LEVELS)")
 
 # Unit kinds
 kinds_ts = line_of(api, "kind: \"tone\"")

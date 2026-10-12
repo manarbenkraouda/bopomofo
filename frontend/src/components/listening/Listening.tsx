@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, matches, useFocus } from "@/lib/focus";
-import { ANSWER_KEYS, ANSWER_LETTERS, cycleKeys, useHotkeys } from "@/lib/hotkeys";
+import { ANSWER_KEYS, ANSWER_LETTERS, cycleKeys, useHotkeys, type Hotkey } from "@/lib/hotkeys";
 import { playSfx } from "@/lib/sfx";
 import { useReview } from "@/lib/review";
 import { now, parts, since } from "@/lib/track";
@@ -13,10 +13,13 @@ import { PlayButton } from "@/components/PlayButton";
 import { Burst, fxClass, StatusPill } from "@/components/quiz/Feedback";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
+import { RuleQuiz } from "./RuleQuiz";
+import { useLevels } from "@/lib/levels";
 
-type Quiz = "tone" | "zhuyin";
+type Quiz = "tone" | "zhuyin" | "rule";
 type Q = { item: SyllableItem; options: string[]; answer: string };
-const QUIZZES: Quiz[] = ["tone", "zhuyin"];
+const QUIZZES: Quiz[] = ["tone", "zhuyin", "rule"];
+const QUIZ_LABEL: Record<Quiz, string> = { tone: "Which tone?", zhuyin: "Which Bopomofo?", rule: "Tone rules" };
 const COMPARE_KEYS = ["KeyQ", "KeyW", "KeyE", "KeyR"];
 
 const shuffle = <T,>(a: T[]) => a.map((x) => [Math.random(), x] as const).sort((p, q) => p[0] - q[0]).map((p) => p[1]);
@@ -27,9 +30,23 @@ const toneSetOf = (items: SyllableItem[], item: SyllableItem) => {
   return items.filter((s) => splitZhuyin(s.zhuyin).symbols.join("") === base).sort((a, b) => splitZhuyin(a.zhuyin).toneNum - splitZhuyin(b.zhuyin).toneNum).slice(0, 4);
 };
 
+/** The listening page: the tone and Bopomofo quizzes on single syllables, and the tone rule quiz on short words. */
 export function Listening() {
+  const quizParam = useSearchParams().get("quiz");
+  const [quiz, setQuiz] = useState<Quiz>(() => (QUIZZES as string[]).includes(quizParam ?? "") ? (quizParam as Quiz) : "tone");
+  useEffect(() => { if ((QUIZZES as string[]).includes(quizParam ?? "")) setQuiz(quizParam as Quiz); }, [quizParam]);
+  // Only the quizzes of the learner's level: a locked quiz (also from a link) falls back to the first open one.
+  const { open, known } = useLevels();
+  const quizzes = QUIZZES.filter((k) => open("listening/" + k));
+  const openKey = quizzes.join(",");
+  useEffect(() => { if (known && quizzes.length && !quizzes.includes(quiz)) setQuiz(quizzes[0]); }, [known, openKey, quiz]); // eslint-disable-line react-hooks/exhaustive-deps
+  const chips = quizzes.length > 1 ? quizzes.map((k) => <button key={k} className="chip" data-active={quiz === k} onClick={() => setQuiz(k)}>{QUIZ_LABEL[k]}</button>) : null;
+  const keys = cycleKeys("Quiz type", quizzes.length ? quizzes : QUIZZES, quiz, setQuiz, quizzes.length > 1);
+  return quiz === "rule" ? <RuleQuiz chips={chips} hotkeys={keys} /> : <SyllableQuiz quiz={quiz} chips={chips} hotkeys={keys} />;
+}
+
+function SyllableQuiz({ quiz, chips, hotkeys }: { quiz: "tone" | "zhuyin"; chips: React.ReactNode; hotkeys: Hotkey[] }) {
   const [items, setItems] = useState<SyllableItem[]>([]);
-  const [quiz, setQuiz] = useState<Quiz>("tone");
   const [q, setQ] = useState<Q | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [held, setHeld] = useState(false); // auto-advance stopped to compare tones
@@ -38,13 +55,11 @@ export function Listening() {
   const shownAt = useRef(0);
   const replays = useRef(0);
   const focus = useFocus();
-  const quizParam = useSearchParams().get("quiz");
   // The question order: a few new syllables at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   // Each quiz has its own schedule: hearing the tone and finding the spelling are different skills.
   const { review, ready } = useReview("listening", quiz);
 
   useEffect(() => { loadData().then((d) => setItems(d.syllables.filter((s) => !s.zhuyin.includes("˙")))); }, []);
-  useEffect(() => { if (quizParam === "tone" || quizParam === "zhuyin") setQuiz(quizParam); }, [quizParam]);
   // The focus from the stats screen narrows the questions. With no match, all syllables stay in play.
   const matching = useMemo(() => items.filter((s) => matches(s.zhuyin, focus)), [items, focus]);
   const pool = matching.length ? matching : items;
@@ -118,14 +133,13 @@ export function Listening() {
     { keys: ["Enter", "KeyN"], label: "Next", run: next, when: !!picked },
     ...COMPARE_KEYS.map((k, i) => ({ keys: [k], label: "Compare tone: " + (toneSet[i]?.zhuyin ?? ""), run: () => compare(i), when: toneSet.length > 1 && i < toneSet.length, bar: false })),
     { keys: [], label: "Compare tones", show: ["Q W E R"], when: toneSet.length > 1 },
-    ...cycleKeys("Quiz type", QUIZZES, quiz, setQuiz),
+    ...hotkeys,
   ]);
 
   return (
     <div className="flex flex-1 flex-col gap-4">
-      <div className="chips flex gap-2 items-center">
-        <button className="chip" data-active={quiz === "tone"} onClick={() => setQuiz("tone")}>Which tone?</button>
-        <button className="chip" data-active={quiz === "zhuyin"} onClick={() => setQuiz("zhuyin")}>Which Bopomofo?</button>
+      <div className="chips flex gap-2 items-center flex-wrap">
+        {chips}
         <FocusChip focus={focus} empty={focus.active && !matching.length} />
         <div className="ml-auto text-sm text-muted"><b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}% of {score.n}</div>
       </div>

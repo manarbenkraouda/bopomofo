@@ -10,6 +10,7 @@ from app import coach, db, levels
 def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
+    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
     unlock_all()  # the level rules have their own tests (test_levels.py)
 
 

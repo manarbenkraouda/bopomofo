@@ -2,32 +2,38 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, type Challenge, type CoachState, type Profile, type Summary } from "@/lib/api";
+import { api, type Challenge, type CoachState, type Levels, type Profile } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
 import { usePref } from "@/lib/prefs";
 import { missingFacts, PROFILE_KEYS, PROFILE_LABELS, useProfile } from "@/lib/profile";
-import { LAST_KEY, MODES, routeFor, type RouteInfo } from "@/lib/routes";
+import { LAST_KEY, routeFor } from "@/lib/routes";
 import { goalMinutes, useToday } from "@/lib/session";
+import { EXERCISE_DESC, exerciseOf, useLevels } from "@/lib/levels";
 import { Caps, Kbd } from "@/components/shell/Kbd";
 import { focusChips, STEP_ICON } from "@/components/coach/Coach";
 import { BoboFace, BoboPose, poseFor, VMark } from "@/components/mascot/Bobo";
+import { GoalBar, Stars } from "@/components/levels/LevelUi";
 
-// The backend groups answers by area (older dictation answers are counted as dictation too).
-const AREA_OF: Record<string, string> = { "/reading": "reading", "/recognize": "recognize", "/listening": "listening", "/dictation": "dictation", "/speaking": "speaking", "/writing": "writing" };
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const NEW_DAYS = 3 * 86400;
 
+type Ex = { key: string; label: string; href: string; level: number; isNew: boolean };
+
+/**
+ * Home, built around the level path: Bobo's next step first, then the level and its goals, today's goal,
+ * the open exercises, and the exercises of the next level as locked teasers. Nothing else, so a new learner sees a short, clear start.
+ */
 export function Dashboard() {
   const router = useRouter();
   const today = useToday();
-  const last = routeFor(usePref(LAST_KEY, "/reading"));
-  const [sum, setSum] = useState<Summary | null>(null);
+  const { lv, routeOpen } = useLevels();
+  const lastPref = routeFor(usePref(LAST_KEY, "/reading"));
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [coach, setCoach] = useState<CoachState | null>(null);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState("");
   const profile = useProfile();
   useEffect(() => {
-    api.summary().then(setSum).catch(() => {});
     api.challenges().then((r) => setChallenges(r.challenges)).catch(() => {});
     api.coach().then(setCoach).catch(() => {});
   }, []);
@@ -42,7 +48,6 @@ export function Dashboard() {
   const gaps = profile ? missingFacts(profile) : [];
   const welcome = !!coach && !coach.plan && !coach.generating && gaps.length > 0;
   const coachShown = !welcome && !!coach && (!!step || coach.generating);
-  const row1 = coachShown || welcome ? " lg:row-start-2" : " lg:row-start-1";
   const fillProfile = () => router.push("/profile" + (gaps[0] ? "?fact=" + gaps[0] : ""));
   const buildNow = () => {
     setBuilding(true); setBuildError("");
@@ -50,92 +55,83 @@ export function Dashboard() {
       .then(setCoach).catch((e: Error) => setBuildError(e.message)).finally(() => setBuilding(false));
   };
 
+  // Read the clock after mount: a render-time Date.now() blocks the prerender of "/".
+  const [now, setNow] = useState(0);
+  useEffect(() => { const t = setTimeout(() => setNow(Date.now() / 1000)); return () => clearTimeout(t); }, []);
+  const open: Ex[] = lv ? lv.levels.filter((l) => l.unlocked).flatMap((l) => l.opens.map((o) => ({
+    ...o, level: l.n, isNew: now > 0 && l.n > 1 && !!l.unlocked_ts && now - l.unlocked_ts < NEW_DAYS && !Object.keys(lv.stars?.[o.key] ?? {}).length,
+  }))) : [];
+  const next = lv?.next ?? null;
+  // "Continue" goes back to the last practice screen, when it is still open; else to the first exercise.
+  const last = routeOpen(lastPref.href) && lastPref.area === "practice" ? { label: lastPref.label, href: lastPref.href, icon: lastPref.icon }
+    : open[0] ? { label: open[0].label, href: open[0].href, icon: routeFor(open[0].href.split("?")[0]).icon } : null;
+  const shownChallenges = challenges.filter((c) => { const ex = exerciseOf(c.href); return !lv || !ex || lv.exercises.includes(ex); });
+
   useHotkeys("home", [
     { keys: ["Enter"], label: "Complete my profile", run: fillProfile, when: welcome },
     { keys: ["KeyB"], label: "Build my plan now", run: buildNow, when: welcome && !building },
     { keys: ["Enter"], label: "Bobo's step: " + (step?.title ?? ""), run: () => step && router.push(step.href), when: !!step },
-    { keys: step || welcome ? ["KeyC"] : ["Enter", "KeyC"], label: "Continue: " + last.label, run: () => router.push(last.href) },
-    ...MODES.map((m, i) => ({ keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]], label: m.label, run: () => router.push(m.href), bar: false })),
-    { keys: [], label: "Open a mode", show: ["1–" + MODES.length] },
-    ...challenges.map((c, i) => ({ keys: [["KeyQ", "KeyW", "KeyE", "KeyR"][i]], label: "Challenge: " + c.title, run: () => router.push(c.href), bar: false })),
-    { keys: [], label: "Challenges", show: ["Q", "W", "E", "R"], when: challenges.length > 0 },
+    { keys: step || welcome ? ["KeyC"] : ["Enter", "KeyC"], label: "Continue: " + (last?.label ?? ""), run: () => last && router.push(last.href), when: !!last },
+    ...open.slice(0, 9).map((m, i) => ({ keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]], label: m.label, run: () => router.push(m.href), bar: false })),
+    { keys: [], label: "Open an exercise", show: ["1–" + Math.min(9, open.length)], when: open.length > 0 },
+    { keys: ["KeyV"], label: "My levels", run: () => router.push("/levels") },
+    ...shownChallenges.map((c, i) => ({ keys: [["KeyQ", "KeyW", "KeyE", "KeyR"][i]], label: "Challenge: " + c.title, run: () => router.push(c.href), bar: false })),
+    { keys: [], label: "Challenges", show: ["Q", "W", "E", "R"].slice(0, shownChallenges.length), when: shownChallenges.length > 0 },
   ]);
 
   const goal = goalMinutes();
   const minutes = Math.floor(today.seconds / 60);
   const pct = Math.min(1, today.seconds / (goal * 60));
-  const acc = today.cards ? Math.round((100 * today.ok) / today.cards) : null;
-  const weak = sum ? Object.entries(sum.symbols).filter(([, v]) => v.n >= 2).sort((a, b) => (b[1].err + 1) / (b[1].n + 2) - (a[1].err + 1) / (a[1].n + 2)).slice(0, 10) : [];
-  const practice = MODES.filter((m) => m.area === "practice");
-  const study = MODES.filter((m) => m.area === "study");
 
   return (
-    // Phone: goal and Continue first, then the modes, then the stats. Desktop: goal and stats side by side above the modes.
-    <div className="grid flex-1 content-start gap-5 md:gap-6 lg:grid-cols-[1.25fr_1fr]">
+    <div className="grid flex-1 content-start gap-5 md:gap-6 lg:grid-cols-[1.4fr_1fr]">
       {welcome && profile && <WelcomeCard profile={profile} building={building} error={buildError} onFill={fillProfile} onBuild={buildNow} />}
       {coach && coachShown && <CoachCard st={coach} />}
-        <div className={"card relative flex flex-col items-center gap-5 overflow-hidden p-5 sm:flex-row sm:gap-7 md:p-6 lg:col-start-1" + row1}>
-          <div className="pointer-events-none absolute -bottom-16 -right-4 select-none cjk text-[170px] leading-none text-accent opacity-[.06]">注音</div>
-          <Ring pct={pct} done={today.goalHit}>
-            <div className="text-3xl font-semibold tabular-nums">{minutes}</div>
-            <div className="text-xs text-muted">of {goal} min</div>
-          </Ring>
-          <div className="flex w-full min-w-0 flex-1 flex-col gap-4">
-            <div>
-              <div className="text-center text-sm text-muted sm:text-left">{today.goalHit ? "Daily goal reached. Keep the combo going!" : minutes ? "Keep going: " + (goal - minutes) + " min to your daily goal." : "Ready for today's session?"}</div>
-              <div className="mt-2 grid grid-cols-4 gap-3">
-                <Stat value={sum ? String(sum.day_streak) : "–"} label="day streak" icon="🔥" />
-                <Stat value={String(today.cards)} label="cards today" />
-                <Stat value={acc === null ? "–" : acc + "%"} label="right" />
-                <Stat value={"×" + today.best} label="best combo" icon="⚡" />
-              </div>
-            </div>
-            <button onClick={() => router.push(last.href)} className={"btn w-full justify-center !rounded-xl !px-5 !py-3.5 text-base font-semibold active:translate-y-[3px] active:shadow-none sm:w-fit " + (step || welcome ? "" : "btn-accent shadow-[0_4px_0_color-mix(in_srgb,var(--accent)_60%,#000)]")}>
+
+      {lv && <LevelCard lv={lv} />}
+
+      <div className="card relative flex items-center gap-5 overflow-hidden p-5 md:p-6">
+        <Ring pct={pct} done={today.goalHit}>
+          <div className="text-2xl font-semibold tabular-nums">{minutes}</div>
+          <div className="text-xs text-muted">of {goal} min</div>
+        </Ring>
+        <div className="flex min-w-0 flex-1 flex-col gap-3">
+          <div className="text-sm text-muted">{today.goalHit ? "Daily goal reached. Keep the combo going!" : minutes ? "Keep going: " + (goal - minutes) + " min to your daily goal." : "Ready for today's session?"}</div>
+          {last && (
+            <button onClick={() => router.push(last.href)} className={"btn w-full justify-center !rounded-xl !px-4 !py-3 font-semibold active:translate-y-[3px] active:shadow-none " + (step || welcome ? "" : "btn-accent shadow-[0_4px_0_color-mix(in_srgb,var(--accent)_60%,#000)]")}>
               <span className="cjk">{last.icon}</span> Continue: {last.label} <Kbd className="max-md:!hidden">{step || welcome ? "C" : "Enter"}</Kbd>
             </button>
-          </div>
-          <BoboPose key={today.goalHit ? "tea" : last.href} pose={today.goalHit ? "bubbletea" : poseFor(last)} className="zq-pop relative hidden w-28 shrink-0 self-end sm:block xl:w-32" />
+          )}
         </div>
+        <BoboPose key={today.goalHit ? "tea" : last?.href} pose={today.goalHit ? "bubbletea" : poseFor(routeFor(last?.href.split("?")[0] ?? "/"))} className="zq-pop hidden w-20 shrink-0 self-end sm:block" />
+      </div>
 
-        <div className={"card order-last grid gap-5 p-5 sm:grid-cols-2 lg:order-none lg:col-start-2" + row1}>
-          <div>
-            <div className="mb-3 text-sm font-semibold">Tone accuracy <span className="font-normal text-muted">(speaking)</span></div>
-            {sum && Object.keys(sum.tones).length ? [1, 2, 3, 4, 5].map((t) => {
-              const v = sum.tones[String(t)];
-              if (!v) return null;
-              const p = Math.round((100 * (v.n - v.err)) / v.n);
-              return (
-                <div key={t} className="mb-2 flex items-center gap-2 text-sm">
-                  <span className="w-14 text-muted">{t === 5 ? "Neutral" : "Tone " + t}</span>
-                  <div className="h-2 flex-1 overflow-hidden rounded bg-line"><div className={"h-full " + (p >= 80 ? "bg-ok" : p >= 60 ? "bg-rough" : "bg-bad")} style={{ width: p + "%" }} /></div>
-                  <span className="w-10 text-right tabular-nums">{p}%</span>
-                </div>
-              );
-            }) : <div className="text-sm text-muted">Record some sentences to see your tone accuracy.</div>}
-          </div>
-          <div>
-            <div className="mb-3 text-sm font-semibold">Symbols to practice</div>
-            {weak.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {weak.map(([k, v]) => (
-                  <Link key={k} href={"/dictation?syms=" + encodeURIComponent(k)} title={Math.round((100 * v.err) / v.n) + "% errors in " + v.n + " tries"} className="flex flex-col items-center rounded-lg border border-line px-2 py-1 hover:border-accent">
-                    <span className="cjk text-2xl leading-tight">{k}</span>
-                    <span className="text-[10px] text-muted">{Math.round((100 * v.err) / v.n)}%</span>
-                  </Link>
-                ))}
-              </div>
-            ) : <div className="text-sm text-muted">Practice writing to find your weak symbols.</div>}
-          </div>
+      <section className="lg:col-span-2">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-xs uppercase tracking-wide text-muted">Your exercises</h2>
+          <Link href="/levels" className="ml-auto flex items-center gap-1 text-xs text-accent hover:underline">All levels <Kbd className="max-md:!hidden">V</Kbd></Link>
         </div>
-      {challenges.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
+          {lv && open.map((m, i) => <Tile key={m.key} m={m} n={i + 1} lv={lv} current={m.href.split("?")[0] === last?.href.split("?")[0]} />)}
+          {next?.opens.map((o) => (
+            <Link key={o.key} href="/levels" className="card tile flex flex-col gap-2 border-dashed p-4 opacity-55 transition hover:opacity-90 md:p-5" title={"Opens at level " + next.n + ": " + next.title}>
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-line text-lg">🔒</span>
+              <div className="font-semibold">{o.label}</div>
+              <div className="text-xs text-muted">Level {next.n}: {next.title}</div>
+            </Link>
+          ))}
+          {!lv && <div className="col-span-full py-6 text-center text-sm text-muted">Loading your exercises…</div>}
+        </div>
+      </section>
+
+      {shownChallenges.length > 0 && (
         <section className="lg:col-span-2">
           <div className="mb-3 flex items-center gap-2">
             <h2 className="text-xs uppercase tracking-wide text-muted">Today&apos;s challenges</h2>
-            <span className="text-xs text-muted">· {challenges.filter((c) => c.done).length}/{challenges.length} done</span>
-            <Link href="/stats" className="ml-auto flex items-center gap-1 text-xs text-accent hover:underline">All stats <Kbd className="max-md:!hidden">G</Kbd><Kbd className="max-md:!hidden">T</Kbd></Link>
+            <span className="text-xs text-muted">· {shownChallenges.filter((c) => c.done).length}/{shownChallenges.length} done</span>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {challenges.map((c, i) => (
+            {shownChallenges.map((c, i) => (
               <Link key={c.id} href={c.href} title={c.why} className={"card tile relative flex flex-col gap-2 p-3.5 transition hover:-translate-y-0.5 " + (c.done ? "!border-ok/60 bg-ok/10" : "hover:border-accent")}>
                 <div className="flex items-start gap-2">
                   <span className="cjk flex-1 text-sm font-semibold leading-snug">{c.title}</span>
@@ -150,49 +146,67 @@ export function Dashboard() {
           </div>
         </section>
       )}
-      <section className="lg:col-span-2">
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Practice</h2>
-        <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-5">
-          {practice.map((m) => <Tile key={m.href} m={m} n={MODES.indexOf(m) + 1} sum={sum} todayCount={today.areas[AREA_OF[m.href] ?? ""]} current={m.href === last.href} />)}
-        </div>
-      </section>
-      <section className="lg:col-span-2">
-        <h2 className="mb-3 text-xs uppercase tracking-wide text-muted">Study</h2>
-        <div className="grid grid-cols-2 gap-3 md:gap-4">
-          {study.map((m) => <Tile key={m.href} m={m} n={MODES.indexOf(m) + 1} sum={sum} wide extra={m.href === "/sentences" && sum ? sum.sentences + " saved sentences" : undefined} current={m.href === last.href} />)}
-        </div>
-      </section>
     </div>
   );
 }
 
-function Tile({ m, n, sum, todayCount, wide, extra, current }: { m: RouteInfo; n: number; sum: Summary | null; todayCount?: number; wide?: boolean; extra?: string; current?: boolean }) {
-  const st = sum?.areas[AREA_OF[m.href] ?? ""];
-  const p = st && st.total ? Math.round((100 * st.ok) / st.total) : null;
+/** The level card: where the learner is, the goals that open the next level, and the alphabet chapters at level 1. */
+function LevelCard({ lv }: { lv: Levels }) {
+  const cur = lv.levels.find((l) => l.current) ?? lv.levels[0];
+  const last = lv.level >= lv.max_level;
   return (
-    <Link href={m.href} className={"card tile group relative flex flex-col gap-3 p-4 transition hover:-translate-y-0.5 hover:border-accent md:p-5 " + (wide ? "sm:flex-row sm:items-center" : "") + (current ? " border-accent/50" : "")}>
-      <Kbd className="absolute right-4 top-4 !h-6 !min-w-6 text-xs">{n}</Kbd>
-      <span className="cjk grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-accent-soft text-2xl text-accent transition group-hover:scale-110">{m.icon}</span>
-      <div className="min-w-0 flex-1">
-        <div className="text-base font-semibold md:text-lg">{m.label}</div>
-        <div className="line-clamp-2 text-xs text-muted md:text-sm">{m.desc}</div>
-        {(st || todayCount || extra) && (
-          <div className="mt-3 flex flex-col gap-1.5 text-xs text-muted">
-            {p !== null && <div className="h-1.5 overflow-hidden rounded bg-line"><div className="h-full bg-ok" style={{ width: p + "%" }} /></div>}
-            <div>{[todayCount ? todayCount + " today" : "", st ? st.total + " total" : "", p !== null ? p + "% right" : "", extra ?? ""].filter(Boolean).join(" · ")}</div>
-          </div>
-        )}
+    <Link href="/levels" className="card relative block overflow-hidden p-5 transition hover:border-accent md:p-6">
+      <div className="pointer-events-none absolute -bottom-10 -right-2 select-none cjk text-[120px] leading-none text-accent opacity-[.06]">級</div>
+      <div className="relative flex items-start gap-4">
+        <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-accent text-2xl font-bold text-white shadow">{lv.level}</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-semibold uppercase tracking-wide text-accent">Level {lv.level} of {lv.max_level}</div>
+          <div className="text-xl font-semibold leading-snug">{lv.title}</div>
+          {!last && lv.next && <div className="mt-0.5 text-sm text-muted">Next: level {lv.next.n}, {lv.next.title} · {cur.progress}%</div>}
+        </div>
       </div>
+      {!last && (
+        <div className="relative mt-4 flex flex-col gap-3">
+          {cur.goals.map((g) => <GoalBar key={g.key} g={g} missing={false} />)}
+        </div>
+      )}
+      {lv.level === 1 && (
+        <div className="relative mt-4 flex gap-2">
+          {lv.chapters.map((c) => (
+            <div key={c.key} className={"flex-1 rounded-lg border px-2 py-1.5 text-xs " + (c.open ? "border-line" : "border-dashed border-line opacity-50")}>
+              <div className="font-semibold">{c.open ? "" : "🔒 "}{c.title}</div>
+              <div className="tabular-nums text-muted">{c.open ? c.accurate + "/" + c.of + " accurate" : "locked"}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {lv.drops.length > 0 && <div className="relative mt-3 text-xs text-muted">↻ {lv.drops.length} known {lv.drops.length === 1 ? "item needs" : "items need"} a review. Bobo adds it to your plan.</div>}
     </Link>
   );
 }
 
-function Stat({ value, label, icon }: { value: string; label: string; icon?: string }) {
+/** An open exercise: its stars so far, and NEW for a few days after it opens. */
+function Tile({ m, n, lv, current }: { m: Ex; n: number; lv: Levels; current: boolean }) {
+  const items = Object.values(lv.stars?.[m.key] ?? {});
+  const knownN = items.filter((s) => s.stars >= 3).length;
+  const accurate = items.filter((s) => s.stars >= 2).length;
+  const r = routeFor(m.href.split("?")[0]);
   return (
-    <div>
-      <div className="text-2xl font-semibold tabular-nums">{icon && <span className="mr-1 text-lg">{icon}</span>}{value}</div>
-      <div className="text-xs text-muted">{label}</div>
-    </div>
+    <Link href={m.href} className={"card tile group relative flex flex-col gap-3 p-4 transition hover:-translate-y-0.5 hover:border-accent md:p-5" + (current ? " border-accent/50" : "")}>
+      {n <= 9 && <Kbd className="absolute right-4 top-4 !h-6 !min-w-6 text-xs max-md:!hidden">{n}</Kbd>}
+      {m.isNew && <span className="absolute left-3 top-3 rounded-full bg-ok px-2 py-0.5 text-[10px] font-bold text-white">NEW</span>}
+      <span className="cjk grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-accent-soft text-2xl text-accent transition group-hover:scale-110">{r.icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-base font-semibold md:text-lg">{m.label}</div>
+        <div className="line-clamp-2 text-xs text-muted md:text-sm">{EXERCISE_DESC[m.key] ?? r.desc}</div>
+        {items.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+            <Stars n={knownN ? 3 : accurate ? 2 : 1} />
+            <span className="tabular-nums">{knownN ? knownN + " known" : accurate ? accurate + " accurate" : items.length + " seen"}</span>
+          </div>
+        )}
+      </div>
+    </Link>
   );
 }
 
@@ -346,4 +360,3 @@ function CoachCard({ st }: { st: CoachState }) {
     </section>
   );
 }
-

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { api, downloadExport, type ItemStat, type Stats as Data } from "@/lib/api";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
+import { exerciseOf, useLevels } from "@/lib/levels";
 import { setPref, usePref } from "@/lib/prefs";
 import { goalMinutes } from "@/lib/session";
 import { PHONE, useViewport } from "@/lib/useFit";
@@ -336,6 +337,7 @@ function TonesView({ data }: { data: Data }) {
   const info = MATRIX_INFO[mArea];
   return (
     <div className="flex flex-col gap-4 md:gap-5">
+      <RulesSection data={data} />
       <section className="card p-4 md:p-5">
         <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
           <h2 className="font-semibold">Tones at a glance</h2>
@@ -591,13 +593,15 @@ function SymbolsView({ data, area, sel, onPick, sheet, closeSheet }: { data: Dat
 }
 
 function SymbolDetails({ data, sym }: { data: Data; sym: string }) {
+  const { open } = useLevels();
+  const trainAreas = SYM_AREAS.filter((a) => { const ex = exerciseOf(trainHref(a, "symbol", [sym])); return !ex || open(ex); });
   const st = data.strokes.find((s) => s.sym === sym);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-4">
         <span className="cjk grid h-20 w-20 place-items-center rounded-2xl bg-raise text-6xl">{sym}</span>
         <div className="flex flex-wrap gap-1.5">
-          {SYM_AREAS.map((a) => <Link key={a} className="btn !px-3 !py-1.5 text-sm" href={trainHref(a, "symbol", [sym])}>Train {AREA_LABEL[a].toLowerCase()}</Link>)}
+          {trainAreas.map((a) => <Link key={a} className="btn !px-3 !py-1.5 text-sm" href={trainHref(a, "symbol", [sym])}>Train {AREA_LABEL[a].toLowerCase()}</Link>)}
         </div>
       </div>
       {SYM_AREAS.map((a) => {
@@ -758,3 +762,49 @@ function Records({ data }: { data: Data }) {
     </section>
   );
 }
+
+
+/** The tone rules (3-3, 不, 一): accuracy in the rule quiz and in recordings, the written tone read by mistake, and the hardest characters. */
+function RulesSection({ data }: { data: Data }) {
+  const rules = data.rules ?? [];
+  const any = rules.some((r) => r.n > 0);
+  return (
+    <section className="card p-4 md:p-5">
+      <div className="mb-1 flex flex-wrap items-baseline gap-x-2">
+        <h2 className="font-semibold">Tone rules</h2>
+        <span className="text-xs text-muted">the Bopomofo shows the written tone; these rules change it in words</span>
+      </div>
+      {!any && <p className="mb-3 text-sm text-muted">No tone rule answers yet. Learn the 3-3, 不 and 一 rules before you say full sentences.</p>}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {rules.map((r) => {
+          const few = r.n < 5;
+          const quiz = r.areas.listening, speak = r.areas.speaking;
+          return (
+            <div key={r.rule} className="flex flex-col gap-2 rounded-xl border border-line p-3">
+              <div className="flex items-baseline gap-2">
+                <b className="cjk">{r.name}</b>
+                <span className="ml-auto text-lg font-semibold tabular-nums" style={{ color: few ? "var(--muted)" : accTone(r.acc) }}>{r.n ? percent(r.acc) : "–"}</span>
+              </div>
+              <p className="text-xs text-muted cjk">{r.short}</p>
+              {r.n > 0 && (
+                <ul className="text-xs flex flex-col gap-0.5">
+                  <li>Quiz: {quiz ? <>{percent(quiz.acc)} of {quiz.n}</> : "not practiced"} · Said aloud: {speak ? <>{percent(speak.acc)} of {speak.n}</> : "not practiced"}</li>
+                  {r.literal > 0 && <li className="text-bad">Read the written tone {r.literal}× where the rule changes it</li>}
+                  {(r.errors.over ?? 0) > 0 && <li className="text-bad">Changed the tone {r.errors.over}× where it stays</li>}
+                  {r.chars.filter((c) => c.ok < c.n).length > 0 && (
+                    <li className="cjk">Hardest: {r.chars.filter((c) => c.ok < c.n).map((c) => c.char + " " + c.ok + "/" + c.n).join(" · ")}</li>
+                  )}
+                </ul>
+              )}
+              <div className="mt-auto flex gap-2 pt-1">
+                <Link className="btn !py-1 text-xs" href={r.quiz_href}>Quiz</Link>
+                <Link className="btn !py-1 text-xs" href={r.speak_href}>Say it</Link>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+

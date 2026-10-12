@@ -15,6 +15,7 @@ REC = levels.EXERCISES["recognize"][2]
 def tmpdb(pg, monkeypatch):
     monkeypatch.setattr(coach, "LIVE", False)
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
+    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
 
 
 def answer(area, sym, ok, ms=1500, ts=None):

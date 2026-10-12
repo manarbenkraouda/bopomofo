@@ -54,5 +54,6 @@ Each of these must handle the new area or kind:
 - components/stats/Stats.tsx: the area filter, trainHref, and the tabs (today, tones, sounds, symbols, history). Give the new
   kind a tab or a section with an accuracy grid, a confusion matrix (Matrix), what was produced instead, the trend, and
   Train links. Keep keyboard navigation (↑ ↓ or J K, and Enter to train) as on the symbols tab.
-- components/home/Dashboard.tsx: AREA_OF (route → area), the tiles, the challenges.
+- components/home/Dashboard.tsx: the open exercise tiles (from the level status) and the challenges. The backend filters
+  weak spots and challenges to open exercises (levels.is_open), so a new href must map to an exercise in levels.exercise_of.
 

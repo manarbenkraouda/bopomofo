@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { keyCaps, useHotkeys, useLayers, type Hotkey } from "@/lib/hotkeys";
-import { ROUTES, type RouteInfo } from "@/lib/routes";
+import { type RouteInfo } from "@/lib/routes";
 import { Caps, Kbd } from "./Kbd";
 import { BoboPose, poseFor, routeIcon } from "@/components/mascot/Bobo";
 
@@ -15,10 +15,10 @@ function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose
   );
 }
 
-/** "G then a key": jump to any screen. */
-export function GotoOverlay({ onGo, onClose }: { onGo: (href: string) => void; onClose: () => void }) {
+/** "G then a key": jump to any open screen. Screens that open at a higher level are not in the list. */
+export function GotoOverlay({ routes, onGo, onClose }: { routes: RouteInfo[]; onGo: (href: string) => void; onClose: () => void }) {
   useHotkeys("goto", [
-    ...ROUTES.map((r) => ({ keys: [r.key], label: r.label, run: () => onGo(r.href) })),
+    ...routes.map((r) => ({ keys: [r.key], label: r.label, run: () => onGo(r.href) })),
     { keys: ["Escape", "KeyG"], label: "Close", run: onClose },
   ], { modal: true, order: 10 });
   return (
@@ -26,7 +26,7 @@ export function GotoOverlay({ onGo, onClose }: { onGo: (href: string) => void; o
       <div className="p-4">
         <div className="mb-3 text-sm text-muted">Go to: press a key</div>
         <div className="grid grid-cols-2 gap-2">
-          {ROUTES.map((r) => (
+          {routes.map((r) => (
             <button key={r.href} onClick={() => onGo(r.href)} className="flex items-center gap-3 rounded-xl border border-line px-3 py-2.5 text-left hover:border-accent">
               <Kbd className="w-7">{keyCaps(r.key)}</Kbd>
               <span className="cjk grid w-6 place-items-center text-lg text-accent">{routeIcon(r, 24)}</span>
@@ -96,7 +96,7 @@ const allCaps = (k: Hotkey) => {
 };
 
 /** "?": the keys of the current screen, the global keys, and what the screen is for. */
-export function HelpOverlay({ route, onClose }: { route: RouteInfo; onClose: () => void }) {
+export function HelpOverlay({ route, routes, onClose }: { route: RouteInfo; routes: RouteInfo[]; onClose: () => void }) {
   const layers = useLayers();
   const page = layers.filter((l) => l.order === 1).flatMap((l) => l.keys).filter((k) => k.when !== false && k.run && k.keys.length);
   useHotkeys("help", [{ keys: ["Escape", "Shift+Slash"], label: "Close", run: onClose }], { modal: true, order: 10 });
@@ -131,7 +131,7 @@ export function HelpOverlay({ route, onClose }: { route: RouteInfo; onClose: () 
           </ul>
           <h3 className="mb-2 text-xs uppercase tracking-wide text-muted">G, then</h3>
           <ul className="grid grid-cols-2 gap-1.5 text-sm">
-            {ROUTES.map((r) => <li key={r.href} className="flex items-center gap-2"><Kbd className="w-7">{keyCaps(r.key)}</Kbd>{r.label}</li>)}
+            {routes.map((r) => <li key={r.href} className="flex items-center gap-2"><Kbd className="w-7">{keyCaps(r.key)}</Kbd>{r.label}</li>)}
           </ul>
           <p className="mt-5 text-xs leading-relaxed text-muted">Keys follow the position on the keyboard, so they work the same on QWERTY and AZERTY. Answer keys are 1 to 4, or A S D F on the home row.</p>
         </section>

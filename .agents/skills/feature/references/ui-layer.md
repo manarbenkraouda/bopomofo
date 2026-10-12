@@ -1,9 +1,13 @@
 # UI layer
 
 - **Route**: add an entry to ROUTES in frontend/src/lib/routes.ts: href, label, icon, key ("G then key"; check that no other
-  route uses the key), area, desc, and about (the help overlay text, which lists the keys). The area "practice" adds the mode
-  to the Rail and to the Home tiles with a digit key. Dashboard DIGITS has 9 keys for MODES (practice + study), so a tenth mode
-  needs a new key scheme. Practice routes are lesson screens on a phone: a ✕ header, no BottomNav, and the coach StepBanner.
+  route uses the key), area, desc, and about (the help overlay text, which lists the keys). Practice routes are lesson
+  screens on a phone: a ✕ header, no BottomNav, and the coach StepBanner.
+- **Level**: every exercise (a mode, or a variant like "listening/zhuyin") is locked until its level opens. Add it to
+  backend/app/levels.py (EXERCISES with its star spec, and the "opens" list of one LEVELS entry; STEP_EXERCISE for its coach
+  step type) and to frontend/src/lib/levels.tsx (ROUTE_EXERCISES, EXERCISE_DESC, and exerciseOf when it is a URL variant).
+  The Rail, the palette, the Home tiles (digit keys 1-9 for the open exercises), and the variant chips show only the open
+  exercises; a locked route renders LockedScreen. Gate every new link to a mode with useLevels().open or routeOpen.
 - **Page**: app/<route>/page.tsx with a metadata title. Wrap the component in Suspense when it uses useSearchParams.
 - **Keys** (lib/hotkeys.ts, useHotkeys(name, keys, {order})): every action has a key, and the label shows in the bottom
   controls bar and the help overlay. Conventions: choices 1-4 or A S D F (ANSWER_KEYS), secondary choices Q W E R, Enter to

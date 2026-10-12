@@ -34,7 +34,7 @@ import pg8000.dbapi
 from . import config
 
 pg8000.dbapi.paramstyle = "qmark"  # pg8000 reads the style from the module only
-UNIT_KINDS = {"tone", "initial", "final", "symbol", "syllable", "stroke", "order"}
+UNIT_KINDS = {"tone", "initial", "final", "symbol", "syllable", "stroke", "order", "sandhi"}
 MIGRATIONS = Path(__file__).parent / "migrations"
 POOL_SIZE = 10
 NUMERIC_OID = 1700
@@ -480,6 +480,7 @@ def summary() -> dict:
         ev = c.execute("SELECT area, ok, ts, day FROM events").fetchall()
         sym_rows = c.execute("SELECT area, expected, ok, help FROM units WHERE kind='symbol' AND try_n=0").fetchall()
         tone_rows = c.execute("SELECT expected, ok FROM units WHERE kind='tone' AND area='speaking' AND ok IS NOT NULL").fetchall()
+        rule_rows = c.execute("SELECT expected, ok, help FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL").fetchall()
         active = {r[0] for r in c.execute("SELECT day FROM days WHERE seconds > 0")}
         n_sent = c.execute("SELECT COUNT(*) FROM sentences").fetchone()[0]
     areas = defaultdict(lambda: {"total": 0, "ok": 0, "week": 0})
@@ -502,8 +503,12 @@ def summary() -> dict:
     for r in tone_rows:
         tones[r["expected"]]["n"] += 1
         tones[r["expected"]]["err"] += 0 if r["ok"] else 1
+    rules = defaultdict(lambda: {"n": 0, "err": 0})
+    for r in rule_rows:
+        rules[r["expected"]]["n"] += 1
+        rules[r["expected"]]["err"] += 0 if (r["ok"] and not r["help"]) else 1
     return {"areas": dict(areas), "symbols": dict(sym), "symbols_by_area": {k: dict(v) for k, v in by_area.items()},
-            "tones": dict(tones), "sentences": n_sent, "day_streak": streak(days), "attempts": len(ev)}
+            "tones": dict(tones), "rules": dict(rules), "sentences": n_sent, "day_streak": streak(days), "attempts": len(ev)}
 
 
 MEMORY_KEEP = 20
