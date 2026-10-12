@@ -22,12 +22,12 @@ import { LockedScreen, UnlockOverlay } from "@/components/levels/LevelUi";
 type Overlay = null | "palette" | "help" | "goto";
 
 /**
- * The sign-in and sign-up pages show only the Clerk form, and the onboarding fills the screen.
- * Every other page gets the app shell, and first checks that the onboarding is done.
+ * The sign-in and sign-up pages show only the Clerk form, and the onboarding and the placement test fill the screen.
+ * Every other page gets the app shell, and first checks that the onboarding (and a due placement test) is done.
  */
 export function Frame({ children }: { children: React.ReactNode }) {
   const path = usePathname();
-  if (path.startsWith("/onboarding")) return <div className="h-full">{children}</div>;
+  if (path.startsWith("/onboarding") || path.startsWith("/placement")) return <div className="h-full">{children}</div>;
   if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
     return (
       <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto p-4 lg:flex-row lg:gap-16">
@@ -46,12 +46,13 @@ export function Frame({ children }: { children: React.ReactNode }) {
   return <AiQuotaProvider><LevelsProvider><OnboardingGate /><AppShell>{children}</AppShell></LevelsProvider></AiQuotaProvider>;
 }
 
-/** Sends a learner who has not finished the onboarding to it, and keeps the daily goal the same on every device. */
+/** Sends a learner who has not finished the onboarding (or a due placement test) to it, and keeps the daily goal the same on every device. */
 function OnboardingGate() {
   const router = useRouter();
   useEffect(() => {
     api.me().then((m) => {
       if (!m.onboarded) router.replace("/onboarding");
+      else if (m.placement === "due") router.replace("/placement");
       else if (m.goal_min && m.goal_min !== goalMinutes()) setGoalMinutes(m.goal_min);
     }).catch(() => {});
   }, [router]);

@@ -70,6 +70,7 @@ export function Onboarding() {
   const [picking, setPicking] = useState(false);
   const [mic, setMic] = useState<Mic>("idle");
   const [saving, setSaving] = useState(false);
+  const [test, setTest] = useState(false); // the placement test comes next (everyday and fluent levels)
   const [error, setError] = useState("");
   const restored = useRef(false);
   const i = STEPS.indexOf(step);
@@ -86,7 +87,7 @@ export function Onboarding() {
     }
     restored.current = true;
     api.me().then((m) => {
-      if (m.onboarded) { router.replace("/"); return; }
+      if (m.onboarded) { router.replace(m.placement === "due" ? "/placement" : "/"); return; }
       setD((x) => ({ ...x, name: x.name || m.name, timezone: m.timezone_set ? m.timezone : x.timezone }));
     }).catch(() => {});
     if (typeof navigator !== "undefined" && !navigator.mediaDevices?.getUserMedia) setMic("unsupported");
@@ -108,7 +109,8 @@ export function Onboarding() {
     if (!d.level || !d.bopomofo || !d.goal || !d.name.trim()) return;
     setSaving(true); setError("");
     try {
-      await api.onboard({ name: d.name.trim(), reasons: d.reasons, level: d.level, bopomofo: d.bopomofo, goal_min: d.goal, timezone: d.timezone });
+      const me = await api.onboard({ name: d.name.trim(), reasons: d.reasons, level: d.level, bopomofo: d.bopomofo, goal_min: d.goal, timezone: d.timezone });
+      setTest(me.placement === "due");
       setGoalMinutes(d.goal);
       sessionStorage.removeItem(DRAFT_KEY);
       playSfx("right");
@@ -139,7 +141,8 @@ export function Onboarding() {
     mic: mic === "idle" || mic === "asking"
       ? { label: mic === "asking" ? "Waiting for the browser…" : "Allow microphone", ok: mic === "idle", run: askMic }
       : { label: saving ? "Saving…" : "Finish", ok: !saving, run: finish },
-    done: { label: "Start learning", ok: true, run: () => router.replace("/") },
+    done: test ? { label: "Take the placement test", ok: true, run: () => router.replace("/placement") }
+      : { label: "Start learning", ok: true, run: () => router.replace("/") },
   }[step];
 
   // Number keys pick an answer on the screens with a list.
@@ -259,7 +262,7 @@ export function Onboarding() {
 
                 {step === "mic" && <MicScreen mic={mic} />}
 
-                {step === "done" && <Done d={d} mic={mic} />}
+                {step === "done" && <Done d={d} mic={mic} test={test} />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -413,7 +416,7 @@ function MicScreen({ mic }: { mic: Mic }) {
   );
 }
 
-function Done({ d, mic }: { d: Draft; mic: Mic }) {
+function Done({ d, mic, test }: { d: Draft; mic: Mic; test: boolean }) {
   const zone = zoneLabel(d.timezone);
   const rows: [string, string, string][] = [
     ["時", "Daily goal", (d.goal ?? 0) + " min a day"],
@@ -430,7 +433,10 @@ function Done({ d, mic }: { d: Draft; mic: Mic }) {
       </div>
       <div className="flex flex-col gap-1.5">
         <h1 className="text-2xl font-bold md:text-3xl">You&apos;re all set, {d.name.trim()}!</h1>
-        <p className="mx-auto max-w-sm text-muted">I’m Bobo (波波), your coach. I’m writing your first plan from your answers. It is ready in about a minute.</p>
+        <p className="mx-auto max-w-sm text-muted">
+          {test ? "I’m Bobo (波波), your coach. You already speak Mandarin, so let’s find your level first: a short test of the symbols and your voice, about 5 minutes."
+            : "I’m Bobo (波波), your coach. I’m writing your first plan from your answers. It is ready in about a minute."}
+        </p>
       </div>
       <div className="card w-full divide-y divide-line overflow-hidden text-left">
         {rows.map(([icon, label, value]) => (

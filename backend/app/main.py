@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from . import auth, coach, db, deep_check, levels, limits, llm, scoring, speaker, stats, symbols, tts, typed_fix
+from . import auth, coach, db, deep_check, levels, limits, llm, placement, scoring, speaker, stats, symbols, tts, typed_fix
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
@@ -189,6 +189,7 @@ def me_state() -> dict:
     level = s.get("level")
     return {"onboarded": bool(s.get("onboarded_at")), "timezone": s.get("timezone") or DEFAULT_TIMEZONE, "timezone_set": bool(s.get("timezone")),
             "goal_min": s.get("goal_min"), "level": level, "bopomofo": s.get("bopomofo"), "reasons": s.get("reasons") or [],
+            "placement": (s.get("placement") or {}).get("status") or "none",
             "sentence_level": LEVELS[level][1] if level in LEVELS else "beginner", "name": db.get_profile().get("name", "")}
 
 
@@ -226,6 +227,8 @@ def onboarding(body: OnboardingIn):
     db.set_profile({k: str(v)[:1000] for k, v in p.items() if k in llm.PROFILE_LABELS})
     db.save_settings({"timezone": tz, "goal_min": body.goal_min, "level": body.level, "bopomofo": body.bopomofo,
                       "reasons": list(dict.fromkeys(body.reasons)), "onboarded_at": time.time()})
+    # Intermediate and advanced learners take the placement test next (placement.py), before the first plan.
+    placement.on_onboarding(body.level)
     # No plan yet: Home first asks for the rest of the profile, then the coach builds the first plan.
     return me_state()
 
@@ -557,6 +560,28 @@ class SeenIn(BaseModel):
 def levels_seen(body: SeenIn):
     levels.mark_seen(body.ids)
     return {"ok": True}
+
+
+@app.get("/api/placement")
+def placement_get():
+    """The placement test: what it asks (symbols, syllables, sentences), whether it is due, and the result when done."""
+    return placement.content()
+
+
+class PlacementIn(BaseModel):
+    alphabet_ids: list[int] = Field(default_factory=list, max_length=60)
+    voice_ids: list[int] = Field(default_factory=list, max_length=60)
+    voice_skipped: bool = False
+
+
+@app.post("/api/placement/finish")
+def placement_finish(body: PlacementIn):
+    """Score the saved answers of the test, open the levels it proves, and save the result. Only once."""
+    if not placement.due():
+        raise HTTPException(409, "The placement test is already done.")
+    res = placement.finish(body.alphabet_ids, body.voice_ids, body.voice_skipped)
+    r = coach.refresh()
+    return {"result": res, "notices": (r.get("levels") or {}).get("notices") or []}
 
 
 class PlanIn(BaseModel):

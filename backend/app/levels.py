@@ -97,7 +97,8 @@ MAX_LEVEL = len(LEVELS)
 # The alphabet of level 1 comes in chapters. A chapter opens when 90% of the chapter before it is accurate (★★) by sight.
 CHAPTERS = [("initials", "Initials", INITIALS), ("medials", "Medials", MEDIALS), ("finals", "Finals", FINALS)]
 CHAPTER_MODES = ["reading", "recognize"]
-# Learners who said they read Bopomofo skip the "two days" rule for the alphabet (a placement): accuracy and speed still count.
+# Learners who said they read Bopomofo, or who passed the alphabet part of the placement test (placement.py), skip the
+# "two days" rule for the alphabet: accuracy and speed still count.
 PLACEMENT_MODES = {"reading", "recognize", "dictation", "writing/symbol"}
 
 # Coach step types and the exercise each one needs. speak_sounds depends on its source.
@@ -424,7 +425,8 @@ def _chapter_done(stars: dict, syms: str) -> bool:
 
 def _placement() -> bool:
     try:
-        return db.get_settings().get("bopomofo") == "reads"
+        s = db.get_settings()
+        return s.get("bopomofo") == "reads" or bool(((s.get("placement") or {}).get("result") or {}).get("alphabet_known"))
     except Exception:  # noqa: BLE001
         return False
 

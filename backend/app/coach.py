@@ -29,7 +29,7 @@ from datetime import timedelta
 from functools import lru_cache
 from urllib.parse import quote
 
-from . import db, deep_check, levels, limits, llm, stats, typed_fix
+from . import db, deep_check, levels, limits, llm, placement, stats, typed_fix
 from .config import COACH_MODEL, OPENROUTER_MODEL, ROOT
 from .zhuyin import RULES, analyze_text
 
@@ -342,6 +342,7 @@ def _known_dir(v: list[bool]) -> bool:
 def alphabet_status() -> dict:
     """Per symbol, from first-try answers without help: say it (reading), type its pinyin (recognize), write it (dictation, writing),
     pick it (listening). known = said, typed, or written right reliably; learning = seen but not known yet; new = never practiced.
+    A symbol typed right in a passed placement test is known too, until its last 2 answers in one direction are wrong.
     reps = right answers in reading, recognize, and dictation, with or without help. Answers in learn mode (the answer is shown on purpose)
     are repetitions only: they are not tests, so they do not count for or against "known"."""
     rows = _q("SELECT u.area, u.kind, u.expected, u.ok, u.help, u.try_n, (e.details::jsonb -> 'learn') AS learn"
@@ -365,10 +366,13 @@ def alphabet_status() -> dict:
                 if ch in per:
                     per[ch]["pick"].append(good)
     symbols, known, learning, new = [], [], [], []
+    placed = set(placement.known_symbols())
     for s in SYMS:
         d = per[s]
         n = sum(len(v) for v in d.values())
-        state = "known" if _known_dir(d["say"]) or _known_dir(d["type"]) or _known_dir(d["write"]) else "learning" if n or reps[s] else "new"
+        lost = any(len(v) >= 2 and not v[-1] and not v[-2] for v in d.values())
+        state = ("known" if _known_dir(d["say"]) or _known_dir(d["type"]) or _known_dir(d["write"]) or (s in placed and not lost)
+                 else "learning" if n or reps[s] else "new")
         right = sum(sum(v) for v in d.values())
         symbols.append({"sym": s, "state": state, "answers": n, "right": right, "reps": reps[s],
                         "phase": "known" if state == "known" else "recall" if reps[s] >= LEARN_REPS else "repeat",
@@ -680,6 +684,7 @@ def digest(lv: dict | None = None) -> dict:
                      "tone_rules": {"known": rs["known"], "not_known": rs["missing"], "rule_active": rs["gate"],
                                     "steps_the_app_adds_first": tone_rules["steps_the_app_adds_first"]},
                      "level": levels.coach_view(lv),
+                     "placement": placement.coach_view(),
                      "mastered": mastered,
                      "detailed_answers": detail["n"], "detailed_log_since": detail["since"],
                      "old_answers_without_detail": sum(1 for e in events if e["legacy"])},
@@ -720,6 +725,8 @@ The coach is a pipeline of small decisions. You make one of them. Rules for ever
 - The Bopomofo alphabet (37 symbols) is the foundation. "overview.alphabet" says which symbols the learner knows: a symbol is known
   only when it was said or written right without help, reliably. Never say the learner knows, reads, or hears the symbols unless
   "known_symbols" shows it. Tones can be trained by ear and by speaking without the alphabet.
+- "overview.placement" (when present) is the one placement test the learner took after the onboarding: the level it gave, the
+  alphabet score, and the syllable and sentence scores with the sounds missed. It is one short test, so trust newer answers more.
 - Each row of "overview.modes" says what that mode measures. Draw a conclusion only from a mode that measures it: the tone quiz
   ("listening/tone") measures tones by ear, not symbols. "answer_shown_pct" is how often the learner asked for the answer.
 - "Surface tone" is the tone after tone changes (3-3 is said 2-3; 不 and 一 change). Tone 5 is the neutral tone.
