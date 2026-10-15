@@ -19,6 +19,8 @@ export type Hotkey = {
   repeat?: boolean;
   /** Key caps to show instead of the real keys, e.g. "1-4". */
   show?: string[];
+  /** Hold the key: run fires once on the press, up on the release (or when the window loses focus). */
+  up?: () => void;
 };
 
 type Layer = { id: number; name: string; modal: boolean; order: number; get: () => Hotkey[] };
@@ -28,6 +30,8 @@ const subs = new Set<() => void>();
 let version = 0;
 let seq = 0;
 let installed = false;
+/** Keys held down now, with their release handlers. */
+const held = new Map<string, () => void>();
 const emit = () => { version++; subs.forEach((f) => f()); };
 
 export const isTyping = (t: EventTarget | null) =>
@@ -43,12 +47,14 @@ const ordered = () => [...layers].sort((a, b) => b.order - a.order || b.id - a.i
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || e.defaultPrevented) return;
+  if (e.repeat && held.has(e.code)) { e.preventDefault(); return; }
   const combo = comboOf(e);
   const typing = isTyping(e.target);
   for (const layer of ordered()) {
     const hit = layer.get().find((k) => k.run && k.when !== false && k.keys.includes(combo) && (!typing || k.input) && (!e.repeat || k.repeat));
     if (hit) {
       e.preventDefault();
+      if (hit.up) held.set(e.code, hit.up);
       hit.run!(e);
       return;
     }
@@ -56,10 +62,26 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
+function onKeyUp(e: KeyboardEvent) {
+  const up = held.get(e.code);
+  if (!up) return;
+  held.delete(e.code);
+  e.preventDefault();
+  up();
+}
+
+function releaseAll() {
+  const ups = [...held.values()];
+  held.clear();
+  ups.forEach((f) => f());
+}
+
 function install() {
   if (installed || typeof window === "undefined") return;
   installed = true;
   window.addEventListener("keydown", onKey);
+  window.addEventListener("keyup", onKeyUp);
+  window.addEventListener("blur", releaseAll);
 }
 
 const signature = (keys: Hotkey[]) => keys.map((k) => k.keys.join(",") + ":" + k.label + ":" + (k.when !== false) + ":" + (k.bar !== false)).join("|");

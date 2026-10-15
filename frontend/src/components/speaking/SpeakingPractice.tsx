@@ -6,8 +6,8 @@ import { api, ttsUrl, type Health, type RulePhrase, type Sentence, type SpeechRe
 import { playAudio } from "@/lib/audio";
 import { FocusChip, matches, useFocus, type Focus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
-import { Recorder } from "@/lib/recorder";
 import { playSfx } from "@/lib/sfx";
+import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
 import { useReview } from "@/lib/review";
 import { correctedScore, pollDeepCheck } from "@/lib/deepCheck";
 import { loadData, syllableAudio, TONE_NAME, type SyllableItem } from "@/lib/zhuyin";
@@ -86,8 +86,7 @@ export function SpeakingPractice() {
   const [custom, setCustom] = useState(params.get("text") ?? "");
   const [bopo, setBopo] = useState(true);
   const [cheated, setCheated] = useState(false);
-  const [rec, setRec] = useState<"idle" | "recording" | "analyzing">("idle");
-  const [level, setLevel] = useState(0);
+  const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<SpeechResult | null>(null);
   const [mine, setMine] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -97,8 +96,6 @@ export function SpeakingPractice() {
   const [typedNote, setTypedNote] = useState("");
   const [deepNote, setDeepNote] = useState("");
   const { w: vw } = useViewport();
-  const recorder = useRef<Recorder | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const loadId = useRef(0);
   // The card in progress: the cheat and the number of recordings already checked, for the stats.
@@ -193,7 +190,19 @@ export function SpeakingPractice() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, phraseKey, scheduled]);
   useEffect(() => { if (source === "custom" && !params.get("text")) { loadId.current++; show(null); } }, [source]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { alive.current = true; return () => { alive.current = false; if (timer.current) clearTimeout(timer.current); }; }, []);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+
+  // Press and hold to record: the microphone stays open, and each recording keeps half a second from before the press,
+  // so the first consonant (b, p, d, t) is not cut.
+  const ready = health?.speech_model === "ready";
+  const hold = useHoldMic({
+    active: ready,
+    maxS: 15,
+    onClip: (c) => void onClipRef.current(c),
+    onDiscard: (why) => setError(holdHint(why, "R", vw < PHONE)),
+  });
+  const rec: "idle" | "recording" | "analyzing" = analyzing ? "analyzing" : hold.holding ? "recording" : "idle";
+  const level = hold.level;
 
   const next = () => {
     if (rec !== "idle") return;
@@ -276,51 +285,31 @@ export function SpeakingPractice() {
     }
     return null;
   };
-  const start = async () => {
-    clearRecording();
-    try {
-      recorder.current = new Recorder();
-      recorder.current.onLevel = (v) => setLevel(Math.min(1, v * 8));
-      await recorder.current.start();
-      setRec("recording");
-      timer.current = setTimeout(stop, 15000);
-    } catch (e) {
-      recorder.current = null;
-      setError("Microphone not available: " + (e as Error).message);
-      setRec("idle");
-    }
-  };
-  async function stop() {
-    if (timer.current) clearTimeout(timer.current);
-    const r = recorder.current;
-    if (!r) return;
-    recorder.current = null;
-    setRec("analyzing");
-    const { wav, seconds } = await r.stop();
-    setLevel(0);
-    setMine(URL.createObjectURL(wav));
-    if (seconds < 0.4) { setError("The recording is too short. Speak, then stop."); setRec("idle"); return; }
+  const press = () => { clearRecording(); void hold.press(); };
+  const onClip = async (c: Clip) => {
+    setAnalyzing(true);
+    setMine(URL.createObjectURL(c.wav));
     playSfx("tick");
-    await check(wav);
-    setRec("idle");
-  }
+    await check(c.wav);
+    setAnalyzing(false);
+  };
+  const onClipRef = useRef(onClip);
+  useEffect(() => { onClipRef.current = onClip; });
   const upload = async (f: File) => {
     if (!card) return;
     clearRecording();
     setMine(URL.createObjectURL(f));
-    setRec("analyzing");
+    setAnalyzing(true);
     await check(f);
-    setRec("idle");
+    setAnalyzing(false);
   };
 
   const marks = useMemo(() => result?.syllables.map((s) => (!s.heard ? "#d23f3f" : s.tone_ok && s.initial_ok !== false && s.final_ok !== false ? "#2f9466" : "#d23f3f")), [result]);
-  const ready = health?.speech_model === "ready";
   const canRecord = ready && !!card && rec !== "analyzing" && typedCheck !== "open";
   const canNext = rec === "idle" && (source === "custom" ? !!card : source === "sentence" ? sentences.length > 0 : source === "rule" ? phrases.length > 0 : sylls.length > 0);
-  const recordToggle = () => { if (rec === "idle") start(); else if (rec === "recording") stop(); };
 
   useHotkeys("speaking", [
-    { keys: ["KeyR"], label: rec === "recording" ? "Stop" : result ? "Try again" : "Record", run: recordToggle, when: canRecord },
+    { keys: ["KeyR"], label: result ? "Hold to try again" : "Hold to record", run: press, up: () => void hold.release(), when: canRecord },
     { keys: ["Space"], label: cheated ? "Hear it again" : "Cheat: hear it", run: cheat, when: !!card },
     { keys: ["Shift+Space"], label: "Slow", run: () => card?.slow && playAudio(card.slow), when: cheated && !!card?.slow },
     { keys: ["KeyP"], label: "My recording", run: () => mine && playAudio(mine), when: !!mine && rec === "idle" },
@@ -335,7 +324,7 @@ export function SpeakingPractice() {
   const single = card ? card.items.filter((x) => x.type === "syllable").length === 1 : false;
   const phone = vw < PHONE;
   const fx: FxStatus = rec === "recording" ? "hearing" : rec === "analyzing" ? "checking" : result ? grade(result.score) : "idle";
-  const pill = rec === "recording" ? (phone ? "Recording… tap Stop when done" : "Recording… press R to stop")
+  const pill = rec === "recording" ? "Recording… let go when done"
     : rec === "analyzing" ? "Checking…"
     : result ? verdict(result.score)
     : cheated ? "Now say it yourself" : "Read it aloud";
@@ -397,7 +386,7 @@ export function SpeakingPractice() {
           {typedNote && <div className="text-sm text-center max-w-md cjk text-muted" role="status">{typedNote}</div>}
           {deepNote && <div className="text-sm text-center max-w-md text-ok" role="status">{deepNote}</div>}
           {typedCheck === "open" && rec === "idle" && <PinyinCheck example="po, ma, or zi" check={checkTyped} onClose={() => setTypedCheck("closed")} />}
-          {error && <div className="text-bad text-sm">{error}</div>}
+          {(error || hold.error) && <div className="text-bad text-sm">{error || hold.error}</div>}
 
           <div className="w-full max-w-3xl">
           <ActionBar tone={tone} title={tone ? verdict(result!.score) : undefined}
@@ -413,9 +402,10 @@ export function SpeakingPractice() {
               ? <button className="btn" onClick={next}>{source === "custom" ? "New text" : "Next"} <Kbd className="max-md:!hidden">Enter</Kbd></button>
               : source !== "custom" && <button className="btn text-muted" onClick={next}>Skip <Kbd className="max-md:!hidden">N</Kbd></button>)}
             {rec === "recording" && <div className="w-24 h-2 rounded bg-line overflow-hidden max-md:!hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(level * 100) + "%" }} /></div>}
-            <button onClick={rec === "analyzing" ? undefined : recordToggle} disabled={!canRecord}
+            <button {...hold.bind} onPointerDown={(e) => { if (e.button === 0) clearRecording(); hold.bind.onPointerDown(e); }} disabled={!canRecord} aria-label="Hold to record"
               className={"btn ab-primary !rounded-full !px-6 !py-3 text-base " + (rec === "recording" ? "btn-accent recording" : "btn-primary")}>
-              {rec === "idle" ? <>● {result ? "Try again" : "Record"} <Kbd className="max-md:!hidden">R</Kbd></> : rec === "recording" ? <>■ Stop <Kbd className="max-md:!hidden">R</Kbd></> : "Checking…"}
+              {rec === "idle" ? (hold.state === "opening" ? "Starting the mic…" : <>● Hold to {result ? "try again" : "record"} <Kbd className="max-md:!hidden">R</Kbd></>)
+                : rec === "recording" ? "● Recording… let go" : "Checking…"}
             </button>
           </ActionBar>
           </div>

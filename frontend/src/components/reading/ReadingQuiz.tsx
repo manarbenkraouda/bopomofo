@@ -5,12 +5,15 @@ import { api, type Health, type SymbolCheck, type Unit } from "@/lib/api";
 import { onPlaying, playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
-import { Listener, type Utterance } from "@/lib/listener";
+import { Listener } from "@/lib/listener";
 import { answerText, symbolOfPinyin } from "@/lib/pinyin";
+import { setPref, usePref } from "@/lib/prefs";
 import { inSet, SET_LABEL, SYMBOL_NAME as NAME, type SymbolSet as Set_ } from "@/lib/quiz";
 import { useReview } from "@/lib/review";
 import { playSfx, type Sfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
+import { holdHint, useHoldMic } from "@/lib/useHoldMic";
+import { PHONE, useViewport } from "@/lib/useFit";
 import { loadData, symbolAudio, type MoeRow } from "@/lib/zhuyin";
 import { FxFrame, StatusPill } from "@/components/quiz/Feedback";
 import { PinyinCheck } from "@/components/quiz/PinyinCheck";
@@ -22,6 +25,9 @@ type Status = "idle" | "listening" | "hearing" | "checking" | "wrong" | "right";
 type Check = "none" | "open" | "closed" | "done";
 const CHECK_AFTER = 3;
 const SETS = Object.keys(SET_LABEL) as Set_[];
+/** How the microphone records: hold a key or the button while speaking (default), or hands-free with voice detection. */
+type MicMode = "hold" | "auto";
+const MIC_KEY = "zhuyin.mic";
 
 export function ReadingQuiz() {
   const [rows, setRows] = useState<MoeRow[]>([]);
@@ -40,6 +46,8 @@ export function ReadingQuiz() {
   const [fxKey, setFxKey] = useState(0); // replays the result animation on every new result
   const [check, setCheckState] = useState<Check>("none");
   const [typedNote, setTypedNote] = useState("");
+  const holdMode = (usePref(MIC_KEY, "hold") as MicMode) !== "auto";
+  const phone = useViewport().w < PHONE;
 
   const listener = useRef<Listener | null>(null);
   const curRef = useRef<MoeRow | null>(null);
@@ -126,7 +134,7 @@ export function ReadingQuiz() {
       details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined, typed_fix: typedFix || undefined } });
   }, [set, focus, learn, review]);
 
-  const onUtterance = useCallback(async (u: Utterance) => {
+  const onUtterance = useCallback(async (u: { wav: Blob }) => {
     const row = curRef.current;
     if (!row || busy.current || checkRef.current === "open") return;
     busy.current = true;
@@ -262,26 +270,51 @@ export function ReadingQuiz() {
 
   const modelReady = health !== null && health !== "down" && health.speech_model === "ready";
 
-  // Start the microphone by itself when the page opens and the model is ready, if the browser allows it
-  // (the user already clicked or typed in the app). Runs again each time the page is shown.
+  // Hold mode: the microphone records only while R or the button is held, with half a second kept from before the press.
+  const hold = useHoldMic({
+    active: holdMode && modelReady,
+    maxS: 4,
+    onClip: (c) => onUtteranceRef.current(c),
+    onDiscard: (why) => { if (!busy.current) setHint(holdHint(why, "R", phone)); },
+  });
+  const setMicMode = (m: MicMode) => setPref(MIC_KEY, m);
+
+  // Hands-free mode: start the microphone by itself when the page opens and the model is ready, if the browser allows it
+  // (the user already clicked or typed in the app). Runs again each time the page is shown. Hold mode stops it.
   useEffect(() => {
+    if (holdMode) { if (listener.current) stop(); return; }
     if (!modelReady) return;
     const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
     if (ua?.hasBeenActive && !listener.current) start();
-  }, [modelReady]);
+  }, [modelReady, holdMode]);
 
   const canSkip = revealed && tries >= 3 && status !== "right";
+  const canHold = modelReady && status !== "checking" && check !== "open";
   useHotkeys("reading", [
-    { keys: ["KeyR", "Enter"], label: running ? "Pause mic" : "Start mic", run: () => { if (running) stop(); else start(); }, when: running || modelReady },
+    holdMode
+      ? { keys: ["KeyR"], label: "Hold to speak", run: () => void hold.press(), up: () => void hold.release(), when: canHold || hold.holding }
+      : { keys: ["KeyR", "Enter"], label: running ? "Pause mic" : "Start mic", run: () => { if (running) stop(); else start(); }, when: running || modelReady },
     { keys: ["Space"], label: revealed ? "Hear it again" : "Hear the answer", run: reveal, when: !!cur },
     { keys: ["KeyN"], label: "Skip", run: skip, when: canSkip },
-    { keys: ["Escape"], label: "Pause mic", run: stop, when: running, bar: false },
+    { keys: ["Escape"], label: "Pause mic", run: stop, when: running && !holdMode, bar: false },
     ...cycleKeys("Symbol set", SETS, set, setSet),
   ]);
 
   const name = cur ? NAME[cur.sym] : null;
-  const border = status === "right" ? "border-ok bg-ok/5" : status === "wrong" ? "border-bad/60 bg-bad/5" : status === "checking" ? "border-rough/70" : status === "hearing" ? "border-accent/50" : "border-line";
+  // In hold mode, "hearing" means the button is held, and "listening" means the microphone waits for a press.
+  const shownStatus: Status = !holdMode ? status
+    : hold.holding ? "hearing"
+    : status === "right" || status === "wrong" || status === "checking" ? status
+    : modelReady ? "listening" : "idle";
+  const shownLevel = holdMode ? hold.level : level;
+  const border = shownStatus === "right" ? "border-ok bg-ok/5" : shownStatus === "wrong" ? "border-bad/60 bg-bad/5" : shownStatus === "checking" ? "border-rough/70" : shownStatus === "hearing" ? "border-accent/50" : "border-line";
   const symColor = status === "right" ? "text-ok" : status === "wrong" ? "text-bad" : "";
+  const holdLabel = phone ? "Hold the button and say it" : "Hold R and say it";
+  const pillLabel = holdMode
+    ? (shownStatus === "hearing" ? "Speak, then let go" : shownStatus === "wrong" ? "Not quite, try again"
+      : shownStatus === "listening" ? (learn ? "Listen, then hold and repeat" : holdLabel) : undefined)
+    : (!running && status === "idle" ? "Start the mic to begin" : status === "wrong" ? "Not quite, try again"
+      : learn && (status === "listening" || status === "hearing") ? "Listen, then repeat" : undefined);
 
   return (
     <div className="flex flex-1 flex-col gap-4">
@@ -290,6 +323,9 @@ export function ReadingQuiz() {
         {SETS.map((k) => (
           <button key={k} className="chip cjk" data-active={!focused.length && set === k} onClick={() => setSet(k)}>{SET_LABEL[k]}</button>
         ))}
+        <span className="mx-1 h-5 w-px bg-line max-md:hidden" aria-hidden />
+        <button className="chip" data-active={holdMode} onClick={() => setMicMode("hold")} title="Record only while you hold R or the button">Hold to speak</button>
+        <button className="chip" data-active={!holdMode} onClick={() => setMicMode("auto")} title="The microphone listens all the time and hears when you speak">Hands-free</button>
         <div className="ml-auto text-sm text-muted">
           {learn ? <><b className="text-ink">{stats.right}</b> right repetitions</>
             : <><b className="text-ink">{stats.streak}</b> streak · {stats.cards ? Math.round((100 * stats.firstTry) / stats.cards) : 0}% first try of {stats.cards}</>}
@@ -303,10 +339,8 @@ export function ReadingQuiz() {
 
       {cur && (
         <div className={"card stage border-2 p-8 flex flex-1 flex-col items-center justify-center gap-5 transition-colors duration-300 " + border}>
-          <StatusPill status={running || status === "right" || status === "wrong" || status === "checking" ? status : "idle"}
-            label={!running && status === "idle" ? "Start the mic to begin" : status === "wrong" ? "Not quite, try again"
-              : learn && (status === "listening" || status === "hearing") ? "Listen, then repeat" : undefined} />
-          <FxFrame status={status} level={level} attempt={fxKey}>
+          <StatusPill status={holdMode || running || status === "right" || status === "wrong" || status === "checking" ? shownStatus : "idle"} label={pillLabel} />
+          <FxFrame status={shownStatus} level={shownLevel} attempt={fxKey}>
             <div className={"cjk leading-none select-none text-[clamp(120px,27vh,280px)] px-6 transition-colors duration-300 " + symColor} aria-label={"Say this symbol: " + cur.sym}>{cur.sym}</div>
           </FxFrame>
 
@@ -341,7 +375,17 @@ export function ReadingQuiz() {
           {check === "open" && <PinyinCheck example="b, bo, or an" check={checkTyped} onClose={() => setCheck("closed")} />}
 
           <ActionBar tone={status === "right" ? "ok" : status === "wrong" ? "bad" : null}>
-            {!running ? (
+            {holdMode ? (
+              <>
+                {hold.holding && (
+                  <div className="w-28 h-1.5 rounded bg-line overflow-hidden max-md:!hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(hold.level * 100) + "%" }} /></div>
+                )}
+                <button {...hold.bind} disabled={!canHold && !hold.holding} aria-label="Hold to speak"
+                  className={"btn ab-primary !rounded-full !px-6 !py-3 text-base " + (hold.holding ? "btn-accent recording" : "btn-primary")}>
+                  {hold.holding ? "● Recording… let go to check" : status === "checking" ? "Checking…" : hold.state === "opening" ? "Starting the mic…" : <>● Hold to speak <Kbd>R</Kbd></>}
+                </button>
+              </>
+            ) : !running ? (
               <button className="btn btn-primary ab-primary !rounded-full !px-6 !py-3 text-base" onClick={start} disabled={!modelReady}>● Start listening <Kbd>R</Kbd></button>
             ) : (
               <>
@@ -361,7 +405,7 @@ export function ReadingQuiz() {
               <button className="btn text-muted" onClick={skip} title="Skip this symbol for now">Skip <Kbd>N</Kbd></button>
             )}
           </ActionBar>
-          {error && <div className="text-bad text-sm">{error}</div>}
+          {(error || hold.error) && <div className="text-bad text-sm">{error || hold.error}</div>}
         </div>
       )}
     </div>

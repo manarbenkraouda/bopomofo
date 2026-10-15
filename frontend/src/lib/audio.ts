@@ -40,3 +40,11 @@ export function onPlaying(fn: (src: string | null) => void) {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
+
+/** Stop the clip that plays now (for example when the learner starts to record). */
+export function stopAudio() {
+  if (!player || player.paused) return;
+  seq++;
+  player.pause();
+  listeners.forEach((l) => l(null));
+}

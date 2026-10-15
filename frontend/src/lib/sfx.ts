@@ -9,6 +9,13 @@ export const sfxEnabled = () => typeof window !== "undefined" && localStorage.ge
 export const setSfxEnabled = (on: boolean) => setPref(KEY, on ? "on" : "off");
 
 let ctx: AudioContext | null = null;
+const subs = new Set<(ms: number) => void>();
+
+/** Called with the length of each effect that plays, so a microphone can ignore it. */
+export function onSfx(fn: (ms: number) => void) {
+  subs.add(fn);
+  return () => { subs.delete(fn); };
+}
 
 function note(c: AudioContext, freq: number, at: number, dur: number, opts: { type?: OscillatorType; gain?: number; slideTo?: number; lowpass?: number } = {}) {
   const t = c.currentTime + at;
@@ -36,6 +43,12 @@ function note(c: AudioContext, freq: number, at: number, dur: number, opts: { ty
 
 /** Play an effect. Returns its length in ms (0 when effects are off), so the caller can mute the microphone meanwhile. */
 export function playSfx(kind: Sfx): number {
+  const ms = play(kind);
+  if (ms) subs.forEach((f) => f(ms));
+  return ms;
+}
+
+function play(kind: Sfx): number {
   if (!sfxEnabled()) return 0;
   // A short vibration on phones that support it (Android), like the haptic feedback of mobile learning apps.
   if (kind !== "tick") navigator.vibrate?.(kind === "right" ? 18 : kind === "close" ? 30 : [40, 60, 40]);
