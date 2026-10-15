@@ -60,12 +60,12 @@ def test_place_compares_the_proven_items_with_the_level_goals():
     few_syms = {**good, "symbols": levels.SYMS[:need - 1]}
     three_tones = {**good, "tones": [1, 2, 3]}
     none = {"cards": 0, "symbols": "", "tones": [], "missed": []}
-    alpha = {"right": need, "asked": 37}
+    alpha = {"right": levels.NEED_ALPHABET, "asked": 37}  # the level 1 goal: 30 of 37
     assert placement.place(alpha, good, good)["level"] == 4
     assert placement.place(alpha, good, {**good, "tones": [1, 2, 3, 4]})["level"] == 3  # no neutral tone in the sentences
     assert placement.place(alpha, few_syms, good)["level"] == 2  # sentences do not count without the syllable goals
     assert placement.place(alpha, three_tones, good)["level"] == 2
-    assert placement.place({"right": need - 1, "asked": 37}, good, good)["level"] == 1  # good voice, alphabet not known
+    assert placement.place({"right": levels.NEED_ALPHABET - 1, "asked": 37}, good, good)["level"] == 1  # good voice, alphabet not known
     p = placement.place({"right": 3, "asked": 37}, none, none)
     assert p["level"] == 1 and p["chapters"]  # the alphabet part was taken: every chapter opens, the stats show the gaps
     assert not placement.place({"right": 0, "asked": 0}, none, none)["chapters"]

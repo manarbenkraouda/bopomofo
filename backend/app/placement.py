@@ -13,7 +13,7 @@ test (by event id, only the learner's own rows), finds the items they prove, and
 (levels.py), so the level is the one the answers show:
   - A symbol is proven when it is typed right on the first try. In the voice parts, a symbol or a tone is proven when its
     first recordings are more often right than wrong.
-  - The level 1 goal met with the typed symbols (34 of 37): the alphabet is known. Level 2 opens, and the coach counts those symbols as known.
+  - The level 1 goal met with the typed symbols (30 of 37): the alphabet is known. Level 2 opens, and the coach counts those symbols as known.
   - Also the level 3 goals for sounds and tones met with the syllables (34 of 37 symbols, the 4 tones): level 3.
   - Also the level 4 goal met with the sentences (the 5 tones): level 4. Free speaking (level 5) still needs the normal goals.
   - The alphabet part taken, or a symbol proven by voice: the three alphabet chapters open at once.
@@ -101,7 +101,7 @@ def score_voice(rows: list[dict], mode: str) -> dict:
 
 def place(alpha: dict | None, syl: dict, sent: dict) -> dict:
     """The level and the unlocks from the proven items and the goals of the levels. Pure: no database."""
-    alpha_ok = bool(alpha) and alpha["right"] >= levels.NEED_SYMS  # the level 1 goal
+    alpha_ok = bool(alpha) and alpha["right"] >= levels.NEED_ALPHABET  # the level 1 goal
     syl_ok = len(syl["symbols"]) >= levels.NEED_SYMS and {1, 2, 3, 4} <= set(syl["tones"])  # the level 3 goals for sounds and tones
     sent_ok = {1, 2, 3, 4, 5} <= set(sent["tones"])  # the level 4 goal
     level = 1 + alpha_ok + (alpha_ok and syl_ok) + (alpha_ok and syl_ok and sent_ok)

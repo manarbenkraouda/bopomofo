@@ -1,4 +1,4 @@
-"""Levels: stars need accuracy, speed, and more than one day; unlocks are permanent; the coach and the stats see only open exercises.
+"""Levels: stars need accuracy, speed, and (from level 3) more than one day; unlocks are permanent; the coach and the stats see only open exercises.
 No network calls."""
 import json
 import time
@@ -9,6 +9,7 @@ from app import coach, db, levels, stats
 
 DAY = 86400
 REC = levels.EXERCISES["recognize"][2]
+SYL = levels.EXERCISES["writing/syllable"][2]
 
 
 @pytest.fixture()
@@ -37,17 +38,33 @@ def fake(steps):
     return run
 
 
-def test_stars_need_enough_tests_speed_and_two_days():
+def test_stars_need_enough_tests_speed_and_two_days_after_the_alphabet():
     today, yday = "2026-10-12", "2026-10-11"
-    assert levels.item_stars([(True, 1000, today)] * 3, 3, REC)["stars"] == 1  # three lucky answers prove nothing
-    assert levels.item_stars([(True, 1000, today)] * 6, 6, REC)["stars"] == 2  # accurate, one day only
-    assert levels.item_stars([(True, 1000, today)] * 6, 6, REC, placement=True)["stars"] == 3  # placement skips the day rule
-    assert levels.item_stars([(True, 1000, yday)] * 3 + [(True, 1000, today)] * 3, 6, REC)["stars"] == 3
-    slow = levels.item_stars([(True, 5000, yday)] * 3 + [(True, 5000, today)] * 3, 6, REC)
+    # The alphabet (levels 1 and 2): 3 tests at 80% right, fast, on one day.
+    assert levels.item_stars([(True, 1000, today)] * 2, 2, REC)["stars"] == 1  # two lucky answers prove nothing
+    assert levels.item_stars([(True, 1000, today)] * 3, 3, REC)["stars"] == 3  # one short session is enough
+    assert levels.item_stars([(True, 1000, today)] * 4 + [(False, 1000, today)], 5, REC)["stars"] == 3  # 80% right
+    assert levels.item_stars([(True, 1000, today)] * 3 + [(False, 1000, today)] * 2, 5, REC)["stars"] == 1  # 60% right
+    slow = levels.item_stars([(True, 5500, today)] * 3, 3, REC)
     assert slow["stars"] == 2 and slow["dropped"]  # right but slow: not known
     guess = levels.item_stars([(True, 1000, yday)] * 3 + [(False, 1000, today)] * 3, 6, REC)
     assert guess["stars"] == 1 and guess["acc"] == 50
     assert levels.item_stars([], 0, REC)["stars"] == 0 and levels.item_stars([], levels.LEARN_REPS, REC)["stars"] == 1
+    # From level 3: 5 tests at 90% right, on 2 days.
+    assert levels.item_stars([(True, None, today)] * 3, 3, SYL)["stars"] == 1
+    assert levels.item_stars([(True, None, today)] * 6, 6, SYL)["stars"] == 2  # accurate, one day only
+    assert levels.item_stars([(True, None, today)] * 6, 6, SYL, placement=True)["stars"] == 3  # placement skips the day rule
+    assert levels.item_stars([(True, None, yday)] * 3 + [(True, None, today)] * 3, 6, SYL)["stars"] == 3
+
+
+def test_level_two_opens_after_one_short_session_on_most_of_the_alphabet(tmpdb):
+    for s in levels.SYMS[:levels.NEED_ALPHABET - 1]:  # 29 symbols, 3 right answers each, today only
+        for _ in range(3):
+            answer("recognize", s, True)
+    assert levels.check()["level"] == 1
+    for _ in range(3):
+        answer("reading", levels.SYMS[levels.NEED_ALPHABET - 1], True)  # the 30th symbol, in the other mode
+    assert levels.NEED_ALPHABET == 30 and levels.check()["level"] == 2
 
 
 def test_level_one_opens_the_alphabet_and_the_tones_only(tmpdb):

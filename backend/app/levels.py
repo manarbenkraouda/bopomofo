@@ -8,7 +8,8 @@ Stars per item (a symbol or a tone) and per exercise:
   ★    seen: tested at least once, or LEARN_REPS right repetitions.
   ★★   accurate: at least min_tests tests, and min_acc percent right in the last "window" tests.
   ★★★  known: ★★, the median time of the right answers in the window at or below the speed limit of the exercise
-       (exercises without a timer use accuracy only), and right answers on at least MIN_DAYS different days.
+       (exercises without a timer use accuracy only), and right answers on at least "days" different days (MIN_DAYS, or
+       ALPHABET_DAYS for the alphabet exercises of levels 1 and 2).
 A level unlocks when every goal of the level before it is met. Unlocks are permanent. When a known item drops (accuracy
 under DROP_ACC, or slower than DROP_SLOW x the limit), the learner gets a notice and the coach adds a review step.
 
@@ -34,7 +35,12 @@ LEARN_REPS = 10
 MIN_DAYS = 2
 DROP_ACC = 80
 DROP_SLOW = 1.25
-SHARE = 0.9  # a level goal over the 37 symbols needs 90% of them (34)
+SHARE = 0.9  # the level 3 goal over the 37 symbols needs 90% of them (34)
+# The alphabet levels (1 Read, 2 Write) ask less, so a learner who knows the alphabet moves on in one short session:
+# 80% of the symbols (30 of 37), each with 3 tests at 80% right, on one day, and a slower speed limit.
+ALPHABET_SHARE = 0.8
+ALPHABET_DAYS = 1
+CHAPTER_SHARE = 0.8  # a chapter of level 1 opens when 80% of the chapter before it is accurate (★★)
 
 
 @dataclass(frozen=True)
@@ -47,17 +53,18 @@ class Spec:
     window: int
     min_tests: int
     min_acc: int
+    days: int = MIN_DAYS
 
 
 # Every exercise of the app: label, link, and how it measures (None: a study screen without answers).
 # Speed limits are first estimates, not calibrated on real answers yet.
 EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
     "symbols": ("Symbols", "/symbols", None),
-    "reading": ("Reading", "/reading", Spec("reading", None, ("symbol",), 4000, 10, 5, 90)),
-    "recognize": ("Recognize", "/recognize", Spec("recognize", None, ("symbol",), 3000, 10, 5, 90)),
+    "reading": ("Reading", "/reading", Spec("reading", None, ("symbol",), 5000, 10, 3, 80, ALPHABET_DAYS)),
+    "recognize": ("Recognize", "/recognize", Spec("recognize", None, ("symbol",), 4000, 10, 3, 80, ALPHABET_DAYS)),
     "listening/tone": ("Tone quiz", "/listening?quiz=tone", Spec("listening", "tone", ("tone",), 4000, 20, 10, 90)),
-    "dictation": ("Dictation", "/dictation", Spec("dictation", None, ("symbol",), None, 10, 5, 90)),
-    "writing/symbol": ("Write symbols", "/writing?mode=symbol", Spec("writing", "symbol", ("symbol",), None, 10, 5, 90)),
+    "dictation": ("Dictation", "/dictation", Spec("dictation", None, ("symbol",), None, 10, 3, 80, ALPHABET_DAYS)),
+    "writing/symbol": ("Write symbols", "/writing?mode=symbol", Spec("writing", "symbol", ("symbol",), None, 10, 3, 80, ALPHABET_DAYS)),
     "listening/zhuyin": ("Bopomofo quiz", "/listening?quiz=zhuyin", Spec("listening", "zhuyin", ("initial", "final", "tone"), 4000, 20, 10, 90)),
     "writing/syllable": ("Write syllables", "/writing?mode=syllable", Spec("writing", "syllable", ("symbol", "tone"), None, 10, 5, 90)),
     "speaking/syllable": ("Say syllables", "/speaking?source=syllable", Spec("speaking", "syllable", ("tone", "initial", "final"), None, 10, 5, 85)),
@@ -73,15 +80,16 @@ TONES4 = ["tone:1", "tone:2", "tone:3", "tone:4"]
 TONES5 = TONES4 + ["tone:5"]
 RULE_ITEMS = ["rule:" + r for r in RULES]
 NEED_SYMS = math.ceil(SHARE * len(SYMS))
+NEED_ALPHABET = math.ceil(ALPHABET_SHARE * len(SYMS))  # 30
 
 # The unlock tree. A level opens its exercises; its goals open the next level.
 LEVELS: list[dict] = [
     {"n": 1, "key": "alphabet", "title": "Read the alphabet", "opens": ["symbols", "reading", "recognize", "listening/tone"],
      "about": "Learn the 37 symbols by sight, and train your ear on the four tones.",
-     "goals": [{"key": "read", "label": "Read the symbols", "items": list(SYMS), "modes": ["reading", "recognize"], "need": NEED_SYMS}]},
+     "goals": [{"key": "read", "label": "Read the symbols", "items": list(SYMS), "modes": ["reading", "recognize"], "need": NEED_ALPHABET}]},
     {"n": 2, "key": "write", "title": "Write the alphabet", "opens": ["dictation", "writing/symbol"],
      "about": "Hear a symbol and write it by hand.",
-     "goals": [{"key": "write", "label": "Write the symbols", "items": list(SYMS), "modes": ["dictation", "writing/symbol"], "need": NEED_SYMS}]},
+     "goals": [{"key": "write", "label": "Write the symbols", "items": list(SYMS), "modes": ["dictation", "writing/symbol"], "need": NEED_ALPHABET}]},
     {"n": 3, "key": "syllables", "title": "Syllables", "opens": ["listening/zhuyin", "writing/syllable", "speaking/syllable", "listening/rule", "speaking/rule"],
      "about": "Put the symbols together: hear, write, and say whole syllables. Learn the tone rules: some tones change in words.",
      "goals": [{"key": "sounds", "label": "Know the sounds in syllables", "items": list(SYMS),
@@ -94,7 +102,7 @@ LEVELS: list[dict] = [
     {"n": 5, "key": "free", "title": "Free speaking", "opens": ["speaking/custom"], "about": "Say anything you want and get it checked.", "goals": []},
 ]
 MAX_LEVEL = len(LEVELS)
-# The alphabet of level 1 comes in chapters. A chapter opens when 90% of the chapter before it is accurate (★★) by sight.
+# The alphabet of level 1 comes in chapters. A chapter opens when 80% of the chapter before it is accurate (★★) by sight.
 CHAPTERS = [("initials", "Initials", INITIALS), ("medials", "Medials", MEDIALS), ("finals", "Finals", FINALS)]
 CHAPTER_MODES = ["reading", "recognize"]
 # Learners who said they read Bopomofo, or who passed the alphabet part of the placement test (placement.py), skip the
@@ -232,7 +240,7 @@ def item_stars(tests: list[tuple[bool, int | None, str]], reps: int, spec: Spec,
         stars = 2
         fast = spec.ms is None or (ms is not None and sum(1 for t in right if t[1] is not None) >= min(spec.min_tests, len(right))
                                    and ms <= spec.ms)
-        if fast and (days >= MIN_DAYS or placement):
+        if fast and (days >= spec.days or placement):
             stars = 3
     slow = spec.ms is not None and ms is not None and ms > spec.ms * DROP_SLOW
     return {"stars": stars, "tests": n, "acc": acc, "ms": round(ms) if ms is not None else None, "days": days, "reps": reps,
@@ -420,7 +428,7 @@ def _goal_view(g: dict, stars: dict) -> dict:
 
 
 def _chapter_done(stars: dict, syms: str) -> bool:
-    return sum(1 for s in syms if _best(stars, s, CHAPTER_MODES) >= 2) >= math.ceil(SHARE * len(syms))
+    return sum(1 for s in syms if _best(stars, s, CHAPTER_MODES) >= 2) >= math.ceil(CHAPTER_SHARE * len(syms))
 
 
 def _placement() -> bool:
@@ -520,6 +528,7 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
             "stars": stars, "notices": notices(),
             "rules": {"learn_reps": LEARN_REPS, "min_days": MIN_DAYS, "drop_acc": DROP_ACC, "placement": _placement(),
                       "speed_ms": {k: v[2].ms for k, v in EXERCISES.items() if v[2] and v[2].ms},
+                      "days": {k: v[2].days for k, v in EXERCISES.items() if v[2]},
                       "min_acc": {k: v[2].min_acc for k, v in EXERCISES.items() if v[2]},
                       "window": {k: v[2].window for k, v in EXERCISES.items() if v[2]},
                       "min_tests": {k: v[2].min_tests for k, v in EXERCISES.items() if v[2]}}}

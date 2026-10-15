@@ -152,7 +152,7 @@ export type Levels = {
   drops: { exercise: string; item: string; dropped_ts: number }[];
   stars: Record<string, Record<string, ItemStars>>;
   notices: LevelNotice[];
-  rules: { learn_reps: number; min_days: number; drop_acc: number; placement: boolean; speed_ms: Record<string, number>; min_acc: Record<string, number>;
+  rules: { learn_reps: number; min_days: number; drop_acc: number; placement: boolean; speed_ms: Record<string, number>; days: Record<string, number>; min_acc: Record<string, number>;
     window: Record<string, number>; min_tests: Record<string, number> };
 };
 export type Alphabet = CoachState["alphabet"];

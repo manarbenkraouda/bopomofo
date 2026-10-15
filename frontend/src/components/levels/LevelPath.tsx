@@ -52,7 +52,7 @@ export function LevelPath() {
         <div className="relative mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line pt-3 text-xs text-muted">
           <span><Stars n={1} /> seen</span>
           <span><Stars n={2} /> accurate</span>
-          <span><Stars n={3} /> known: right, fast, and on {rules.min_days}+ days</span>
+          <span><Stars n={3} /> known: right and fast (from level 3, also on {rules.min_days}+ days)</span>
           <span>Luck does not count: a known item needs a good score over its last answers, not one right answer.</span>
         </div>
       </section>
