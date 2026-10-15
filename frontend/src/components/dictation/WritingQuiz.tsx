@@ -61,8 +61,10 @@ export function WritingQuiz() {
     if (!data) return;
     const f = data.table.filter((r) => focusSyms.includes(r.sym));
     const pool = f.length ? f : inSet(data.table, set);
-    const id = review().next(pool.map((r) => r.sym));
-    const row = pool.find((r) => r.sym === id) ?? pool[0];
+    // With a focus, some cards come from the rest of the set, so a few weak symbols do not loop (lib/review.ts).
+    const others = f.length && !learn ? inSet(data.table, set) : [];
+    const id = review().next(pool.map((r) => r.sym), others.map((r) => r.sym));
+    const row = pool.find((r) => r.sym === id) ?? others.find((r) => r.sym === id) ?? pool[0];
     card.current = { cheated: learn, tries: 0, shown: now(), ms: undefined, replays: 0, units: [] };
     setCur(row);
     setStrokes([]);

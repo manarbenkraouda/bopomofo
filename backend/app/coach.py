@@ -1485,7 +1485,11 @@ def _hit(step: dict, r: dict) -> bool:
     if t in ("read_symbols", "recognize_symbols", "write_symbols"):
         # Learn mode counts every right repetition; a recall step counts first tries only.
         return r["kind"] == "symbol" and (p.get("learn") or r["try_n"] == 0) and (not syms or r["expected"] in syms)
-    return r["kind"] in ("symbol", "tone") and r["expected"] != "∅"  # write_syllables: every written part of the deck
+    # write_syllables: every written part of a deck syllable. Variety cards from outside the deck do not count.
+    deck = p.get("deck")
+    if deck and r.get("item") is not None and r["item"] not in deck:
+        return False
+    return r["kind"] in ("symbol", "tone") and r["expected"] != "∅"
 
 
 STEP_SQL = "(e.details::jsonb ->> 'step') = CAST(? AS TEXT)"

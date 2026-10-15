@@ -126,7 +126,12 @@ export function SpeakingPractice() {
   const phraseKey = phrases.map((p) => p.text).join(",");
   /** The next sentence or syllable from the schedule. The key is the text, as saved with each recording. */
   const nextSentence = () => { const t = review().next(sentences.map((s) => s.hanzi)); return sentences.find((s) => s.hanzi === t); };
-  const nextSyllable = () => { const t = review().next(sylls.map((s) => s.char)); return sylls.find((s) => s.char === t); };
+  // With a focus, some syllables come from the others, so a few weak sounds do not loop (lib/review.ts).
+  const nextSyllable = () => {
+    const others = fSyl.length && focus.active ? allSylls : [];
+    const t = review().next(sylls.map((s) => s.char), others.map((s) => s.char));
+    return sylls.find((s) => s.char === t) ?? others.find((s) => s.char === t);
+  };
   const nextPhrase = () => { const t = review().next(phrases.map((p) => p.text)); return phrases.find((p) => p.text === t); };
 
   const clearRecording = () => { setResult(null); setError(""); setDeepNote(""); shown.current = null; setMine((m) => { if (m) URL.revokeObjectURL(m); return null; }); };

@@ -66,8 +66,10 @@ function SyllableQuiz({ quiz, chips, hotkeys }: { quiz: "tone" | "zhuyin"; chips
 
   const make = useCallback((): Q | null => {
     if (!pool.length) return null;
-    const id = review().next(pool.map((s) => s.zhuyin));
-    const item = pool.find((s) => s.zhuyin === id) ?? pool[0];
+    // With a focus, some questions come from the other syllables, so a small deck does not loop (lib/review.ts).
+    const others = matching.length && focus.active ? items : [];
+    const id = review().next(pool.map((s) => s.zhuyin), others.map((s) => s.zhuyin));
+    const item = pool.find((s) => s.zhuyin === id) ?? others.find((s) => s.zhuyin === id) ?? pool[0];
     const { toneNum, symbols } = splitZhuyin(item.zhuyin);
     if (quiz === "tone") return { item, options: ["1", "2", "3", "4"], answer: String(toneNum) };
     const opts = new Set<string>([item.zhuyin]);
@@ -76,7 +78,7 @@ function SyllableQuiz({ quiz, chips, hotkeys }: { quiz: "tone" | "zhuyin"; chips
     for (const s of near) { if (opts.size >= 4) break; opts.add(withTone(s.zhuyin, toneNum)); }
     for (const s of shuffle(items)) { if (opts.size >= 4) break; opts.add(s.zhuyin); }
     return { item, options: shuffle([...opts]), answer: item.zhuyin };
-  }, [items, pool, quiz, review]);
+  }, [items, pool, quiz, review, matching.length, focus.active]);
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);

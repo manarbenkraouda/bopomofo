@@ -51,6 +51,15 @@ def test_focus_check_uses_surface_tones():
     assert coach.focus_check("好", {}) == ["1 syllables; write 3 to 16"]
 
 
+def test_write_syllables_counts_only_deck_syllables():
+    # The practice pages mix other syllables into a coach deck for variety; those answers do not count for the step.
+    step = {"type": "write_syllables", "params": {"deck": ["ㄇㄚˇ", "ㄋㄧˇ"]}}
+    unit = {"kind": "symbol", "expected": "ㄇ", "try_n": 0}
+    assert coach._hit(step, {**unit, "item": "ㄇㄚˇ"})
+    assert not coach._hit(step, {**unit, "item": "ㄇㄠ"})
+    assert coach._hit(step, unit)  # rows with no item (the 30 days before the plan) keep the old rule
+
+
 def test_progress_counts_only_answers_inside_the_step_and_the_next_plan_takes_over(tmpdb):
     pid = coach.build("test", run_pipeline=fake([{"type": "listen_tones", "tones": [3], "target": 5},
                                                  {"type": "read_symbols", "syms": ["ㄅ"], "target": 5}]))

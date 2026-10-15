@@ -109,16 +109,18 @@ export function WritingPractice() {
     else if (mode === "syllable") pool = data.syllables.map((s) => ({ key: s.id, groups: [{ char: s.char, zhuyin: s.zhuyin }], audio: syllableAudio(s.id) }));
     else pool = words ?? [];
     // The focus from the stats or the coach keeps only matching items, when there are some.
+    // The other items stay as variety: some cards come from them, so a few weak items do not loop (lib/review.ts).
+    let others: Item[] = [];
     if (focus.active) {
       const fs = focusSymbols(focus);
       const f = mode === "symbol" ? pool.filter((it) => fs.includes(it.key)) : pool.filter((it) => it.groups.some((g) => matches(g.zhuyin, focus)));
-      if (f.length) pool = f;
+      if (f.length) { others = pool; pool = f; }
     }
     if (!pool.length) return null;
     // The schedule keys an item by what is written (the saved answer's item), so two characters with one reading are one item.
     const ids = pool.map(itemKey);
-    const id = review().next(ids);
-    return pool[Math.max(0, ids.indexOf(id ?? ""))];
+    const id = review().next(ids, others.map(itemKey));
+    return pool.find((it) => itemKey(it) === id) ?? others.find((it) => itemKey(it) === id) ?? pool[0];
   }, [data, mode, words, queue, focus, review]);
 
   const next = useCallback(() => {

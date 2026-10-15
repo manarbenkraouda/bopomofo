@@ -61,8 +61,10 @@ export function RecognizeQuiz() {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
     const p = pool();
     if (!p.length) return;
-    const id = review().next(p.map((r) => r.sym));
-    const row = p.find((r) => r.sym === id) ?? p[0];
+    // With a focus, some cards come from the rest of the set, so a few weak symbols do not loop (lib/review.ts).
+    const others = focused.length && !learn ? inSet(rows, set) : [];
+    const id = review().next(p.map((r) => r.sym), others.map((r) => r.sym));
+    const row = p.find((r) => r.sym === id) ?? others.find((r) => r.sym === id) ?? p[0];
     curRef.current = row;
     card.current = { revealed: learn, tries: 0, shown: now(), ms: undefined, units: [], done: false };
     setCur(row);
@@ -72,7 +74,7 @@ export function RecognizeQuiz() {
     setWrong(null);
     setHint("");
     input.current?.focus({ preventScroll: true });
-  }, [pool, learn, review]);
+  }, [pool, learn, review, focused.length, rows, set]);
 
   useEffect(() => { if (rows.length && ready) next(); }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
