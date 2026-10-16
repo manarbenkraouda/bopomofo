@@ -1,6 +1,6 @@
 # Add only CPU torch artifacts. Resolve other packages from PyPI, including ARM64 wheels.
 --find-links https://download.pytorch.org/whl/cpu/torch/
-torch==2.9.1+cpu
+torch==2.13.0
 transformers
 onnx
 onnxscript
