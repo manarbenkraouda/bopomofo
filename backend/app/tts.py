@@ -4,17 +4,20 @@ Each user has a separate cache folder, data/tts/<user id>. A user can clear only
 A folder is kept under TTS_CACHE_MB_PER_USER: the clips used least recently are deleted first.
 New clips count for the daily limit of the user (app/limits.py); a replay from the cache does not.
 """
+
 from __future__ import annotations
 
 import hashlib
 import os
 import re
 import threading
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
-import soundfile as sf
 import numpy as np
+import soundfile as sf
 
 from . import db, limits
 from .config import DATA_DIR, MODEL_DIR, TTS_CACHE_MB_PER_USER
@@ -34,7 +37,13 @@ class Voice:
 VOICES = [
     Voice("kokoro-f", "Kokoro female", "Kokoro v1.1-zh. Natural, mainland accent, female.", "kokoro", 3),
     Voice("kokoro-m", "Kokoro male", "Kokoro v1.1-zh. Natural, mainland accent, male.", "kokoro", 60),
-    Voice("breeze2", "Breeze2 (Taiwan)", "MediaTek Breeze2-VITS. Taiwan accent, female. Fast, a little less clear than Kokoro.", "breeze2", 0),
+    Voice(
+        "breeze2",
+        "Breeze2 (Taiwan)",
+        "MediaTek Breeze2-VITS. Taiwan accent, female. Fast, a little less clear than Kokoro.",
+        "breeze2",
+        0,
+    ),
 ]
 BY_ID = {v.id: v for v in VOICES}
 DEFAULT_VOICE = "kokoro-f"
@@ -52,9 +61,9 @@ def _speech_db(a: np.ndarray, sr: int) -> float:
     """RMS level of the speech parts only, so pauses do not lower the measure."""
     n = max(1, sr // 50)  # 20 ms frames
     fr = a[: len(a) // n * n].reshape(-1, n)
-    rms = np.sqrt((fr ** 2).mean(1)) if len(fr) else np.sqrt((a ** 2).mean(keepdims=True))
+    rms = np.sqrt((fr**2).mean(1)) if len(fr) else np.sqrt((a**2).mean(keepdims=True))
     act = rms[rms > rms.max() * 0.1] if rms.max() > 0 else rms
-    return 20 * np.log10(max(np.sqrt((act ** 2).mean()), 1e-9))
+    return 20 * np.log10(max(np.sqrt((act**2).mean()), 1e-9))
 
 
 def level(a: np.ndarray, sr: int) -> np.ndarray:
@@ -93,7 +102,7 @@ class Breeze2:
     e.g. 你叫什麼名字 came out as "ni jiao shi ma"). Here the app's own Zhuyin analyzer gives each
     syllable its reading in context, with spoken tone changes (一, 不, 3-3 sandhi)."""
 
-    TONE_MARK = {1: "ˉ", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "˙"}
+    TONE_MARK: ClassVar[dict[int, str]] = {1: "ˉ", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "˙"}
 
     def __init__(self, d: Path):
         import onnxruntime as ort
@@ -111,7 +120,11 @@ class Breeze2:
         out: list[int] = []
         for it in analyze_text(text):
             if it["type"] == "syllable":
-                out += [self.tok[c] for c in it["initial"] + it["final"] + self.TONE_MARK[it["surface_tone"]] if c in self.tok]
+                out += [
+                    self.tok[c]
+                    for c in it["initial"] + it["final"] + self.TONE_MARK[it["surface_tone"]]
+                    if c in self.tok
+                ]
             else:
                 out += [self.tok[c] for c in it["text"] if c in self.tok and c != " "]
         x = [0]  # the model was trained with a blank token between all symbols
@@ -124,11 +137,18 @@ class Breeze2:
         if len(x) < 3:
             return _Audio(np.zeros(0, np.float32), 22050)
         f = lambda v: np.array([v], dtype=np.float32)  # noqa: E731
-        a = self.sess.run(None, {
-            "x": np.array([x], dtype=np.int64), "x_length": np.array([len(x)], dtype=np.int64),
-            # Low noise: the default 0.667/0.8 makes Breeze2 slur and mispronounce more often.
-            "noise_scale": f(0.3), "noise_scale_w": f(0.3), "length_scale": f(1 / speed),
-            "sid": np.array([sid], dtype=np.int64)})[0]
+        a = self.sess.run(
+            None,
+            {
+                "x": np.array([x], dtype=np.int64),
+                "x_length": np.array([len(x)], dtype=np.int64),
+                # Low noise: the default 0.667/0.8 makes Breeze2 slur and mispronounce more often.
+                "noise_scale": f(0.3),
+                "noise_scale_w": f(0.3),
+                "length_scale": f(1 / speed),
+                "sid": np.array([sid], dtype=np.int64),
+            },
+        )[0]
         return _Audio(a.squeeze().astype(np.float32), 22050)
 
 
@@ -138,10 +158,17 @@ def _load(model: str):
     import sherpa_onnx as so
 
     d = MODEL_DIR / "kokoro-multi-lang-v1_1"
-    cfg = so.OfflineTtsModelConfig(kokoro=so.OfflineTtsKokoroModelConfig(
-        model=str(d / "model.onnx"), voices=str(d / "voices.bin"), tokens=str(d / "tokens.txt"),
-        data_dir=str(d / "espeak-ng-data"), dict_dir=str(d / "dict"),
-        lexicon=f"{d / 'lexicon-us-en.txt'},{d / 'lexicon-zh.txt'}"), num_threads=TTS_NUM_THREADS)
+    cfg = so.OfflineTtsModelConfig(
+        kokoro=so.OfflineTtsKokoroModelConfig(
+            model=str(d / "model.onnx"),
+            voices=str(d / "voices.bin"),
+            tokens=str(d / "tokens.txt"),
+            data_dir=str(d / "espeak-ng-data"),
+            dict_dir=str(d / "dict"),
+            lexicon=f"{d / 'lexicon-us-en.txt'},{d / 'lexicon-zh.txt'}",
+        ),
+        num_threads=TTS_NUM_THREADS,
+    )
     fsts = ",".join(str(d / f) for f in ("date-zh.fst", "phone-zh.fst", "number-zh.fst"))
     return so.OfflineTts(so.OfflineTtsConfig(model=cfg, rule_fsts=fsts))
 
@@ -159,10 +186,8 @@ def speak(text: str, rate: int, voice: str, user: str | None) -> Path:
     key = hashlib.sha1(f"lvl2|{'bz3|' if v.model == 'breeze2' else ''}{v.id}|{rate}|{text}".encode()).hexdigest()
     path = user_cache(user) / f"{key}.wav"
     if path.exists() and path.stat().st_size > 0:
-        try:
+        with suppress(OSError):
             os.utime(path)  # used now: the trim keeps it longer
-        except OSError:
-            pass
         return path
     with db.as_user(user):
         limits.check_tts()
@@ -250,7 +275,5 @@ def remove_shared_files() -> None:
     d = DATA_DIR / "tts"
     for p in d.iterdir() if d.is_dir() else []:
         if p.is_file():
-            try:
+            with suppress(OSError):
                 p.unlink()
-            except OSError:
-                pass

@@ -6,6 +6,7 @@ Run once, in an isolated Python 3.12 environment:
     .venv-export/bin/python tools/export_model.py
 License of the model: CC-BY-NC-4.0 (personal, non-commercial use).
 """
+
 import json
 import os
 import shutil
@@ -25,13 +26,29 @@ def main():
     OUT.mkdir(exist_ok=True)
     TMP.mkdir(exist_ok=True)
     m = Wav2Vec2ForCTC.from_pretrained(REPO).eval()
-    torch.onnx.export(m, (torch.randn(1, 32000),), str(TMP / "model.onnx"), input_names=["input_values"], output_names=["logits"],
-                      dynamic_axes={"input_values": {1: "n"}, "logits": {1: "t"}}, opset_version=17, dynamo=False, external_data=True)
+    torch.onnx.export(
+        m,
+        (torch.randn(1, 32000),),
+        str(TMP / "model.onnx"),
+        input_names=["input_values"],
+        output_names=["logits"],
+        dynamic_axes={"input_values": {1: "n"}, "logits": {1: "t"}},
+        opset_version=17,
+        dynamo=False,
+        external_data=True,
+    )
     model = onnx.load(str(TMP / "model.onnx"))
     for f in ("wav2vec2-cmn-phonetic.onnx", "wav2vec2-cmn-phonetic.onnx.data"):
         (OUT / f).unlink(missing_ok=True)
-    onnx.save_model(model, str(OUT / "wav2vec2-cmn-phonetic.onnx"), save_as_external_data=True, all_tensors_to_one_file=True, location="wav2vec2-cmn-phonetic.onnx.data")
-    v = json.load(open(hf_hub_download(REPO, "vocab.json"), encoding="utf-8"))
+    onnx.save_model(
+        model,
+        str(OUT / "wav2vec2-cmn-phonetic.onnx"),
+        save_as_external_data=True,
+        all_tensors_to_one_file=True,
+        location="wav2vec2-cmn-phonetic.onnx.data",
+    )
+    with open(hf_hub_download(REPO, "vocab.json"), encoding="utf-8") as f:
+        v = json.load(f)
     v = next(iter(v.values())) if isinstance(next(iter(v.values())), dict) else v
     (OUT / "vocab.json").write_text(json.dumps(v, ensure_ascii=False), encoding="utf-8")
     shutil.rmtree(TMP)

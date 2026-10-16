@@ -1,4 +1,5 @@
 """Download the open-source TTS voices into backend/models (about 450 MB). Skips voices that are already there."""
+
 import io
 import tarfile
 import urllib.request
@@ -19,8 +20,8 @@ def main():
             urllib.request.urlretrieve(BREEZE + f, b / f)
     if not (MODELS / "kokoro-multi-lang-v1_1" / "model.onnx").exists():
         print("Downloading Kokoro v1.1 (365 MB)")
-        with urllib.request.urlopen(KOKORO) as r:
-            tarfile.open(fileobj=io.BytesIO(r.read()), mode="r:bz2").extractall(MODELS, filter="data")
+        with urllib.request.urlopen(KOKORO) as r, tarfile.open(fileobj=io.BytesIO(r.read()), mode="r:bz2") as t:
+            t.extractall(MODELS, filter="data")
     print("Voices ready.")
 
 

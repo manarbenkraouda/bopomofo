@@ -1,4 +1,5 @@
 """bopomofo API."""
+
 from __future__ import annotations
 
 import io
@@ -12,10 +13,25 @@ import soundfile as sf
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
-from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
-from . import auth, coach, db, deep_check, levels, limits, llm, placement, scoring, speaker, stats, symbols, tts, typed_fix
+from . import (
+    auth,
+    coach,
+    db,
+    deep_check,
+    levels,
+    limits,
+    llm,
+    placement,
+    scoring,
+    speaker,
+    stats,
+    symbols,
+    tts,
+    typed_fix,
+)
 from .asr import recognizer
 from .config import DEFAULT_TIMEZONE, OPENROUTER_API_KEY, OPENROUTER_MODEL
 from .runtime import RUNTIME
@@ -100,7 +116,12 @@ app.add_middleware(BodyLimit)
 
 
 # Local and LAN addresses for development, plus the public site at bopomofo.app and its subdomains.
-app.add_middleware(CORSMiddleware, allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?|https://([a-z0-9-]+\.)*bopomofo\.app", allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+)(:\d+)?|https://([a-z0-9-]+\.)*bopomofo\.app",
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # On stop, wait at most this long for coach work in progress (a plan takes about a minute, each AI call at most 90 s).
@@ -134,9 +155,15 @@ def shutdown():
 
 @app.get("/api/health")
 def health():
-    return {"ok": True, "speech_model": "ready" if recognizer.ready else ("error" if recognizer.error else "loading"),
-            "speech_error": recognizer.error, "speech_load_seconds": recognizer.load_seconds,
-            "llm_model": OPENROUTER_MODEL, "llm_configured": bool(OPENROUTER_API_KEY), "speaker_hz": speaker.get()}
+    return {
+        "ok": True,
+        "speech_model": "ready" if recognizer.ready else ("error" if recognizer.error else "loading"),
+        "speech_error": recognizer.error,
+        "speech_load_seconds": recognizer.load_seconds,
+        "llm_model": OPENROUTER_MODEL,
+        "llm_configured": bool(OPENROUTER_API_KEY),
+        "speaker_hz": speaker.get(),
+    }
 
 
 class TextIn(BaseModel):
@@ -177,20 +204,42 @@ def profile_put(body: dict[str, str]):
 
 # ---------- onboarding and settings ----------
 # The answers of the onboarding. The profile gets them as text, so the sentence writer and the coach read them.
-REASONS = {"travel": "to travel in Taiwan", "family": "to talk with family and friends", "live": "because I live in Taiwan or plan to",
-           "work": "for work or studies", "culture": "to enjoy shows, music, and games", "fun": "for fun and to keep my mind sharp"}
-LEVELS = {"new": ("I am new to Mandarin", "beginner"), "words": ("I know some common words", "beginner"),
-          "everyday": ("I can talk about everyday topics", "intermediate"), "fluent": ("I can talk about most topics", "advanced")}
-BOPOMOFO = {"none": "I do not know Bopomofo yet", "some": "I know some Bopomofo symbols", "reads": "I can read Bopomofo"}
+REASONS = {
+    "travel": "to travel in Taiwan",
+    "family": "to talk with family and friends",
+    "live": "because I live in Taiwan or plan to",
+    "work": "for work or studies",
+    "culture": "to enjoy shows, music, and games",
+    "fun": "for fun and to keep my mind sharp",
+}
+LEVELS = {
+    "new": ("I am new to Mandarin", "beginner"),
+    "words": ("I know some common words", "beginner"),
+    "everyday": ("I can talk about everyday topics", "intermediate"),
+    "fluent": ("I can talk about most topics", "advanced"),
+}
+BOPOMOFO = {
+    "none": "I do not know Bopomofo yet",
+    "some": "I know some Bopomofo symbols",
+    "reads": "I can read Bopomofo",
+}
 
 
 def me_state() -> dict:
     s = db.get_settings()
     level = s.get("level")
-    return {"onboarded": bool(s.get("onboarded_at")), "timezone": s.get("timezone") or DEFAULT_TIMEZONE, "timezone_set": bool(s.get("timezone")),
-            "goal_min": s.get("goal_min"), "level": level, "bopomofo": s.get("bopomofo"), "reasons": s.get("reasons") or [],
-            "placement": (s.get("placement") or {}).get("status") or "none",
-            "sentence_level": LEVELS[level][1] if level in LEVELS else "beginner", "name": db.get_profile().get("name", "")}
+    return {
+        "onboarded": bool(s.get("onboarded_at")),
+        "timezone": s.get("timezone") or DEFAULT_TIMEZONE,
+        "timezone_set": bool(s.get("timezone")),
+        "goal_min": s.get("goal_min"),
+        "level": level,
+        "bopomofo": s.get("bopomofo"),
+        "reasons": s.get("reasons") or [],
+        "placement": (s.get("placement") or {}).get("status") or "none",
+        "sentence_level": LEVELS[level][1] if level in LEVELS else "beginner",
+        "name": db.get_profile().get("name", ""),
+    }
 
 
 @app.get("/api/me")
@@ -207,7 +256,9 @@ def ai_quota_get():
 
 class OnboardingIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    reasons: list[Literal["travel", "family", "live", "work", "culture", "fun"]] = Field(default_factory=list, max_length=6)
+    reasons: list[Literal["travel", "family", "live", "work", "culture", "fun"]] = Field(
+        default_factory=list, max_length=6
+    )
     level: Literal["new", "words", "everyday", "fluent"]
     bopomofo: Literal["none", "some", "reads"]
     goal_min: int = Field(ge=5, le=120)
@@ -225,8 +276,16 @@ def onboarding(body: OnboardingIn):
     if body.reasons and not p.get("why_mandarin", "").strip():
         p["why_mandarin"] = "I learn Mandarin " + ", ".join(REASONS[r] for r in body.reasons) + "."
     db.set_profile({k: str(v)[:1000] for k, v in p.items() if k in llm.PROFILE_LABELS})
-    db.save_settings({"timezone": tz, "goal_min": body.goal_min, "level": body.level, "bopomofo": body.bopomofo,
-                      "reasons": list(dict.fromkeys(body.reasons)), "onboarded_at": time.time()})
+    db.save_settings(
+        {
+            "timezone": tz,
+            "goal_min": body.goal_min,
+            "level": body.level,
+            "bopomofo": body.bopomofo,
+            "reasons": list(dict.fromkeys(body.reasons)),
+            "onboarded_at": time.time(),
+        }
+    )
     # Intermediate and advanced learners take the placement test next (placement.py), before the first plan.
     placement.on_onboarding(body.level)
     # No plan yet: Home first asks for the rest of the profile, then the coach builds the first plan.
@@ -255,7 +314,9 @@ def settings_put(body: SettingsIn):
 @app.post("/api/sentences/generate")
 async def sentences_generate(body: GenerateIn, background: BackgroundTasks):
     try:
-        sents, usage = await llm.generate(body.topic, body.level, body.count, db.get_profile() if body.use_profile else None)
+        sents, usage = await llm.generate(
+            body.topic, body.level, body.count, db.get_profile() if body.use_profile else None
+        )
     except llm.LLMError as e:
         raise HTTPException(502, str(e)) from e
     saved = [db.add_sentence(s, body.topic, body.level) for s in sents]
@@ -300,7 +361,7 @@ async def tts_get(text: str, rate: int = 0, voice: str = tts.DEFAULT_VOICE):
         path = await run_in_threadpool(tts.speak, text, max(-60, min(40, rate)), voice, db.current_user())
     except limits.LimitReached:
         raise
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(502, f"Text to speech failed: {e}") from e
     # private: only the browser of this user keeps a copy, never a shared cache.
     return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "private, max-age=31536000"})
@@ -308,7 +369,10 @@ async def tts_get(text: str, rate: int = 0, voice: str = tts.DEFAULT_VOICE):
 
 @app.get("/api/tts/voices")
 def tts_voices():
-    return {"default": tts.DEFAULT_VOICE, "voices": [{"id": v.id, "label": v.label, "description": v.description} for v in tts.VOICES]}
+    return {
+        "default": tts.DEFAULT_VOICE,
+        "voices": [{"id": v.id, "label": v.label, "description": v.description} for v in tts.VOICES],
+    }
 
 
 @app.post("/api/tts/cache/clear")
@@ -325,7 +389,7 @@ def read_audio(data: bytes) -> np.ndarray:
     # before the length check used about 1 GB for an 89 KB file. The decoder reads at most the frames in the header.
     try:
         info = sf.info(io.BytesIO(data))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(400, f"Could not read the audio: {e}") from e
     if not (1 <= info.channels <= 2 and 8000 <= info.samplerate <= 96000):
         raise HTTPException(400, "The recording is in a format the app does not read (mono or stereo, 8 to 96 kHz).")
@@ -333,7 +397,7 @@ def read_audio(data: bytes) -> np.ndarray:
         raise HTTPException(400, f"The recording is too long ({MAX_SECONDS} s maximum).")
     try:
         a, sr = sf.read(io.BytesIO(data), dtype="float32")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(400, f"Could not read the audio: {e}") from e
     if a.ndim > 1:
         a = a.mean(axis=1)
@@ -348,8 +412,14 @@ def read_audio(data: bytes) -> np.ndarray:
 
 
 @app.post("/api/speech/analyze")
-def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_length=400), mode: str = Form("", max_length=16),
-                   step: str = Form("", max_length=16), help: str = Form("", max_length=8), try_n: str = Form("", max_length=8)):
+def speech_analyze(
+    audio: UploadFile = File(...),
+    text: str = Form(..., max_length=400),
+    mode: str = Form("", max_length=16),
+    step: str = Form("", max_length=16),
+    help: str = Form("", max_length=8),
+    try_n: str = Form("", max_length=8),
+):
     if not recognizer.ready:
         raise HTTPException(503, recognizer.error or "The speech model is still loading. Try again in a few seconds.")
     a = read_audio(audio.file.read())
@@ -367,8 +437,14 @@ def speech_analyze(audio: UploadFile = File(...), text: str = Form(..., max_leng
     # Every syllable is saved: expected and heard tone, initial, and final, so the stats can show confusions.
     # "step": the coach step this recording belongs to. Only answers given inside a step count for it.
     # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
-    eid = stats.log_speaking(text, res, mode or None, int(step) if step.isdigit() else None,
-                             help=help in ("1", "true"), try_n=int(try_n) if try_n.isdigit() else 0)
+    eid = stats.log_speaking(
+        text,
+        res,
+        mode or None,
+        int(step) if step.isdigit() else None,
+        help=help in ("1", "true"),
+        try_n=int(try_n) if try_n.isdigit() else 0,
+    )
     # A missed answer gets a second, slower check in a separate low-priority process. The answer does not wait for it.
     deep = "off" if deep_check.mode() == "off" else "skipped"
     if want_deep:
@@ -517,8 +593,11 @@ def stats_challenges():
 
 @app.get("/api/stats/export.csv")
 def stats_export():
-    return Response(stats.export_csv(), media_type="text/csv; charset=utf-8",
-                    headers={"Content-Disposition": 'attachment; filename="bopomofo-history.csv"'})
+    return Response(
+        stats.export_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="bopomofo-history.csv"'},
+    )
 
 
 @app.get("/api/coach")
@@ -599,6 +678,7 @@ def coach_plan(body: PlanIn):
 @app.get("/api/coach/plan/{pid}/story")
 def coach_story(pid: int):
     from . import story
+
     s = story.get(pid)
     if not s:
         raise HTTPException(404, "This plan has no story yet")

@@ -9,6 +9,7 @@ frames that the alignment gives to the syllable.
 This module runs in the deep check worker process (app/deep_check.py). It imports only numpy, ctc, and pitch: never the
 speech model, the database, or onnxruntime. Everything it needs comes in the job.
 """
+
 from __future__ import annotations
 
 import math
@@ -36,7 +37,15 @@ DENTAL = set("ㄗㄘㄙ")
 GLIDES = set("ㄧㄨㄩ")
 # Close sounds the live check can confuse: each one is a rival of the others in its group.
 INITIAL_GROUPS = ["ㄅㄆ", "ㄉㄊ", "ㄍㄎ", "ㄗㄘㄙ", "ㄓㄔㄕ", "ㄐㄑㄒ", "ㄋㄌ", "ㄇㄅ", "ㄋㄉ"]
-FINAL_GROUPS = [("ㄣ", "ㄥ"), ("ㄧㄣ", "ㄧㄥ"), ("ㄨㄣ", "ㄨㄥ"), ("ㄢ", "ㄤ"), ("ㄧㄢ", "ㄧㄤ"), ("ㄨㄢ", "ㄨㄤ"), ("ㄛ", "ㄨㄛ")]
+FINAL_GROUPS = [
+    ("ㄣ", "ㄥ"),
+    ("ㄧㄣ", "ㄧㄥ"),
+    ("ㄨㄣ", "ㄨㄥ"),
+    ("ㄢ", "ㄤ"),
+    ("ㄧㄢ", "ㄧㄤ"),
+    ("ㄨㄢ", "ㄨㄤ"),
+    ("ㄛ", "ㄨㄛ"),
+]
 NASAL_PAIRS = {frozenset("ㄇㄅ"), frozenset("ㄋㄉ"), frozenset("ㄋㄌ")}
 
 _vocab: dict[int, str] | None = None
@@ -44,11 +53,13 @@ _vocab: dict[int, str] | None = None
 
 # ---------- worker process ----------
 
+
 def init_worker(vocab: dict[int, str]) -> None:
     """Runs once in the worker process: lower its priority so live requests always come first, and keep the vocabulary."""
     try:
         if sys.platform == "win32":
             import ctypes
+
             k = ctypes.windll.kernel32
             k.SetPriorityClass(k.GetCurrentProcess(), 0x4000)  # BELOW_NORMAL_PRIORITY_CLASS
         else:
@@ -64,6 +75,7 @@ def set_vocab(vocab: dict[int, str]) -> None:
 
 
 # ---------- units and sequences ----------
+
 
 def _empty(v) -> bool:
     return v in (None, "", "∅")
@@ -180,6 +192,7 @@ def score_of(fr: Frames, specs, js, tone_at=None) -> float | None:
 
 # ---------- the check ----------
 
+
 def _margin(kind: str, expected: str, rival: str, mic: set) -> float:
     if kind == "initial" and frozenset((expected, rival)) in NASAL_PAIRS:
         return MIC_MARGIN
@@ -198,7 +211,7 @@ def _points(r: dict, fixed: dict) -> int:
 
 
 def score_from(results: list[dict], fixed: list[dict]) -> int:
-    got = sum(_points(r, f) for r, f in zip(results, fixed))
+    got = sum(_points(r, f) for r, f in zip(results, fixed, strict=False))
     return round(100 * got / max(3 * len(results), 1))
 
 
@@ -217,18 +230,27 @@ def check(job: dict) -> dict:
     fr = Frames(job["lp"], vocab)
     results = job["syllables"]
     mic = {(k, e or "∅", h or "∅") for k, e, h in job.get("mic_pairs") or []}
-    specs = [{"initial": _norm(r["expected"].get("initial")), "final": _norm(r["expected"].get("final"))} for r in results]
+    specs = [
+        {"initial": _norm(r["expected"].get("initial")), "final": _norm(r["expected"].get("final"))} for r in results
+    ]
     n = len(specs)
 
     # A syllable with no initial that starts with ㄧ, ㄨ, or ㄩ: the model may write a "j" glide first. Keep it where it fits better.
     js = [False] * n
     base = score_of(fr, specs, js)
     if base is None:
-        return {"status": "error", "verdict": None, "score_before": job.get("score"), "score_after": None, "parts": [],
-                "version": VERSION, "error": "The expected sentence does not fit the clip."}
+        return {
+            "status": "error",
+            "verdict": None,
+            "score_before": job.get("score"),
+            "score_after": None,
+            "parts": [],
+            "version": VERSION,
+            "error": "The expected sentence does not fit the clip.",
+        }
     for k, s in enumerate(specs):
         if not s["initial"] and s["final"][:1] in GLIDES:
-            trial = js[:k] + [True] + js[k + 1:]
+            trial = [*js[:k], True, *js[k + 1 :]]
             v = score_of(fr, specs, trial)
             if v is not None and v > base:
                 js, base = trial, v
@@ -247,8 +269,16 @@ def check(job: dict) -> dict:
             fixed[k]["syllable"] = ok
             for kind in ("initial", "final"):
                 fixed[k][kind] = ok
-                parts.append({"pos": k, "kind": kind, "expected": specs[k][kind] or "∅", "heard": "?",
-                              "verdict": "fixed" if ok else "real", "delta": None if delta is None else round(delta, 2)})
+                parts.append(
+                    {
+                        "pos": k,
+                        "kind": kind,
+                        "expected": specs[k][kind] or "∅",
+                        "heard": "?",
+                        "verdict": "fixed" if ok else "real",
+                        "delta": None if delta is None else round(delta, 2),
+                    }
+                )
         else:
             for kind in ("initial", "final"):
                 if r.get(f"{kind}_ok") is not False:
@@ -257,7 +287,9 @@ def check(job: dict) -> dict:
                 heard_v = _norm(h.get(kind)) if h else ""
                 near = initial_neighbours(exp_v) if kind == "initial" else final_neighbours(exp_v)
                 if kind == "final":
-                    near -= set(final_keys(specs[k]["initial"], exp_v))  # ㄛ and ㄨㄛ after a labial are already the same
+                    near -= set(
+                        final_keys(specs[k]["initial"], exp_v)
+                    )  # ㄛ and ㄨㄛ after a labial are already the same
                 rivals = ({heard_v} | near) - {exp_v}
                 worst, best_rival, ok = None, None, True
                 for rv in sorted(rivals):
@@ -274,8 +306,17 @@ def check(job: dict) -> dict:
                         worst, best_rival = d, rv
                 verdict = "fixed" if ok and worst is not None else ("unsure" if worst is None else "real")
                 fixed[k][kind] = verdict == "fixed"
-                parts.append({"pos": k, "kind": kind, "expected": exp_v or "∅", "heard": heard_v or "∅", "rival": best_rival,
-                              "verdict": verdict, "delta": None if worst is None else round(worst, 2)})
+                parts.append(
+                    {
+                        "pos": k,
+                        "kind": kind,
+                        "expected": exp_v or "∅",
+                        "heard": heard_v or "∅",
+                        "rival": best_rival,
+                        "verdict": verdict,
+                        "delta": None if worst is None else round(worst, 2),
+                    }
+                )
 
         if r.get("tone_ok") or (missing and not fixed[k].get("syllable")):
             continue
@@ -285,7 +326,9 @@ def check(job: dict) -> dict:
         for d in range(1, 6):
             scores.append(score_of(fr, specs, js, (k, d)))
         if any(v is None for v in scores):
-            parts.append({"pos": k, "kind": "tone", "expected": want, "heard": (h or {}).get("tone"), "verdict": "unsure"})
+            parts.append(
+                {"pos": k, "kind": "tone", "expected": want, "heard": (h or {}).get("tone"), "verdict": "unsure"}
+            )
             continue
         top = max(scores)
         w = np.exp(np.array(scores) - top)
@@ -302,8 +345,18 @@ def check(job: dict) -> dict:
         else:
             verdict = "real"
         fixed[k]["tone"] = verdict == "fixed"
-        parts.append({"pos": k, "kind": "tone", "expected": want, "heard": (h or {}).get("tone"), "verdict": verdict,
-                      "p_tone": round(p_acc, 3), "best_tone": best_tone, "pitch_tone": pitch_tone})
+        parts.append(
+            {
+                "pos": k,
+                "kind": "tone",
+                "expected": want,
+                "heard": (h or {}).get("tone"),
+                "verdict": verdict,
+                "p_tone": round(p_acc, 3),
+                "best_tone": best_tone,
+                "pitch_tone": pitch_tone,
+            }
+        )
 
     before = job.get("score")
     if before is None:
@@ -317,7 +370,14 @@ def check(job: dict) -> dict:
         verdict = "partial"
     else:
         verdict = "real_miss"
-    return {"status": "done", "verdict": verdict, "score_before": before, "score_after": after, "parts": parts, "version": VERSION}
+    return {
+        "status": "done",
+        "verdict": verdict,
+        "score_before": before,
+        "score_after": after,
+        "parts": parts,
+        "version": VERSION,
+    }
 
 
 def _pitch_tone(fr: Frames, specs, js, k: int, job: dict) -> int | None:
@@ -335,6 +395,6 @@ def _pitch_tone(fr: Frames, specs, js, k: int, job: dict) -> int | None:
     st = np.array([np.nan if v is None else float(v) for v in job.get("semitones") or []], dtype=float)
     if not per or not len(st):
         return None
-    a, b = int(f0 * per * 100), int(math.ceil((end + 1) * per * 100))
+    a, b = int(f0 * per * 100), math.ceil((end + 1) * per * 100)
     p = pitch.classify(st[a:b], bool(job.get("has_ref")))
     return int(p["tone"]) if p else None

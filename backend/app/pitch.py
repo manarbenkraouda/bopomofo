@@ -1,11 +1,14 @@
 """Pitch tracking (Praat, YIN fallback) and a rule-based Mandarin tone classifier."""
+
 from __future__ import annotations
+
+from itertools import pairwise
 
 import numpy as np
 
 SR = 16000
-HOP = 160          # 10 ms
-WIN = 400          # 25 ms
+HOP = 160  # 10 ms
+WIN = 400  # 25 ms
 FMIN, FMAX = 75.0, 450.0
 
 
@@ -25,14 +28,22 @@ def track(audio: np.ndarray) -> np.ndarray:
 
 def _praat(audio: np.ndarray) -> np.ndarray:
     import parselmouth
+
     n = len(audio) // HOP
     if n < 5:
         return np.zeros(max(n, 0))
     snd = parselmouth.Sound(audio.astype(np.float64), sampling_frequency=SR)
     # Lower voicing threshold (0.3, Praat default 0.45) keeps weak voicing; a higher voiced/unvoiced cost (0.2)
     # stops the path from breaking for one or two noisy frames; silence threshold 0.02 keeps quiet syllable ends.
-    p = snd.to_pitch_ac(time_step=HOP / SR, pitch_floor=60.0, pitch_ceiling=500.0, silence_threshold=0.02,
-                        voicing_threshold=0.3, octave_jump_cost=0.35, voiced_unvoiced_cost=0.2)
+    p = snd.to_pitch_ac(
+        time_step=HOP / SR,
+        pitch_floor=60.0,
+        pitch_ceiling=500.0,
+        silence_threshold=0.02,
+        voicing_threshold=0.3,
+        octave_jump_cost=0.35,
+        voiced_unvoiced_cost=0.2,
+    )
     t = (np.arange(n) * HOP + WIN / 2) / SR
     f = np.array([p.get_value_at_time(x) for x in t], dtype=float)
     return np.nan_to_num(f, nan=0.0)
@@ -42,10 +53,10 @@ def fill_gaps(f0: np.ndarray, max_gap: int = 8, max_jump_st: float = 6.0) -> np.
     """Bridge short unvoiced holes (up to 80 ms) by linear interpolation in log frequency."""
     out = f0.copy()
     v = np.where(out > 0)[0]
-    for a, b in zip(v[:-1], v[1:]):
+    for a, b in pairwise(v):
         if 1 < b - a <= max_gap + 1 and abs(12 * np.log2(out[b] / out[a])) <= max_jump_st:
             k = np.arange(1, b - a)
-            out[a + 1:b] = np.exp(np.log(out[a]) + (np.log(out[b]) - np.log(out[a])) * k / (b - a))
+            out[a + 1 : b] = np.exp(np.log(out[a]) + (np.log(out[b]) - np.log(out[a])) * k / (b - a))
     return out
 
 
@@ -57,14 +68,14 @@ def track_yin(audio: np.ndarray) -> np.ndarray:
     if len(audio) < need:
         return np.zeros(0)
     n = 1 + (len(audio) - need) // HOP
-    rms_all = np.array([np.sqrt(np.mean(audio[i * HOP:i * HOP + WIN] ** 2)) for i in range(n)])
+    rms_all = np.array([np.sqrt(np.mean(audio[i * HOP : i * HOP + WIN] ** 2)) for i in range(n)])
     gate = max(rms_all.max() * 0.06, 1e-4)
     f0 = np.zeros(n)
     taus = np.arange(tmax + 1)
     for i in range(n):
         if rms_all[i] < gate:
             continue
-        fr = audio[i * HOP:i * HOP + need]
+        fr = audio[i * HOP : i * HOP + need]
         x = fr[:WIN]
         Y = np.lib.stride_tricks.sliding_window_view(fr, WIN)[: tmax + 1]
         d = ((Y - x) ** 2).sum(axis=1)
@@ -104,7 +115,7 @@ def clean(f0: np.ndarray) -> np.ndarray:
             out[i] *= 2
     sm = out.copy()  # median filter over voiced neighbours
     for i in np.where(v)[0]:
-        w = out[max(0, i - 2): i + 3]
+        w = out[max(0, i - 2) : i + 3]
         w = w[w > 0]
         sm[i] = np.median(w)
     # drop isolated voiced frames
@@ -148,4 +159,11 @@ def classify(seg_st: np.ndarray, has_ref: bool) -> dict | None:
         tone = 3
     else:
         tone = 3 if has_ref and level < -2.5 else 1
-    return {"tone": tone, "start": round(s, 2), "end": round(e, 2), "min": round(mn, 2), "min_pos": round(mnpos, 2), "range": round(rng, 2)}
+    return {
+        "tone": tone,
+        "start": round(s, 2),
+        "end": round(e, 2),
+        "min": round(mn, 2),
+        "min_pos": round(mnpos, 2),
+        "range": round(rng, 2),
+    }

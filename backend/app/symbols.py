@@ -5,6 +5,7 @@ Free transcription is weak on one short isolated sound. Here the question is nar
 model tokens. Tones are merged, because symbol names have no fixed tone. Each name gets a CTC score,
 and the best name wins.
 """
+
 from __future__ import annotations
 
 import json
@@ -97,7 +98,7 @@ def judge(lp: np.ndarray, target: str) -> dict:
         "heard": best if symbol_like else None,
         "closest": best,
         "fit": round(fit, 2),
-        "ranking": [k for k in ranked[:5]],
+        "ranking": ranked[:5],
     }
 
 
@@ -130,4 +131,3 @@ def save_clip(audio: np.ndarray, result: dict) -> None:
             old.with_suffix(".json").unlink(missing_ok=True)
     except OSError:
         pass
-

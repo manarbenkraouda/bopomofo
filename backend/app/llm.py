@@ -1,4 +1,5 @@
 """Sentence generation through OpenRouter."""
+
 from __future__ import annotations
 
 import json
@@ -33,22 +34,39 @@ class LLMError(RuntimeError):
     pass
 
 
-async def _chat(messages: list[dict], temperature: float = 0.9, model: str | None = None, reasoning: bool = False,
-                timeout: float = 90) -> dict:
+async def _chat(
+    messages: list[dict],
+    temperature: float = 0.9,
+    model: str | None = None,
+    reasoning: bool = False,
+    timeout: float = 90,
+) -> dict:
     limits.check_ai()  # first: a user at the limit makes no call
     if not OPENROUTER_API_KEY:
         raise LLMError("OPENROUTER_API_KEY is not set in backend/.env")
     # Reasoning is off: on long prompts it used the full token limit and the reply had no JSON.
     # The coach turns it on: a router model such as Jev chooses its own reasoning effort.
     # No max_tokens: the reply length is not capped.
-    body = {"model": model or OPENROUTER_MODEL, "messages": messages, "response_format": {"type": "json_object"},
-            "temperature": temperature}
+    body = {
+        "model": model or OPENROUTER_MODEL,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+        "temperature": temperature,
+    }
     if not reasoning:
         body["reasoning"] = {"enabled": False}
     cost = None
     try:
         async with httpx.AsyncClient(timeout=timeout) as c:
-            r = await c.post(URL, json=body, headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}", "HTTP-Referer": "https://bopomofo.app", "X-Title": "bopomofo"})
+            r = await c.post(
+                URL,
+                json=body,
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "HTTP-Referer": "https://bopomofo.app",
+                    "X-Title": "bopomofo",
+                },
+            )
         if r.status_code != 200:
             raise LLMError(f"OpenRouter error {r.status_code}: {r.text[:300]}")
         data = r.json()
@@ -76,15 +94,32 @@ def _clean(s: dict) -> dict | None:
     hanzi = _s2tw.convert(str(s.get("hanzi", "")).strip())
     if not re.search(r"[\u4e00-\u9fff]", hanzi) or re.search(r"[A-Za-z0-9]", hanzi):
         return None
-    words = [{"text": _s2tw.convert(str(w.get("text", ""))), "english": str(w.get("english", ""))} for w in s.get("words", []) if w.get("text")]
+    words = [
+        {"text": _s2tw.convert(str(w.get("text", ""))), "english": str(w.get("english", ""))}
+        for w in s.get("words", [])
+        if w.get("text")
+    ]
     return {"hanzi": hanzi, "english": str(s.get("english", "")).strip(), "words": words}
 
 
 PROFILE_LABELS = {
-    "name": "Name", "chinese_name": "Chinese name", "age": "Age", "nationality": "Nationality", "hometown": "Hometown",
-    "lives_in": "Lives in", "job": "Job", "company": "Company or school", "studies": "Studies", "family": "Family",
-    "languages": "Languages", "hobbies": "Hobbies", "food": "Favorite food", "why_mandarin": "Why learning Mandarin",
-    "taiwan": "Connection to Taiwan", "level": "Mandarin and Bopomofo level", "notes": "Other facts",
+    "name": "Name",
+    "chinese_name": "Chinese name",
+    "age": "Age",
+    "nationality": "Nationality",
+    "hometown": "Hometown",
+    "lives_in": "Lives in",
+    "job": "Job",
+    "company": "Company or school",
+    "studies": "Studies",
+    "family": "Family",
+    "languages": "Languages",
+    "hobbies": "Hobbies",
+    "food": "Favorite food",
+    "why_mandarin": "Why learning Mandarin",
+    "taiwan": "Connection to Taiwan",
+    "level": "Mandarin and Bopomofo level",
+    "notes": "Other facts",
 }
 
 
@@ -94,14 +129,21 @@ def profile_missing(profile: dict | None) -> list[str]:
 
 
 def profile_text(profile: dict | None) -> str:
-    lines = [f"- {label}: {str(profile.get(k, '')).strip()}" for k, label in PROFILE_LABELS.items() if profile and str(profile.get(k, "")).strip()]
+    lines = [
+        f"- {label}: {str(profile.get(k, '')).strip()}"
+        for k, label in PROFILE_LABELS.items()
+        if profile and str(profile.get(k, "")).strip()
+    ]
     if not lines:
         return ""
-    return ("\nThe learner's real profile (written in English):\n" + "\n".join(lines) +
-            "\nWrite the sentences in the first person, as the learner speaking about their real life. Use these real facts "
-            "(name, age, job, city, family, hobbies and so on) when they fit the topic. Never invent personal facts that are not in the profile "
-            "or that contradict it. For the learner's name, use the Chinese name if given; else use a common Chinese transliteration, "
-            "because the Chinese text must not contain Latin letters.")
+    return (
+        "\nThe learner's real profile (written in English):\n"
+        + "\n".join(lines)
+        + "\nWrite the sentences in the first person, as the learner speaking about their real life. Use these real facts "
+        "(name, age, job, city, family, hobbies and so on) when they fit the topic. Never invent personal facts that are not in the profile "
+        "or that contradict it. For the learner's name, use the Chinese name if given; else use a common Chinese transliteration, "
+        "because the Chinese text must not contain Latin letters."
+    )
 
 
 async def generate(topic: str, level: str, count: int, profile: dict | None = None) -> tuple[list[dict], dict]:
@@ -124,8 +166,17 @@ async def generate(topic: str, level: str, count: int, profile: dict | None = No
 
 
 async def translate(text: str) -> dict:
-    prompt = ("Translate this Taiwan Mandarin text to natural English and split it into words with short English glosses. "
-              'Return JSON only: {"english":"...","words":[{"text":"...","english":"..."}]}\nText: ' + text)
+    prompt = (
+        "Translate this Taiwan Mandarin text to natural English and split it into words with short English glosses. "
+        'Return JSON only: {"english":"...","words":[{"text":"...","english":"..."}]}\nText: ' + text
+    )
     res = await _chat([{"role": "user", "content": prompt}])
     j = res["json"]
-    return {"english": str(j.get("english", "")), "words": [{"text": str(w.get("text", "")), "english": str(w.get("english", ""))} for w in j.get("words", []) if w.get("text")]}
+    return {
+        "english": str(j.get("english", "")),
+        "words": [
+            {"text": str(w.get("text", "")), "english": str(w.get("english", ""))}
+            for w in j.get("words", [])
+            if w.get("text")
+        ],
+    }

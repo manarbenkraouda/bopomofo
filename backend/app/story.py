@@ -3,6 +3,7 @@
 The model never writes a number. In props it refers to a fact ({"$fact": "key"}), and in text it writes a placeholder ({key}).
 This module builds the facts from the plan's saved stats, checks every card against CATALOG, and fills the numbers in before
 the story is saved. When the model is not available, a fixed story is built from the same facts and blocks."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,11 +16,25 @@ from . import coach, db
 # ---------- the facts ----------
 
 TONE = {"1": "tone 1", "2": "tone 2", "3": "tone 3", "4": "tone 4", "5": "the neutral tone"}
-MODE_LABEL = {"reading": "reading symbols aloud", "recognize": "recognizing symbols silently (typing their pinyin)",
-              "listening/tone": "the tone quiz (by ear)", "listening/zhuyin": "picking Bopomofo by ear",
-              "listening/rule": "the tone rules quiz (3-3, 不, 一)",
-              "dictation": "writing symbols you hear", "writing": "writing syllables", "speaking": "speaking"}
-UNIT_WORD = {"%": "", "min": "minutes", "days": "days", "answers": "answers", "times": "times", "symbols": "symbols", "points": "points"}
+MODE_LABEL = {
+    "reading": "reading symbols aloud",
+    "recognize": "recognizing symbols silently (typing their pinyin)",
+    "listening/tone": "the tone quiz (by ear)",
+    "listening/zhuyin": "picking Bopomofo by ear",
+    "listening/rule": "the tone rules quiz (3-3, 不, 一)",
+    "dictation": "writing symbols you hear",
+    "writing": "writing syllables",
+    "speaking": "speaking",
+}
+UNIT_WORD = {
+    "%": "",
+    "min": "minutes",
+    "days": "days",
+    "answers": "answers",
+    "times": "times",
+    "symbols": "symbols",
+    "points": "points",
+}
 
 
 def fmt(f: dict) -> str:
@@ -45,16 +60,29 @@ def story_stats(units: list[dict], events: list[dict], secs: dict[str, int], tod
     """Extra numbers for the story, saved in the digest: 28 days of practice, the streak, and every tone (also the strong ones)."""
     d28 = (today - timedelta(days=27)).isoformat()
     from . import stats
+
     tones = []
     for i in stats.item_stats(units, today):
         if i["kind"] == "tone" and i["area"] in ("listening", "speaking") and i["n"] >= 3:
-            tones.append({"area": i["area"], "tone": i["expected"], "answers": i["n"], "pct": i["acc"], "week_pct": i["recent"],
-                          "before_pct": i["before"], "instead": {a: n for a, n in i["top"] if a not in ("?", None)}})
+            tones.append(
+                {
+                    "area": i["area"],
+                    "tone": i["expected"],
+                    "answers": i["n"],
+                    "pct": i["acc"],
+                    "week_pct": i["recent"],
+                    "before_pct": i["before"],
+                    "instead": {a: n for a, n in i["top"] if a not in ("?", None)},
+                }
+            )
     days = {d for d, s in secs.items() if s > 0}
-    return {"minutes_by_day_28d": {d: round(s / 60) for d, s in sorted(secs.items()) if d >= d28},
-            "minutes_28d": round(sum(s for d, s in secs.items() if d >= d28) / 60),
-            "streak": db.streak(days, today), "answers_total": coach._q("SELECT COUNT(*) AS n FROM events")[0]["n"],
-            "tones": tones}
+    return {
+        "minutes_by_day_28d": {d: round(s / 60) for d, s in sorted(secs.items()) if d >= d28},
+        "minutes_28d": round(sum(s for d, s in secs.items() if d >= d28) / 60),
+        "streak": db.streak(days, today),
+        "answers_total": coach._q("SELECT COUNT(*) AS n FROM events")[0]["n"],
+        "tones": tones,
+    }
 
 
 def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict | None = None) -> dict[str, dict]:
@@ -78,9 +106,20 @@ def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict |
     if by_day:
         if s.get("minutes_28d") is not None:
             add("practice.minutes.28d", "minutes of practice in the last 28 days", s["minutes_28d"], "min")
-        add("practice.days.28d", "days with practice in the last 28 days", sum(1 for v in by_day.values() if v > 0), "days")
-        F["practice.minutes_by_day"] = {"key": "practice.minutes_by_day", "label": "minutes of practice per day", "series": True, "unit": "min",
-                                        "values": list(by_day.values()), "labels": list(by_day.keys())}
+        add(
+            "practice.days.28d",
+            "days with practice in the last 28 days",
+            sum(1 for v in by_day.values() if v > 0),
+            "days",
+        )
+        F["practice.minutes_by_day"] = {
+            "key": "practice.minutes_by_day",
+            "label": "minutes of practice per day",
+            "series": True,
+            "unit": "min",
+            "values": list(by_day.values()),
+            "labels": list(by_day.keys()),
+        }
 
     for m in ov.get("modes") or []:
         k = "mode." + m["mode"].replace("/", "_")
@@ -89,34 +128,83 @@ def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict |
         add(k + ".pct", f"right in {name}, last 7 days", m.get("right_7d_pct"), "%", **extra)
         add(k + ".answers", f"answers in {name}, last 7 days", m.get("answers_7d"), "answers", **extra)
         add(k + ".pct_before", f"right in {name}, before the last 7 days", m.get("right_before_pct"), "%", **extra)
-        add(k + ".help_pct", f"answers in {name} where the answer was shown first", m.get("answer_shown_pct"), "%", **extra)
+        add(
+            k + ".help_pct",
+            f"answers in {name} where the answer was shown first",
+            m.get("answer_shown_pct"),
+            "%",
+            **extra,
+        )
 
-    rows = s.get("tones") or [{"area": r["area"], "tone": r["x"], "answers": r["answers"], "pct": r["right_pct"], "week_pct": r["this_week_pct"],
-                               "before_pct": r["before_pct"], "instead": r.get("produced_instead") or {}}
-                              for r in d.get("_skills") or [] if r["unit"] == "tone" and r["area"] in ("listening", "speaking")]
+    rows = s.get("tones") or [
+        {
+            "area": r["area"],
+            "tone": r["x"],
+            "answers": r["answers"],
+            "pct": r["right_pct"],
+            "week_pct": r["this_week_pct"],
+            "before_pct": r["before_pct"],
+            "instead": r.get("produced_instead") or {},
+        }
+        for r in d.get("_skills") or []
+        if r["unit"] == "tone" and r["area"] in ("listening", "speaking")
+    ]
     for area, short, how in (("listening", "listen", "by ear"), ("speaking", "speak", "when you say it")):
         mine = [r for r in rows if r["area"] == area and r["pct"] is not None]
         for r in mine:
             add(f"tone.{short}.{r['tone']}.pct", f"{TONE.get(r['tone'], r['tone'])} right {how}", r["pct"], "%")
-            add(f"tone.{short}.{r['tone']}.answers", f"answers on {TONE.get(r['tone'], r['tone'])} {how}", r["answers"], "answers")
+            add(
+                f"tone.{short}.{r['tone']}.answers",
+                f"answers on {TONE.get(r['tone'], r['tone'])} {how}",
+                r["answers"],
+                "answers",
+            )
             for a, n in (r.get("instead") or {}).items():
                 if a in TONE and a != r["tone"]:
                     verb = "picked" if area == "listening" else "said"
-                    add(f"mix.{area}.tone.{r['tone']}>{a}", f"times you {verb} {TONE[a]} instead of {TONE[r['tone']]}", n, "times")
+                    add(
+                        f"mix.{area}.tone.{r['tone']}>{a}",
+                        f"times you {verb} {TONE[a]} instead of {TONE[r['tone']]}",
+                        n,
+                        "times",
+                    )
         n = sum(r["answers"] for r in mine)
         if n:
-            add(f"tone.{short}.all.pct", f"tones right {how}, all tones", round(sum(r["pct"] * r["answers"] for r in mine) / n, 1), "%")
+            add(
+                f"tone.{short}.all.pct",
+                f"tones right {how}, all tones",
+                round(sum(r["pct"] * r["answers"] for r in mine) / n, 1),
+                "%",
+            )
             add(f"tone.{short}.all.answers", f"tone answers {how}", n, "answers")
-    for area, table in (("listening", (d.get("tones_listening") or {}).get("expected_to_picked")), ("speaking", (d.get("tones_speaking") or {}).get("expected_to_said"))):
+    for area, table in (
+        ("listening", (d.get("tones_listening") or {}).get("expected_to_picked")),
+        ("speaking", (d.get("tones_speaking") or {}).get("expected_to_said")),
+    ):
         for e, got in (table or {}).items():
             for a, n in got.items():
                 if a in TONE and a != e:
                     verb = "picked" if area == "listening" else "said"
-                    add(f"mix.{area}.tone.{e}>{a}", f"times you {verb} {TONE[a]} instead of {TONE.get(e, e)}", n, "times")
+                    add(
+                        f"mix.{area}.tone.{e}>{a}",
+                        f"times you {verb} {TONE[a]} instead of {TONE.get(e, e)}",
+                        n,
+                        "times",
+                    )
     for m in (d.get("sounds") or {}).get("mixups") or []:
-        add(f"mix.{m['area']}.{m['unit']}.{m['expected']}>{m['produced']}", f"times you gave {m['produced']} instead of {m['expected']} ({m['area']})", m["times"], "times")
+        add(
+            f"mix.{m['area']}.{m['unit']}.{m['expected']}>{m['produced']}",
+            f"times you gave {m['produced']} instead of {m['expected']} ({m['area']})",
+            m["times"],
+            "times",
+        )
     for m in (d.get("symbols") or {}).get("recognize_mixups") or []:
-        add(f"mix.recognize.symbol.{m['shown']}>{m['typed_as']}", f"times you typed the pinyin of {m['typed_as']} for {m['shown']}", m["times"], "times")
+        add(
+            f"mix.recognize.symbol.{m['shown']}>{m['typed_as']}",
+            f"times you typed the pinyin of {m['typed_as']} for {m['shown']}",
+            m["times"],
+            "times",
+        )
     for r in d.get("_skills") or []:
         if r["unit"] in ("initial", "final", "symbol"):
             add(f"skill.{r['area']}.{r['unit']}.{r['x']}.pct", f"{r['x']} right ({r['area']})", r["right_pct"], "%")
@@ -125,22 +213,43 @@ def story_facts(d: dict, steps: list[dict], milestones: list[dict], pace: dict |
             k = "rule." + r["rule"].replace("-", "")
             add(k + ".pct", f"right on the {r['name']}", r.get("acc"), "%")
             add(k + ".answers", f"answers on the {r['name']}", r["n"], "answers")
-            add(k + ".literal", f"times you read the written tone where the {r['name']} changes it", r.get("literal"), "times")
+            add(
+                k + ".literal",
+                f"times you read the written tone where the {r['name']} changes it",
+                r.get("literal"),
+                "times",
+            )
 
     a = ov.get("alphabet") or {}
     if a:
         add("alphabet.known", "Bopomofo symbols you know", a.get("known_symbols"), "symbols")
         add("alphabet.total", "Bopomofo symbols in all (a bare number)", 37)
-        add("alphabet.learning", "symbols you have met but do not know yet", len(a.get("seen_not_known") or ""), "symbols")
+        add(
+            "alphabet.learning",
+            "symbols you have met but do not know yet",
+            len(a.get("seen_not_known") or ""),
+            "symbols",
+        )
         add("alphabet.new", "symbols you have never practiced", len(a.get("never_practiced") or ""), "symbols")
-        add("alphabet.reps_needed", "right repetitions of a symbol before tests from memory", a.get("repetitions_before_tests"), "times")
+        add(
+            "alphabet.reps_needed",
+            "right repetitions of a symbol before tests from memory",
+            a.get("repetitions_before_tests"),
+            "times",
+        )
         for sym, n in (a.get("right_repetitions") or {}).items():
             add(f"alphabet.reps.{sym}", f"right repetitions of {sym}", n, "times")
 
     sent = d.get("sentences") or {}
     add("sentence.good.count", "sentences you say well (90 points or more)", sent.get("good_count"))
     for i, w in enumerate((sent.get("weak") or [])[:6], 1):
-        add(f"sentence.weak.{i}.score", f"average score of the sentence {w['text']}", w["avg_score"], "points", text=w["text"])
+        add(
+            f"sentence.weak.{i}.score",
+            f"average score of the sentence {w['text']}",
+            w["avg_score"],
+            "points",
+            text=w["text"],
+        )
 
     for m in milestones:
         c = m["criterion"]
@@ -162,13 +271,35 @@ def story_context(d: dict, steps: list[dict]) -> dict:
     a = (d.get("overview") or {}).get("alphabet") or {}
     by_day = (d.get("story") or {}).get("minutes_by_day_28d") or (d.get("pace") or {}).get("minutes_by_day_14d") or {}
     today = date.fromisoformat((d.get("overview") or {}).get("today") or db.local_today().isoformat())
-    cal = [{"day": (today - timedelta(days=i)).isoformat(), "minutes": by_day.get((today - timedelta(days=i)).isoformat(), 0)} for i in range(27, -1, -1)]
+    cal = [
+        {
+            "day": (today - timedelta(days=i)).isoformat(),
+            "minutes": by_day.get((today - timedelta(days=i)).isoformat(), 0),
+        }
+        for i in range(27, -1, -1)
+    ]
     nxt = next((x["params"].get("syms") or [] for x in steps if x["type"] == "read_symbols"), [])
-    return {"alphabet": {"known": a.get("known", ""), "learning": a.get("seen_not_known", ""), "new": a.get("never_practiced", ""),
-                         "reps": a.get("right_repetitions") or {}, "reps_needed": a.get("repetitions_before_tests") or coach.LEARN_REPS, "next": nxt},
-            "calendar": cal,
-            "steps": [{"type": x["type"], "title": x["title"], "target": x["target"], "minutes": x.get("minutes"),
-                       "learn": bool((x.get("params") or {}).get("learn"))} for x in steps]}
+    return {
+        "alphabet": {
+            "known": a.get("known", ""),
+            "learning": a.get("seen_not_known", ""),
+            "new": a.get("never_practiced", ""),
+            "reps": a.get("right_repetitions") or {},
+            "reps_needed": a.get("repetitions_before_tests") or coach.LEARN_REPS,
+            "next": nxt,
+        },
+        "calendar": cal,
+        "steps": [
+            {
+                "type": x["type"],
+                "title": x["title"],
+                "target": x["target"],
+                "minutes": x.get("minutes"),
+                "learn": bool((x.get("params") or {}).get("learn")),
+            }
+            for x in steps
+        ],
+    }
 
 
 # ---------- the block catalog ----------
@@ -180,22 +311,62 @@ CATALOG: dict[str, dict] = {
     "kicker": {"desc": "a small uppercase label above the card text", "props": {"text": ("text", 30)}},
     "headline": {"desc": "a large title, the main line of the card", "props": {"text": ("text", 70)}},
     "text": {"desc": "one short sentence", "props": {"text": ("text", 140)}},
-    "big_number": {"desc": "one number that counts up, with a label", "chart": True, "props": {"value": ("fact",), "label": ("text", 40)}},
-    "ring": {"desc": "a percentage as a ring that fills", "chart": True, "props": {"value": ("pct",), "label": ("text", 40)}},
-    "bars": {"desc": "2 to 6 bars that grow, for example the tones side by side; highlight the one that matters", "chart": True,
-             "props": {"items": ("list", 2, 6, {"label": ("text", 18), "value": ("fact",), "highlight?": ("bool",)})}},
-    "versus": {"desc": "two numbers face to face, for example ear against mouth", "chart": True,
-               "props": {"left": ("obj", {"label": ("text", 24), "value": ("fact",)}), "right": ("obj", {"label": ("text", 24), "value": ("fact",)})}},
-    "symbol_grid": {"desc": "the 37 Bopomofo symbols, colored known / learning / new, with a ring on the highlighted ones", "chart": True,
-                    "props": {"highlight?": ("syms", 8)}},
-    "confusion": {"desc": "arrows from what was expected to what you gave instead, with how many times", "chart": True,
-                  "props": {"pairs": ("list", 1, 4, {"from": ("text", 16), "to": ("text", 16), "count": ("fact",)})}},
-    "calendar": {"desc": "the last 28 days, one square per day, brighter with more practice", "chart": True, "props": {}},
-    "sparkline": {"desc": "a line that draws itself, from a series fact", "chart": True, "props": {"series": ("series",), "label": ("text", 40)}},
-    "chips": {"desc": "up to 8 small tags, for example the next symbols or tones", "props": {"items": ("list", 1, 8, ("text", 20))}},
+    "big_number": {
+        "desc": "one number that counts up, with a label",
+        "chart": True,
+        "props": {"value": ("fact",), "label": ("text", 40)},
+    },
+    "ring": {
+        "desc": "a percentage as a ring that fills",
+        "chart": True,
+        "props": {"value": ("pct",), "label": ("text", 40)},
+    },
+    "bars": {
+        "desc": "2 to 6 bars that grow, for example the tones side by side; highlight the one that matters",
+        "chart": True,
+        "props": {"items": ("list", 2, 6, {"label": ("text", 18), "value": ("fact",), "highlight?": ("bool",)})},
+    },
+    "versus": {
+        "desc": "two numbers face to face, for example ear against mouth",
+        "chart": True,
+        "props": {
+            "left": ("obj", {"label": ("text", 24), "value": ("fact",)}),
+            "right": ("obj", {"label": ("text", 24), "value": ("fact",)}),
+        },
+    },
+    "symbol_grid": {
+        "desc": "the 37 Bopomofo symbols, colored known / learning / new, with a ring on the highlighted ones",
+        "chart": True,
+        "props": {"highlight?": ("syms", 8)},
+    },
+    "confusion": {
+        "desc": "arrows from what was expected to what you gave instead, with how many times",
+        "chart": True,
+        "props": {"pairs": ("list", 1, 4, {"from": ("text", 16), "to": ("text", 16), "count": ("fact",)})},
+    },
+    "calendar": {
+        "desc": "the last 28 days, one square per day, brighter with more practice",
+        "chart": True,
+        "props": {},
+    },
+    "sparkline": {
+        "desc": "a line that draws itself, from a series fact",
+        "chart": True,
+        "props": {"series": ("series",), "label": ("text", 40)},
+    },
+    "chips": {
+        "desc": "up to 8 small tags, for example the next symbols or tones",
+        "props": {"items": ("list", 1, 8, ("text", 20))},
+    },
     "steps": {"desc": "the steps of this plan, appearing one by one", "chart": True, "props": {}},
-    "sticker": {"desc": "one big emoji or CJK character that pops in, with a short caption", "props": {"glyph": ("glyph",), "text?": ("text", 40)}},
-    "cta": {"desc": "the final button: start the first step, or close the story", "props": {"label": ("text", 30), "action": ("enum", ["start", "close"])}},
+    "sticker": {
+        "desc": "one big emoji or CJK character that pops in, with a short caption",
+        "props": {"glyph": ("glyph",), "text?": ("text", 40)},
+    },
+    "cta": {
+        "desc": "the final button: start the first step, or close the story",
+        "props": {"label": ("text", 30), "action": ("enum", ["start", "close"])},
+    },
 }
 MOODS = ["warm", "calm", "bright", "deep", "win"]
 MAX_CARDS, MIN_CARDS, MAX_BLOCKS, MAX_CHARTS = 9, 5, 4, 2
@@ -210,15 +381,29 @@ def catalog_text() -> str:
         if k == "text":
             return f"text (max {p[1]} characters)"
         if k == "list":
-            inner = spec(p[3]) if isinstance(p[3], tuple) else "{" + ", ".join(f'"{n}": {spec(v)}' for n, v in p[3].items()) + "}"
+            inner = (
+                spec(p[3])
+                if isinstance(p[3], tuple)
+                else "{" + ", ".join(f'"{n}": {spec(v)}' for n, v in p[3].items()) + "}"
+            )
             return f"list of {p[1]} to {p[2]} × {inner}"
         if k == "obj":
             return "{" + ", ".join(f'"{n}": {spec(v)}' for n, v in p[1].items()) + "}"
-        return {"fact": '{"$fact":"key"}', "pct": '{"$fact":"key of a % fact"}', "series": '{"$fact":"key of a series fact"}',
-                "enum": " | ".join(f'"{x}"' for x in p[1]) if k == "enum" else "", "syms": f"list of up to {p[1] if k == 'syms' else 0} single Bopomofo symbols",
-                "glyph": "one emoji or one CJK character", "bool": "true | false"}[k]
-    return "\n".join(f"- {t}{' [chart]' if c.get('chart') else ''}: {c['desc']}. props: "
-                     + ("{" + ", ".join(f'"{n}": {spec(v)}' for n, v in c["props"].items()) + "}" if c["props"] else "none") for t, c in CATALOG.items())
+        return {
+            "fact": '{"$fact":"key"}',
+            "pct": '{"$fact":"key of a % fact"}',
+            "series": '{"$fact":"key of a series fact"}',
+            "enum": " | ".join(f'"{x}"' for x in p[1]) if k == "enum" else "",
+            "syms": f"list of up to {p[1] if k == 'syms' else 0} single Bopomofo symbols",
+            "glyph": "one emoji or one CJK character",
+            "bool": "true | false",
+        }[k]
+
+    return "\n".join(
+        f"- {t}{' [chart]' if c.get('chart') else ''}: {c['desc']}. props: "
+        + ("{" + ", ".join(f'"{n}": {spec(v)}' for n, v in c["props"].items()) + "}" if c["props"] else "none")
+        for t, c in CATALOG.items()
+    )
 
 
 def check_text(s, n: int, facts: dict, where: str, errors: list[str], strict: bool) -> str | None:
@@ -266,10 +451,12 @@ def check_prop(spec: tuple, v, facts: dict, where: str, errors: list[str], stric
         key = _ref(v, facts)
         f = facts.get(key or "")
         if not f:
-            errors.append(f"{where}: unknown fact {v!r}; numbers must be {{\"$fact\": key}} from the facts list")
+            errors.append(f'{where}: unknown fact {v!r}; numbers must be {{"$fact": key}} from the facts list')
             return None
         if (k == "series") != bool(f.get("series")) or (k == "pct" and f["unit"] != "%"):
-            errors.append(f"{where}: fact {key} is not a {'series' if k == 'series' else '% fact' if k == 'pct' else 'number'}")
+            errors.append(
+                f"{where}: fact {key} is not a {'series' if k == 'series' else '% fact' if k == 'pct' else 'number'}"
+            )
             return None
         return dict(f)
     if k == "enum":
@@ -298,8 +485,11 @@ def check_prop(spec: tuple, v, facts: dict, where: str, errors: list[str], stric
             return None
         items = []
         for i, x in enumerate(v[: spec[2]]):
-            item = check_prop(spec[3], x, facts, f"{where}[{i}]", errors, strict) if isinstance(spec[3], tuple) else (
-                check_props(spec[3], x, facts, f"{where}[{i}]", errors, strict) if isinstance(x, dict) else None)
+            item = (
+                check_prop(spec[3], x, facts, f"{where}[{i}]", errors, strict)
+                if isinstance(spec[3], tuple)
+                else (check_props(spec[3], x, facts, f"{where}[{i}]", errors, strict) if isinstance(x, dict) else None)
+            )
             if item is not None:
                 items.append(item)
         if len(v) > spec[2]:
@@ -335,7 +525,7 @@ def clean_card(card, facts: dict, strict: bool = True) -> tuple[dict | None, lis
     not strict: bad blocks are dropped and long texts are cut."""
     errors: list[str] = []
     if not isinstance(card, dict) or not isinstance(card.get("blocks"), list):
-        return None, ["the card must be {\"blocks\": [...]}"]
+        return None, ['the card must be {"blocks": [...]}']
     blocks, charts = [], 0
     for i, b in enumerate(card["blocks"]):
         where = f"block {i}"
@@ -349,7 +539,14 @@ def clean_card(card, facts: dict, strict: bool = True) -> tuple[dict | None, lis
         if CATALOG[t].get("chart") and charts >= MAX_CHARTS:
             errors.append(f"{where}: at most {MAX_CHARTS} chart blocks per card")
             continue
-        props = check_props(CATALOG[t]["props"], b.get("props") if isinstance(b.get("props"), dict) else {}, facts, f"{where} ({t})", errors, strict)
+        props = check_props(
+            CATALOG[t]["props"],
+            b.get("props") if isinstance(b.get("props"), dict) else {},
+            facts,
+            f"{where} ({t})",
+            errors,
+            strict,
+        )
         if props is None:
             continue
         charts += bool(CATALOG[t].get("chart"))
@@ -358,7 +555,9 @@ def clean_card(card, facts: dict, strict: bool = True) -> tuple[dict | None, lis
         return None, errors
     if not blocks:
         return None, errors or ["no valid block"]
-    chars = sum(len(json.dumps(b["props"], ensure_ascii=False)) for b in blocks if b["type"] in ("headline", "text", "kicker"))
+    chars = sum(
+        len(json.dumps(b["props"], ensure_ascii=False)) for b in blocks if b["type"] in ("headline", "text", "kicker")
+    )
     seconds = coach._int(card.get("seconds"), 6, 10, max(6, min(10, round(5 + chars / 45 + charts * 1.5))))
     mood = card.get("mood") if card.get("mood") in MOODS else "warm"
     return {"id": coach._text(card.get("id"), 20) or "c", "mood": mood, "seconds": seconds, "blocks": blocks}, errors
@@ -381,13 +580,21 @@ def finish(cards: list[dict], fallback: list[dict]) -> list[dict]:
         if len(cards[-1]["blocks"]) < MAX_BLOCKS:
             cards[-1]["blocks"].append(cta)
         else:
-            cards.append({"id": "go", "mood": "win", "seconds": 6, "blocks": [{"type": "headline", "props": {"text": "Ready when you are."}}, cta]})
+            cards.append(
+                {
+                    "id": "go",
+                    "mood": "win",
+                    "seconds": 6,
+                    "blocks": [{"type": "headline", "props": {"text": "Ready when you are."}}, cta],
+                }
+            )
     for i, c in enumerate(cards):
         c["id"] = f"c{i + 1}"
-    return cards[:MAX_CARDS + 1]
+    return cards[: MAX_CARDS + 1]
 
 
 # ---------- the headline ----------
+
 
 def check_headline(h, gate: bool) -> tuple[str | None, list[str]]:
     errors = []
@@ -401,57 +608,132 @@ def check_headline(h, gate: bool) -> tuple[str | None, list[str]]:
     if re.search(r"\d|%", TONE_NAMES.sub("", h)):
         errors.append("it has a number: write no numbers and no stats")
     if gate and not re.search(f"alphabet|symbol|bopomofo|zhuyin|letter|[{coach.SYMS}]", h, re.I):
-        errors.append("the learner does not know the alphabet yet: the headline must be about the symbols or the alphabet")
+        errors.append(
+            "the learner does not know the alphabet yet: the headline must be about the symbols or the alphabet"
+        )
     return (None if errors else h), errors
 
 
 def template_headline(gate: bool) -> str:
     if gate:
-        return ("Your ears already get along with the tones; your eyes are still being introduced to the Bopomofo symbols. "
-                "This plan makes the introductions, a few symbols at a time.")
+        return (
+            "Your ears already get along with the tones; your eyes are still being introduced to the Bopomofo symbols. "
+            "This plan makes the introductions, a few symbols at a time."
+        )
     return "You are making real progress, and a few sounds still like to play tricks on you. This plan goes after the trickiest ones first."
 
 
 # ---------- the fixed story (no model) ----------
 
+
 def rules_cards(facts: dict, ctx: dict, gate: bool) -> list[dict]:
     F = facts
     raw: list[dict] = []
     if "practice.minutes.7d" in F:
-        raw.append({"mood": "warm", "blocks": [{"type": "kicker", "props": {"text": "Your week"}},
-                                                {"type": "big_number", "props": {"value": {"$fact": "practice.minutes.7d"}, "label": "minutes of practice"}},
-                                                {"type": "calendar", "props": {}},
-                                                {"type": "text", "props": {"text": "Every minute is saved, down to each tone you hear and say."}}]})
+        raw.append(
+            {
+                "mood": "warm",
+                "blocks": [
+                    {"type": "kicker", "props": {"text": "Your week"}},
+                    {
+                        "type": "big_number",
+                        "props": {"value": {"$fact": "practice.minutes.7d"}, "label": "minutes of practice"},
+                    },
+                    {"type": "calendar", "props": {}},
+                    {"type": "text", "props": {"text": "Every minute is saved, down to each tone you hear and say."}},
+                ],
+            }
+        )
     if "tone.listen.all.pct" in F:
-        raw.append({"mood": "bright", "blocks": [{"type": "kicker", "props": {"text": "Your strong side"}},
-                                                  {"type": "headline", "props": {"text": "Your ears are on it."}},
-                                                  {"type": "ring", "props": {"value": {"$fact": "tone.listen.all.pct"}, "label": "tones right by ear"}}]})
+        raw.append(
+            {
+                "mood": "bright",
+                "blocks": [
+                    {"type": "kicker", "props": {"text": "Your strong side"}},
+                    {"type": "headline", "props": {"text": "Your ears are on it."}},
+                    {
+                        "type": "ring",
+                        "props": {"value": {"$fact": "tone.listen.all.pct"}, "label": "tones right by ear"},
+                    },
+                ],
+            }
+        )
     spoken = [t for t in "12345" if f"tone.speak.{t}.pct" in F]
     if len(spoken) >= 2:
         worst = min(spoken, key=lambda t: F[f"tone.speak.{t}.pct"]["value"])
-        raw.append({"mood": "deep", "blocks": [{"type": "kicker", "props": {"text": "When you speak"}},
-                                                {"type": "headline", "props": {"text": "Some tones need more love."}},
-                                                {"type": "bars", "props": {"items": [{"label": TONE[t].replace("the ", ""), "value": {"$fact": f"tone.speak.{t}.pct"},
-                                                                                      "highlight": t == worst} for t in spoken]}}]})
+        raw.append(
+            {
+                "mood": "deep",
+                "blocks": [
+                    {"type": "kicker", "props": {"text": "When you speak"}},
+                    {"type": "headline", "props": {"text": "Some tones need more love."}},
+                    {
+                        "type": "bars",
+                        "props": {
+                            "items": [
+                                {
+                                    "label": TONE[t].replace("the ", ""),
+                                    "value": {"$fact": f"tone.speak.{t}.pct"},
+                                    "highlight": t == worst,
+                                }
+                                for t in spoken
+                            ]
+                        },
+                    },
+                ],
+            }
+        )
     mix = sorted((f for k, f in F.items() if k.startswith("mix.")), key=lambda f: -f["value"])[:3]
     if mix:
         pairs = []
         for f in mix:
             body = f["key"].split(".", 3)[3]
             a, b = body.split(">")
-            pairs.append({"from": TONE.get(a, a).replace("the ", ""), "to": TONE.get(b, b).replace("the ", ""), "count": {"$fact": f["key"]}})
-        raw.append({"mood": "calm", "blocks": [{"type": "kicker", "props": {"text": "Mix-ups"}},
-                                                {"type": "headline", "props": {"text": "What you give instead"}},
-                                                {"type": "confusion", "props": {"pairs": pairs}}]})
+            pairs.append(
+                {
+                    "from": TONE.get(a, a).replace("the ", ""),
+                    "to": TONE.get(b, b).replace("the ", ""),
+                    "count": {"$fact": f["key"]},
+                }
+            )
+        raw.append(
+            {
+                "mood": "calm",
+                "blocks": [
+                    {"type": "kicker", "props": {"text": "Mix-ups"}},
+                    {"type": "headline", "props": {"text": "What you give instead"}},
+                    {"type": "confusion", "props": {"pairs": pairs}},
+                ],
+            }
+        )
     if "alphabet.known" in F:
-        raw.append({"mood": "warm", "blocks": [{"type": "kicker", "props": {"text": "The alphabet"}},
-                                                {"type": "headline", "props": {"text": "Your eyes are next." if gate else "Your symbols"}},
-                                                {"type": "symbol_grid", "props": {"highlight": ctx["alphabet"]["next"]}},
-                                                {"type": "text", "props": {"text": "You know {alphabet.known} of {alphabet.total}. Repetition first, tests later."}}]})
-    raw.append({"mood": "win", "blocks": [{"type": "kicker", "props": {"text": "Today"}},
-                                           {"type": "headline", "props": {"text": "Small steps, in the right order."}},
-                                           {"type": "steps", "props": {}},
-                                           {"type": "cta", "props": {"label": "Start the first step", "action": "start"}}]})
+        raw.append(
+            {
+                "mood": "warm",
+                "blocks": [
+                    {"type": "kicker", "props": {"text": "The alphabet"}},
+                    {"type": "headline", "props": {"text": "Your eyes are next." if gate else "Your symbols"}},
+                    {"type": "symbol_grid", "props": {"highlight": ctx["alphabet"]["next"]}},
+                    {
+                        "type": "text",
+                        "props": {
+                            "text": "You know {alphabet.known} of {alphabet.total}. Repetition first, tests later."
+                        },
+                    },
+                ],
+            }
+        )
+    raw.append(
+        {
+            "mood": "win",
+            "blocks": [
+                {"type": "kicker", "props": {"text": "Today"}},
+                {"type": "headline", "props": {"text": "Small steps, in the right order."}},
+                {"type": "steps", "props": {}},
+                {"type": "cta", "props": {"label": "Start the first step", "action": "start"}},
+            ],
+        }
+    )
     return [c for c in (clean_card(x, F, strict=False)[0] for x in raw) if c]
 
 
@@ -519,13 +801,20 @@ def _fact_lines(facts: dict) -> list[str]:
     return out
 
 
-async def _model_story(ask, facts: dict, ctx: dict, gate: bool, brief: dict) -> tuple[str | None, list[dict], list[str]]:
+async def _model_story(
+    ask, facts: dict, ctx: dict, gate: bool, brief: dict
+) -> tuple[str | None, list[dict], list[str]]:
     lines = _fact_lines(facts)
     cat = catalog_text()
     errors: list[str] = []
 
     async def headline():
-        payload = {"alphabet_rule_active": gate, "plan_steps": [s["title"] for s in ctx["steps"]], "facts": lines, **brief}
+        payload = {
+            "alphabet_rule_active": gate,
+            "plan_steps": [s["title"] for s in ctx["steps"]],
+            "facts": lines,
+            **brief,
+        }
         task = HEADLINE + (HEADLINE_ALPHABET if gate else "")
         for attempt in range(2):
             r = await ask(f"headline#{attempt + 1}", task, payload)
@@ -536,23 +825,37 @@ async def _model_story(ask, facts: dict, ctx: dict, gate: bool, brief: dict) -> 
         return None
 
     async def outline():
-        r = await ask("story:outline", OUTLINE.replace("CATALOG", cat), {"facts": lines, "plan_steps": ctx["steps"], "alphabet_rule_active": gate, **brief})
+        r = await ask(
+            "story:outline",
+            OUTLINE.replace("CATALOG", cat),
+            {"facts": lines, "plan_steps": ctx["steps"], "alphabet_rule_active": gate, **brief},
+        )
         cards = [c for c in r.get("cards") or [] if isinstance(c, dict)][:MAX_CARDS]
         if len(cards) < 3:
             raise ValueError("the outline had fewer than 3 cards")
         return cards
 
     async def card(i, oc, outline_cards):
-        payload = {"card": oc, "position": f"card {i + 1} of {len(outline_cards)}", "is_last": i == len(outline_cards) - 1,
-                   "outline": [c.get("topic") for c in outline_cards], "facts": lines, "plan_steps": ctx["steps"],
-                   "alphabet": ctx["alphabet"] if gate else None}
+        payload = {
+            "card": oc,
+            "position": f"card {i + 1} of {len(outline_cards)}",
+            "is_last": i == len(outline_cards) - 1,
+            "outline": [c.get("topic") for c in outline_cards],
+            "facts": lines,
+            "plan_steps": ctx["steps"],
+            "alphabet": ctx["alphabet"] if gate else None,
+        }
         last = None
         for attempt in range(2):
             r = await ask(f"story:card{i + 1}#{attempt + 1}", CARD.replace("CATALOG", cat), payload)
             last = r.get("card") if isinstance(r.get("card"), dict) else r
             c, problems = clean_card(last, facts, strict=True)
             if c:
-                c["mood"] = c["mood"] if last.get("mood") in MOODS else (oc.get("mood") if oc.get("mood") in MOODS else c["mood"])
+                c["mood"] = (
+                    c["mood"]
+                    if last.get("mood") in MOODS
+                    else (oc.get("mood") if oc.get("mood") in MOODS else c["mood"])
+                )
                 return c
             payload = {**payload, "your_last_card": last, "problems": problems}
         c, problems = clean_card(last, facts, strict=False)
@@ -590,12 +893,18 @@ def make(d: dict, steps: list[dict], milestones: list[dict], pace: dict | None, 
         if len(cards) >= 3:
             source = "llm"
     spec = {"v": 1, "source": source, "cards": finish(cards if source == "llm" else fallback, fallback), "context": ctx}
-    return {"headline": headline or template_headline(gate), "headline_source": "llm" if headline else "rules", "story": spec, "errors": errors}
+    return {
+        "headline": headline or template_headline(gate),
+        "headline_source": "llm" if headline else "rules",
+        "story": spec,
+        "errors": errors,
+    }
 
 
 def write(pid: int, run: str | None = None, live: bool | None = None) -> dict:
     """Build and save the headline and story of a saved plan, from its saved digest, steps, and milestones."""
     import uuid
+
     plan = coach._plan_row(pid)
     if not plan:
         raise ValueError(f"no plan {pid}")
@@ -613,7 +922,10 @@ def write(pid: int, run: str | None = None, live: bool | None = None) -> dict:
 
     out = make(d, steps, ms, raw.get("pace"), raw.get("findings") or [], ask if use_model else None)
     with db.conn() as c:
-        c.execute("UPDATE plans SET headline=?, story=? WHERE id=?", (out["headline"], json.dumps(out["story"], ensure_ascii=False), pid))
+        c.execute(
+            "UPDATE plans SET headline=?, story=? WHERE id=?",
+            (out["headline"], json.dumps(out["story"], ensure_ascii=False), pid),
+        )
         c.execute("UPDATE coach_calls SET plan_id=? WHERE run=?", (pid, run))
     return out
 
@@ -624,4 +936,3 @@ def get(pid: int) -> dict | None:
         return None
     spec = json.loads(plan["story"])
     return {**spec, "plan_id": pid, "headline": plan.get("headline")}
-

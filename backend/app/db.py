@@ -13,6 +13,7 @@ name the user, and a query cannot read or change the data of another user. Witho
 
 The schema is in app/migrations/*.sql, applied in order at startup. SQL uses ? placeholders.
 """
+
 from __future__ import annotations
 
 import contextvars
@@ -23,9 +24,10 @@ import ssl
 import threading
 import time
 from collections import defaultdict
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import ClassVar
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -98,10 +100,12 @@ def wait_background(timeout: float) -> int:
 
 # ---------- connections ----------
 
+
 class Row(tuple):
     """A result row that reads by position or by column name, like sqlite3.Row. dict(row) works."""
+
     _cols: tuple = ()
-    _idx: dict = {}
+    _idx: ClassVar[dict] = {}
 
     def __getitem__(self, k):
         return super().__getitem__(self._idx[k] if isinstance(k, str) else k)
@@ -125,7 +129,7 @@ class Result:
         return self._rows[self._at - 1]
 
     def fetchall(self):
-        out, self._at = self._rows[self._at:], len(self._rows)
+        out, self._at = self._rows[self._at :], len(self._rows)
         return out
 
     def __iter__(self):
@@ -154,7 +158,7 @@ class Conn:
             raise ValueError("executemany takes an INSERT ... VALUES (...) statement")
         rows = [tuple(r) for r in rows]
         for i in range(0, len(rows), chunk):
-            part = rows[i:i + chunk]
+            part = rows[i : i + chunk]
             self.execute(head + " VALUES " + ",".join([values.strip()] * len(part)), tuple(a for r in part for a in r))
 
 
@@ -175,9 +179,16 @@ def _connect():
         ctx.verify_mode = ssl.CERT_NONE
     else:  # verify-ca, verify-full, or no sslmode on a remote host
         ctx = ssl.create_default_context()
-    raw = pg8000.dbapi.connect(user=unquote(u.username or ""), password=unquote(u.password or ""), host=u.hostname or "localhost",
-                               port=u.port or 5432, database=unquote(u.path.lstrip("/")) or None, ssl_context=ctx,
-                               timeout=60, application_name="bopomofo")
+    raw = pg8000.dbapi.connect(
+        user=unquote(u.username or ""),
+        password=unquote(u.password or ""),
+        host=u.hostname or "localhost",
+        port=u.port or 5432,
+        database=unquote(u.path.lstrip("/")) or None,
+        ssl_context=ctx,
+        timeout=60,
+        application_name="bopomofo",
+    )
     raw.register_in_adapter(NUMERIC_OID, float)  # AVG() and similar: float, not Decimal
     return raw
 
@@ -186,10 +197,8 @@ _pool: queue.LifoQueue = queue.LifoQueue()
 
 
 def _close(raw):
-    try:
+    with suppress(Exception):
         raw.close()
-    except Exception:  # noqa: BLE001
-        pass
 
 
 @contextmanager
@@ -238,6 +247,7 @@ def close_pool():
 
 # ---------- schema ----------
 
+
 def init():
     """Check the database role and apply the new migrations. Safe to run from several workers at once."""
     raw = _connect()
@@ -246,19 +256,26 @@ def init():
         cur = raw.cursor()
         cur.execute("SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = current_user")
         if cur.fetchone()[0] and not config.ALLOW_RLS_BYPASS:
-            raise RuntimeError("DATABASE_URL logs in as a role that skips row-level security (a superuser or BYPASSRLS), "
-                               "so every user would see all data. Use a normal role that owns the database (see README.md).")
+            raise RuntimeError(
+                "DATABASE_URL logs in as a role that skips row-level security (a superuser or BYPASSRLS), "
+                "so every user would see all data. Use a normal role that owns the database (see README.md)."
+            )
         cur.execute("SELECT pg_advisory_lock(727001)")
         try:
-            cur.execute("CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now())")
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, ts TIMESTAMPTZ NOT NULL DEFAULT now())"
+            )
             cur.execute("SELECT version FROM schema_migrations")
             done = {r[0] for r in cur.fetchall()}
             for f in sorted(MIGRATIONS.glob("*.sql")):
                 if f.name in done:
                     continue
                 try:
-                    raw.execute_simple("BEGIN;\n" + f.read_text(encoding="utf-8") +
-                                       f"\nINSERT INTO schema_migrations(version) VALUES ('{f.name}');\nCOMMIT;")
+                    raw.execute_simple(
+                        "BEGIN;\n"
+                        + f.read_text(encoding="utf-8")
+                        + f"\nINSERT INTO schema_migrations(version) VALUES ('{f.name}');\nCOMMIT;"
+                    )
                 except Exception:
                     raw.execute_simple("ROLLBACK")
                     raise
@@ -270,6 +287,7 @@ def init():
 
 # ---------- profile, sentences, small values ----------
 
+
 def get_profile() -> dict:
     with conn() as c:
         r = c.execute("SELECT data FROM profile").fetchone()
@@ -278,7 +296,10 @@ def get_profile() -> dict:
 
 def set_profile(data: dict) -> dict:
     with conn() as c:
-        c.execute("INSERT INTO profile(data) VALUES (?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data", (json.dumps(data, ensure_ascii=False),))
+        c.execute(
+            "INSERT INTO profile(data) VALUES (?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data",
+            (json.dumps(data, ensure_ascii=False),),
+        )
     return get_profile()
 
 
@@ -295,7 +316,10 @@ def set_meta(key: str, value: str | None):
         if value is None:
             c.execute("DELETE FROM meta WHERE key=?", (key,))
         else:
-            c.execute("INSERT INTO meta(key, value) VALUES (?,?) ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value", (key, value))
+            c.execute(
+                "INSERT INTO meta(key, value) VALUES (?,?) ON CONFLICT(user_id, key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
 
 
 # ---------- settings and time zone ----------
@@ -337,7 +361,11 @@ def user_tz() -> ZoneInfo:
     hit = _tz_cache.get(uid or "")
     if hit and hit[0] > time.monotonic():
         return hit[1]
-    name = valid_timezone(get_settings().get("timezone") if uid else None) or valid_timezone(config.DEFAULT_TIMEZONE) or "UTC"
+    name = (
+        valid_timezone(get_settings().get("timezone") if uid else None)
+        or valid_timezone(config.DEFAULT_TIMEZONE)
+        or "UTC"
+    )
     tz = ZoneInfo(name)
     if uid:
         _tz_cache[uid] = (time.monotonic() + TZ_CACHE_SECONDS, tz)
@@ -363,8 +391,17 @@ def day_start(d: date) -> float:
 
 def add_sentence(s: dict, topic: str, level: str) -> dict:
     with conn() as c:
-        sid = c.execute("INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?) RETURNING id",
-                        (s["hanzi"], s.get("english", ""), json.dumps(s.get("words", []), ensure_ascii=False), topic, level, time.time())).fetchone()["id"]
+        sid = c.execute(
+            "INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?) RETURNING id",
+            (
+                s["hanzi"],
+                s.get("english", ""),
+                json.dumps(s.get("words", []), ensure_ascii=False),
+                topic,
+                level,
+                time.time(),
+            ),
+        ).fetchone()["id"]
     return get_sentence(sid)
 
 
@@ -394,7 +431,9 @@ def delete_sentence(sid: int):
 def speaking_by_text() -> dict[str, dict]:
     """Per spoken text: how many recordings, the best and the last score, and when it was last said."""
     with conn() as c:
-        rows = c.execute("SELECT item, score, ts FROM events WHERE area='speaking' AND score IS NOT NULL ORDER BY ts").fetchall()
+        rows = c.execute(
+            "SELECT item, score, ts FROM events WHERE area='speaking' AND score IS NOT NULL ORDER BY ts"
+        ).fetchall()
     out: dict[str, dict] = {}
     for r in rows:
         p = out.setdefault(r["item"], {"said": 0, "best": 0, "last": 0, "ts": 0})
@@ -425,29 +464,76 @@ def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: 
     eid = c.execute(
         "INSERT INTO events(ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays, legacy, details)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
-        (ts, day, ev["area"], ev.get("mode"), str(ev["item"])[:400], int(bool(ev["ok"])), _b(ev.get("first_try")), ev.get("score"),
-         ev.get("ms"), ev.get("tries"), int(bool(ev.get("help"))), ev.get("replays"), int(legacy),
-         json.dumps(ev.get("details") or {}, ensure_ascii=False))).fetchone()["id"]
+        (
+            ts,
+            day,
+            ev["area"],
+            ev.get("mode"),
+            str(ev["item"])[:400],
+            int(bool(ev["ok"])),
+            _b(ev.get("first_try")),
+            ev.get("score"),
+            ev.get("ms"),
+            ev.get("tries"),
+            int(bool(ev.get("help"))),
+            ev.get("replays"),
+            int(legacy),
+            json.dumps(ev.get("details") or {}, ensure_ascii=False),
+        ),
+    ).fetchone()["id"]
     rows = _insert_units(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("units") or [])
     from . import levels  # the level summaries change with the answer, in the same transaction
-    levels.record(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("ms"), ev.get("details"),
-                  [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows])
+
+    levels.record(
+        c,
+        eid,
+        ts,
+        day,
+        ev["area"],
+        ev.get("mode"),
+        ev.get("ms"),
+        ev.get("details"),
+        [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows],
+    )
     return eid
 
 
-def _insert_units(c: Conn, eid: int, ts: float, day: str, area: str, mode: str | None, units: list[dict]) -> list[tuple]:
+def _insert_units(
+    c: Conn, eid: int, ts: float, day: str, area: str, mode: str | None, units: list[dict]
+) -> list[tuple]:
     rows = []
     for u in units:
         if u.get("kind") not in UNIT_KINDS or u.get("expected") in (None, ""):
             continue
-        rows.append((eid, ts, day, area, mode, u["kind"], str(u["expected"])[:64], _s(u.get("actual")),
-                     _b(u.get("ok")), int(u.get("pos") or 0), int(u.get("try_n") or 0), int(bool(u.get("help"))),
-                     _s(u.get("ctx")), _s(u.get("lex")), _s(u.get("prev")), _s(u.get("next")), _s(u.get("source")),
-                     int(bool(u.get("uncertain"))), json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None))
+        rows.append(
+            (
+                eid,
+                ts,
+                day,
+                area,
+                mode,
+                u["kind"],
+                str(u["expected"])[:64],
+                _s(u.get("actual")),
+                _b(u.get("ok")),
+                int(u.get("pos") or 0),
+                int(u.get("try_n") or 0),
+                int(bool(u.get("help"))),
+                _s(u.get("ctx")),
+                _s(u.get("lex")),
+                _s(u.get("prev")),
+                _s(u.get("next")),
+                _s(u.get("source")),
+                int(bool(u.get("uncertain"))),
+                json.dumps(u["extra"], ensure_ascii=False) if u.get("extra") else None,
+            )
+        )
     if rows:
         c.executemany(
             "INSERT INTO units(event_id, ts, day, area, mode, kind, expected, actual, ok, pos, try_n, help, ctx, lex, prev, next, source, uncertain, extra)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            rows,
+        )
     return rows
 
 
@@ -469,22 +555,41 @@ def legacy_event(area: str, item: str, ok: bool, score: float | None, details: d
         mode = "syllable" if len(item) == 1 else "sentence"
     helped = bool(d.get("revealed") or d.get("cheated"))
     marks = {"ˊ": 2, "ˇ": 3, "ˋ": 4, "˙": 5}
-    units = [{"kind": "tone", "expected": marks[s["sym"]], "ok": s.get("ok"), "pos": i, "help": helped} if s.get("sym") in marks else
-             {"kind": "symbol", "expected": s.get("sym"), "ok": s.get("ok"), "pos": i, "help": helped}
-             for i, s in enumerate(d.get("symbols") or []) if s.get("sym")]
-    units += [{"kind": "tone", "expected": t.get("tone"), "ok": t.get("ok"), "pos": i}
-              for i, t in enumerate((d.get("tones") or []) + (d.get("heard_tones") or [])) if t.get("tone") is not None]
+    units = [
+        {"kind": "tone", "expected": marks[s["sym"]], "ok": s.get("ok"), "pos": i, "help": helped}
+        if s.get("sym") in marks
+        else {"kind": "symbol", "expected": s.get("sym"), "ok": s.get("ok"), "pos": i, "help": helped}
+        for i, s in enumerate(d.get("symbols") or [])
+        if s.get("sym")
+    ]
+    units += [
+        {"kind": "tone", "expected": t.get("tone"), "ok": t.get("ok"), "pos": i}
+        for i, t in enumerate((d.get("tones") or []) + (d.get("heard_tones") or []))
+        if t.get("tone") is not None
+    ]
     first = ok if area in ("reading", "dictation") else None
-    return {"area": area, "mode": mode, "item": item, "ok": ok, "first_try": first, "score": score,
-            "tries": d.get("tries"), "help": helped, "details": d, "units": units}
+    return {
+        "area": area,
+        "mode": mode,
+        "item": item,
+        "ok": ok,
+        "first_try": first,
+        "score": score,
+        "tries": d.get("tries"),
+        "help": helped,
+        "details": d,
+        "units": units,
+    }
 
 
 def save_day(day: str, seconds: int, goal_min: int | None):
     """Active seconds for a day. The browser clock only grows during a day, so keep the larger value."""
     with conn() as c:
-        c.execute("INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(user_id, day) DO UPDATE SET "
-                  "seconds=GREATEST(days.seconds, excluded.seconds), goal_min=COALESCE(excluded.goal_min, days.goal_min)",
-                  (day, max(0, int(seconds)), goal_min))
+        c.execute(
+            "INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(user_id, day) DO UPDATE SET "
+            "seconds=GREATEST(days.seconds, excluded.seconds), goal_min=COALESCE(excluded.goal_min, days.goal_min)",
+            (day, max(0, int(seconds)), goal_min),
+        )
 
 
 def summary() -> dict:
@@ -493,8 +598,12 @@ def summary() -> dict:
     with conn() as c:
         ev = c.execute("SELECT area, ok, ts, day FROM events").fetchall()
         sym_rows = c.execute("SELECT area, expected, ok, help FROM units WHERE kind='symbol' AND try_n=0").fetchall()
-        tone_rows = c.execute("SELECT expected, ok FROM units WHERE kind='tone' AND area='speaking' AND ok IS NOT NULL").fetchall()
-        rule_rows = c.execute("SELECT expected, ok, help FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL").fetchall()
+        tone_rows = c.execute(
+            "SELECT expected, ok FROM units WHERE kind='tone' AND area='speaking' AND ok IS NOT NULL"
+        ).fetchall()
+        rule_rows = c.execute(
+            "SELECT expected, ok, help FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
+        ).fetchall()
         active = {r[0] for r in c.execute("SELECT day FROM days WHERE seconds > 0")}
         n_sent = c.execute("SELECT COUNT(*) FROM sentences").fetchone()[0]
     areas = defaultdict(lambda: {"total": 0, "ok": 0, "week": 0})
@@ -521,8 +630,16 @@ def summary() -> dict:
     for r in rule_rows:
         rules[r["expected"]]["n"] += 1
         rules[r["expected"]]["err"] += 0 if (r["ok"] and not r["help"]) else 1
-    return {"areas": dict(areas), "symbols": dict(sym), "symbols_by_area": {k: dict(v) for k, v in by_area.items()},
-            "tones": dict(tones), "rules": dict(rules), "sentences": n_sent, "day_streak": streak(days), "attempts": len(ev)}
+    return {
+        "areas": dict(areas),
+        "symbols": dict(sym),
+        "symbols_by_area": {k: dict(v) for k, v in by_area.items()},
+        "tones": dict(tones),
+        "rules": dict(rules),
+        "sentences": n_sent,
+        "day_streak": streak(days),
+        "attempts": len(ev),
+    }
 
 
 MEMORY_KEEP = 20
@@ -532,9 +649,11 @@ def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
     """The recent tests of each item of one practice mode, oldest first: [time, 1 if right on the first try without help].
     The practice picks use them to schedule reviews (frontend/src/lib/review.ts). Only tests count: learn-mode answers
     (the answer is shown on purpose) are left out, and in speaking only the first recording of a card counts."""
-    sql = ("SELECT item, ts, COALESCE(first_try, ok) AS good, help FROM events WHERE area = ?"
-           " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1)"
-           " AND (details IS NULL OR details::jsonb ->> 'learn' IS NULL)")
+    sql = (
+        "SELECT item, ts, COALESCE(first_try, ok) AS good, help FROM events WHERE area = ?"
+        " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1)"
+        " AND (details IS NULL OR details::jsonb ->> 'learn' IS NULL)"
+    )
     args: list = [area]
     if mode:
         sql += " AND mode = ?"
@@ -558,4 +677,3 @@ def streak(days: set[str], today: date | None = None) -> int:
         n += 1
         d -= timedelta(days=1)
     return n
-

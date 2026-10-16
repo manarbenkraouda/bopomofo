@@ -8,6 +8,7 @@ The model output stays in memory and is discarded after the check; jobs are lost
 The mode is config.DEEP_CHECK. shadow: store the verdict in deep_checks only. apply: also correct the units, the score, and
 the levels of a false miss, and tell the learner with a notice. Typed Pinyin checks always win over the deep check.
 """
+
 from __future__ import annotations
 
 import json
@@ -20,6 +21,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from concurrent.futures.process import BrokenProcessPool
+from contextlib import suppress
 
 from . import config, db, deep_check_core, typed_fix
 
@@ -50,6 +52,7 @@ def mode() -> str:
 
 
 # ---------- starting and stopping ----------
+
 
 def start(vocab_fn) -> None:
     """Start the dispatcher. vocab_fn gives the model vocabulary {id: token} when the first job comes (the model loads late)."""
@@ -83,8 +86,12 @@ def stop(drain: float = DRAIN_SECONDS) -> int:
 
 def _new_pool() -> ProcessPoolExecutor:
     vocab = dict(_vocab_fn() or {}) if _vocab_fn else {}
-    return ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"),
-                               initializer=deep_check_core.init_worker, initargs=(vocab,))
+    return ProcessPoolExecutor(
+        max_workers=1,
+        mp_context=multiprocessing.get_context("spawn"),
+        initializer=deep_check_core.init_worker,
+        initargs=(vocab,),
+    )
 
 
 def _get_pool() -> ProcessPoolExecutor:
@@ -103,10 +110,8 @@ def _reset_pool(kill: bool = False) -> None:
     if p is None:
         return
     procs = list((getattr(p, "_processes", None) or {}).values())
-    try:
+    with suppress(Exception):
         p.shutdown(wait=False, cancel_futures=True)
-    except Exception:  # noqa: BLE001
-        pass
     if kill:
         for pr in procs:
             try:
@@ -118,27 +123,45 @@ def _reset_pool(kill: bool = False) -> None:
 
 # ---------- the queue ----------
 
+
 def wanted(res: dict) -> bool:
     """A deep check is useful when the answer is not fully right and an initial, final, or tone was marked wrong."""
     if mode() == "off" or res.get("score") is None or res["score"] >= 100 or res.get("_lp") is None:
         return False
-    return any(s.get("initial_ok") is False or s.get("final_ok") is False or not s.get("tone_ok") for s in res.get("syllables") or [])
+    return any(
+        s.get("initial_ok") is False or s.get("final_ok") is False or not s.get("tone_ok")
+        for s in res.get("syllables") or []
+    )
 
 
 def _syllable(s: dict) -> dict:
     e = s["expected"]
-    return {"expected": {k: e.get(k) for k in ("char", "initial", "final", "tone", "surface_tone", "alt_tones")},
-            "heard": s.get("heard"), "initial_ok": s.get("initial_ok"), "final_ok": s.get("final_ok"), "tone_ok": s.get("tone_ok")}
+    return {
+        "expected": {k: e.get(k) for k in ("char", "initial", "final", "tone", "surface_tone", "alt_tones")},
+        "heard": s.get("heard"),
+        "initial_ok": s.get("initial_ok"),
+        "final_ok": s.get("final_ok"),
+        "tone_ok": s.get("tone_ok"),
+    }
 
 
 def make_job(user_id: str | None, event_id: int, res: dict, lp, has_ref: bool, mic_pairs: list) -> dict:
     """The job for one answer: the frame log probabilities and pitch of the live check, the live results, and the
     learner's typed mic pairs ([kind, expected, heard]). The audio itself is not needed: the pitch is already measured."""
-    return {"user_id": user_id, "event_id": event_id, "mode": mode(),
-            "check": {"lp": lp, "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
-                      "syllables": [_syllable(s) for s in res.get("syllables") or []],
-                      "semitones": (res.get("pitch") or {}).get("semitones") or [], "has_ref": has_ref,
-                      "score": res.get("score"), "mic_pairs": mic_pairs}}
+    return {
+        "user_id": user_id,
+        "event_id": event_id,
+        "mode": mode(),
+        "check": {
+            "lp": lp,
+            "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
+            "syllables": [_syllable(s) for s in res.get("syllables") or []],
+            "semitones": (res.get("pitch") or {}).get("semitones") or [],
+            "has_ref": has_ref,
+            "score": res.get("score"),
+            "mic_pairs": mic_pairs,
+        },
+    }
 
 
 def submit(job: dict) -> str:
@@ -208,20 +231,38 @@ def run(job: dict) -> dict:
 
 # ---------- saving and applying ----------
 
+
 def save(event_id: int, run_mode: str, res: dict) -> bool:
     """Store the verdict. In apply mode, correct the answer when parts were fixed. Returns True when it was applied."""
     applied = False
     parts = res.get("parts") or ([{"error": res["error"]}] if res.get("error") else [])
     with db.conn() as c:
-        row = c.execute("INSERT INTO deep_checks(event_id, ts, status, verdict, score_before, score_after, parts, mode, version, seconds)"
-                        " VALUES (?,?,?,?,?,?,CAST(? AS jsonb),?,?,?) ON CONFLICT (event_id) DO NOTHING RETURNING id",
-                        (event_id, time.time(), res.get("status") or "error", res.get("verdict"), res.get("score_before"),
-                         res.get("score_after"), json.dumps(parts, ensure_ascii=False), run_mode,
-                         res.get("version") or deep_check_core.VERSION, res.get("seconds"))).fetchone()
-        if row and run_mode == "apply" and res.get("status") == "done" and res.get("verdict") in ("false_miss", "partial"):
+        row = c.execute(
+            "INSERT INTO deep_checks(event_id, ts, status, verdict, score_before, score_after, parts, mode, version, seconds)"
+            " VALUES (?,?,?,?,?,?,CAST(? AS jsonb),?,?,?) ON CONFLICT (event_id) DO NOTHING RETURNING id",
+            (
+                event_id,
+                time.time(),
+                res.get("status") or "error",
+                res.get("verdict"),
+                res.get("score_before"),
+                res.get("score_after"),
+                json.dumps(parts, ensure_ascii=False),
+                run_mode,
+                res.get("version") or deep_check_core.VERSION,
+                res.get("seconds"),
+            ),
+        ).fetchone()
+        if (
+            row
+            and run_mode == "apply"
+            and res.get("status") == "done"
+            and res.get("verdict") in ("false_miss", "partial")
+        ):
             applied = _apply(c, event_id, res)
     if applied:
         from . import coach  # coach imports this module for its digest
+
         try:
             coach.refresh()
         except Exception:  # noqa: BLE001
@@ -235,12 +276,19 @@ def _apply(c, event_id: int, res: dict) -> bool:
     dc = c.execute("SELECT applied FROM deep_checks WHERE event_id=?", (event_id,)).fetchone()
     if not dc or dc["applied"]:
         return False
-    if c.execute("SELECT 1 FROM units WHERE event_id=? AND source IN ('typed','pair_fix') LIMIT 1", (event_id,)).fetchone():
+    if c.execute(
+        "SELECT 1 FROM units WHERE event_id=? AND source IN ('typed','pair_fix') LIMIT 1", (event_id,)
+    ).fetchone():
         return False
     ev = c.execute("SELECT id, ok, score, help, tries, details FROM events WHERE id=?", (event_id,)).fetchone()
     if not ev:
         return False
-    us = [dict(r) for r in c.execute("SELECT id, kind, pos, ok, actual, try_n, extra FROM units WHERE event_id=? ORDER BY id", (event_id,))]
+    us = [
+        dict(r)
+        for r in c.execute(
+            "SELECT id, kind, pos, ok, actual, try_n, extra FROM units WHERE event_id=? ORDER BY id", (event_id,)
+        )
+    ]
     fixed = [p for p in res.get("parts") or [] if p.get("verdict") == "fixed"]
     if not us or not fixed:
         return False
@@ -280,31 +328,42 @@ def _rescore_event(c, ev: dict, before, after, whole: bool) -> None:
     js = json.dumps(d, ensure_ascii=False)
     if after is not None and after >= RIGHT and not ev["ok"]:
         first = whole and not ev["help"] and (ev["tries"] or 1) == 1
-        c.execute("UPDATE events SET score=?, ok=1, first_try=?, details=? WHERE id=?", (after, int(first), js, ev["id"]))
+        c.execute(
+            "UPDATE events SET score=?, ok=1, first_try=?, details=? WHERE id=?", (after, int(first), js, ev["id"])
+        )
     else:
         c.execute("UPDATE events SET score=?, details=? WHERE id=?", (after, js, ev["id"]))
 
 
 def _notify(c, event_id: int) -> None:
     """One notice for all the corrected answers the learner has not seen yet: the unseen ones are merged into one."""
-    old = [dict(r) for r in c.execute("SELECT id, key FROM level_notices WHERE kind='deep_fix' AND NOT seen ORDER BY id")]
+    old = [
+        dict(r) for r in c.execute("SELECT id, key FROM level_notices WHERE kind='deep_fix' AND NOT seen ORDER BY id")
+    ]
     ids = [event_id]
     for o in old:
         ids += [int(x) for x in str(o["key"]).split(",") if x.isdigit()]
     ids = sorted(set(ids))
     if old:
-        c.execute("DELETE FROM level_notices WHERE id IN (" + ",".join("?" * len(old)) + ")", tuple(o["id"] for o in old))
+        c.execute(
+            "DELETE FROM level_notices WHERE id IN (" + ",".join("?" * len(old)) + ")", tuple(o["id"] for o in old)
+        )
     text = NOTICE_ONE if len(ids) == 1 else NOTICE_MANY.format(n=len(ids))
-    nid = c.execute("INSERT INTO level_notices(ts, kind, key, title, text) VALUES (?,?,?,?,?) RETURNING id",
-                    (time.time(), "deep_fix", ",".join(map(str, ids)), NOTICE_TITLE, text)).fetchone()["id"]
+    nid = c.execute(
+        "INSERT INTO level_notices(ts, kind, key, title, text) VALUES (?,?,?,?,?) RETURNING id",
+        (time.time(), "deep_fix", ",".join(map(str, ids)), NOTICE_TITLE, text),
+    ).fetchone()["id"]
     c.execute("UPDATE deep_checks SET notice_id=? WHERE event_id IN (" + ",".join("?" * len(ids)) + ")", (nid, *ids))
 
 
 # ---------- reading ----------
 
+
 def result(event_id: int) -> dict | None:
     with db.conn() as c:
-        r = c.execute("SELECT status, verdict, applied, score_after, notice_id FROM deep_checks WHERE event_id=?", (event_id,)).fetchone()
+        r = c.execute(
+            "SELECT status, verdict, applied, score_after, notice_id FROM deep_checks WHERE event_id=?", (event_id,)
+        ).fetchone()
     return dict(r) if r else None
 
 
@@ -326,13 +385,22 @@ def summary() -> dict:
         rows = [dict(r) for r in c.execute("SELECT verdict, applied, parts FROM deep_checks WHERE status='done'")]
     applied = [r for r in rows if r["applied"]]
     top = _fixed_pairs(applied).most_common(3)
-    return {"mode": mode(), "checked": len(rows), "false_miss": sum(r["verdict"] == "false_miss" for r in rows),
-            "corrected": sum(r["verdict"] == "false_miss" for r in applied), "applied": len(applied),
-            "top_pairs": [{"kind": k, "expected": e, "heard": h, "n": n} for (k, e, h), n in top]}
+    return {
+        "mode": mode(),
+        "checked": len(rows),
+        "false_miss": sum(r["verdict"] == "false_miss" for r in rows),
+        "corrected": sum(r["verdict"] == "false_miss" for r in applied),
+        "applied": len(applied),
+        "top_pairs": [{"kind": k, "expected": e, "heard": h, "n": n} for (k, e, h), n in top],
+    }
 
 
 def coach_pairs() -> list[dict]:
     """Pairs the deep check corrected COACH_FIXES times or more: misses of these are the microphone, not the learner."""
     with db.conn() as c:
         rows = [dict(r) for r in c.execute("SELECT parts FROM deep_checks WHERE applied")]
-    return [{"kind": k, "expected": e, "heard": h, "fixes": n} for (k, e, h), n in _fixed_pairs(rows).most_common() if n >= COACH_FIXES]
+    return [
+        {"kind": k, "expected": e, "heard": h, "fixes": n}
+        for (k, e, h), n in _fixed_pairs(rows).most_common()
+        if n >= COACH_FIXES
+    ]

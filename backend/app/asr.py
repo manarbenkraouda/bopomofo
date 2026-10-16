@@ -1,4 +1,5 @@
 """Local speech recognition with the wav2vec2 MMS-1B Mandarin phonetic model (ONNX, CPU)."""
+
 from __future__ import annotations
 
 import json
@@ -101,14 +102,19 @@ class Recognizer:
             if s.get("_f") is None:
                 continue
             a, b = s.pop("_f")
-            win = probs[max(0, a - 1): b + 2]
+            win = probs[max(0, a - 1) : b + 2]
             tp = np.array([win[:, self.tone_ids[d]].sum(-1).max() for d in range(1, 6)])
             s["tone_probs"] = [round(float(x), 3) for x in tp / max(tp.sum(), 1e-9)]
         # The frame log probabilities, for the deep check after the answer (app/deep_check.py). Never stored or sent.
         z = logits - logits.max(-1, keepdims=True)
         log_probs = (z - np.log(np.exp(z).sum(-1, keepdims=True))).astype(np.float32)
-        return {"raw": "".join(t["tok"] for t in tokens), "syllables": sylls, "infer_seconds": round(infer, 2), "audio_seconds": round(len(audio) / SR, 2),
-                "log_probs": log_probs}
+        return {
+            "raw": "".join(t["tok"] for t in tokens),
+            "syllables": sylls,
+            "infer_seconds": round(infer, 2),
+            "audio_seconds": round(len(audio) / SR, 2),
+            "log_probs": log_probs,
+        }
 
 
 def to_syllables(tokens: list[dict], frame: float) -> list[dict]:
@@ -118,7 +124,15 @@ def to_syllables(tokens: list[dict], frame: float) -> list[dict]:
         tok = t["tok"]
         if tok in INITIALS or tok == "j":
             if pending:
-                out.append({"initial": pending["tok"].replace("j", ""), "final": "", "tone": None, "start": pending["f0"] * frame, "end": pending["f1"] * frame + frame})
+                out.append(
+                    {
+                        "initial": pending["tok"].replace("j", ""),
+                        "final": "",
+                        "tone": None,
+                        "start": pending["f0"] * frame,
+                        "end": pending["f1"] * frame + frame,
+                    }
+                )
             pending = t
             continue
         tone = int(tok[-1]) if tok[-1].isdigit() else None
@@ -130,10 +144,27 @@ def to_syllables(tokens: list[dict], frame: float) -> list[dict]:
         else:
             final = body
         start = pending["f0"] if pending else t["f0"]
-        out.append({"initial": pending["tok"].replace("j", "") if pending else "", "final": final, "tone": tone, "start": round(start * frame, 3), "end": round(t["f1"] * frame + frame, 3), "_f": (t["f0"], t["f1"])})
+        out.append(
+            {
+                "initial": pending["tok"].replace("j", "") if pending else "",
+                "final": final,
+                "tone": tone,
+                "start": round(start * frame, 3),
+                "end": round(t["f1"] * frame + frame, 3),
+                "_f": (t["f0"], t["f1"]),
+            }
+        )
         pending = None
     if pending:
-        out.append({"initial": pending["tok"].replace("j", ""), "final": "", "tone": None, "start": pending["f0"] * frame, "end": pending["f1"] * frame + frame})
+        out.append(
+            {
+                "initial": pending["tok"].replace("j", ""),
+                "final": "",
+                "tone": None,
+                "start": pending["f0"] * frame,
+                "end": pending["f1"] * frame + frame,
+            }
+        )
     return out
 
 

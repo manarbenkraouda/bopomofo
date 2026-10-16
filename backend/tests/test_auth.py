@@ -1,22 +1,9 @@
 """The API needs a Clerk sign-in, and each signed-in user reaches only their own data. Token checks are replaced by a fake."""
+
 import numpy as np
-import pytest
-from fastapi.testclient import TestClient
 
-from app import auth, coach, db, llm, main, tts
-
-A = {"Authorization": "Bearer token-a"}
-B = {"Authorization": "Bearer token-b"}
-
-
-@pytest.fixture()
-def client(pg, monkeypatch):
-    async def fake_user_id(request):
-        return {"Bearer token-a": "user_a", "Bearer token-b": "user_b"}.get(request.headers.get("authorization"))
-    monkeypatch.setattr(auth, "CLERK_SECRET_KEY", "sk_test_fake")
-    monkeypatch.setattr(auth, "user_id", fake_user_id)
-    monkeypatch.setattr(coach, "LIVE", False)  # no plan is built after the onboarding
-    return TestClient(main.app)  # not a context manager: the speech model is not loaded
+from app import auth, coach, db, llm, tts
+from tests.users import A, B
 
 
 def test_sign_in_is_required(client):
@@ -35,14 +22,21 @@ def test_review_memory_is_per_user(client):
     assert client.post("/api/progress/event", json=ev, headers=A).status_code == 200
     a = client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=A).json()
     assert [g for _, g in a["items"]["ㄇㄚˇ"]] == [1] and a["now"] >= a["items"]["ㄇㄚˇ"][0][0]
-    assert client.get("/api/progress/memory", params={"area": "listening", "mode": "zhuyin"}, headers=A).json()["items"] == {}
-    assert client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=B).json()["items"] == {}
+    assert (
+        client.get("/api/progress/memory", params={"area": "listening", "mode": "zhuyin"}, headers=A).json()["items"]
+        == {}
+    )
+    assert (
+        client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=B).json()["items"]
+        == {}
+    )
 
 
 def test_each_user_clears_only_their_own_audio(client, monkeypatch, tmp_path):
     class Voice:
         def generate(self, text, sid=0, speed=1.0):
             return tts._Audio(np.full(2205, 0.1, np.float32), 22050)
+
     monkeypatch.setattr(tts, "DATA_DIR", tmp_path)
     monkeypatch.setattr(tts, "_engines", {"kokoro": Voice(), "breeze2": Voice()})
     for user in (A, B):
@@ -56,7 +50,13 @@ def test_each_user_clears_only_their_own_audio(client, monkeypatch, tmp_path):
 def test_each_user_reaches_only_their_data(client):
     assert client.put("/api/profile", json={"name": "Ana"}, headers=A).json() == {"name": "Ana"}
     assert client.get("/api/profile", headers=B).json() == {}
-    ev = {"area": "listening", "mode": "tone", "item": "ㄇㄚˇ", "ok": True, "units": [{"kind": "tone", "expected": "3", "ok": True}]}
+    ev = {
+        "area": "listening",
+        "mode": "tone",
+        "item": "ㄇㄚˇ",
+        "ok": True,
+        "units": [{"kind": "tone", "expected": "3", "ok": True}],
+    }
     assert client.post("/api/progress/event", json=ev, headers=A).json()["ok"]
     assert client.get("/api/progress/summary", headers=A).json()["attempts"] == 1
     assert client.get("/api/progress/summary", headers=B).json()["attempts"] == 0
@@ -70,7 +70,14 @@ def test_no_secret_key_means_no_access(client, monkeypatch):
     assert client.get("/api/health").status_code == 200
 
 
-ONBOARD = {"name": "Ana", "reasons": ["travel", "family"], "level": "words", "bopomofo": "none", "goal_min": 15, "timezone": "Asia/Taipei"}
+ONBOARD = {
+    "name": "Ana",
+    "reasons": ["travel", "family"],
+    "level": "words",
+    "bopomofo": "none",
+    "goal_min": 15,
+    "timezone": "Asia/Taipei",
+}
 
 
 def test_onboarding_saves_the_answers(client):
@@ -79,9 +86,18 @@ def test_onboarding_saves_the_answers(client):
     assert client.post("/api/onboarding", json={**ONBOARD, "timezone": "Mars/Base"}, headers=A).status_code == 400
     assert client.post("/api/onboarding", json={**ONBOARD, "reasons": ["money"]}, headers=A).status_code == 422
     me = client.post("/api/onboarding", json=ONBOARD, headers=A).json()
-    assert me["onboarded"] and me["timezone"] == "Asia/Taipei" and me["goal_min"] == 15 and me["sentence_level"] == "beginner"
+    assert (
+        me["onboarded"]
+        and me["timezone"] == "Asia/Taipei"
+        and me["goal_min"] == 15
+        and me["sentence_level"] == "beginner"
+    )
     p = client.get("/api/profile", headers=A).json()
-    assert p["name"] == "Ana" and "Bopomofo" in p["level"] and p["why_mandarin"].startswith("I learn Mandarin to travel in Taiwan")
+    assert (
+        p["name"] == "Ana"
+        and "Bopomofo" in p["level"]
+        and p["why_mandarin"].startswith("I learn Mandarin to travel in Taiwan")
+    )
     assert not client.get("/api/me", headers=B).json()["onboarded"]  # another user is not onboarded
     me = client.put("/api/settings", json={"timezone": "Europe/Paris", "goal_min": 30}, headers=A).json()
     assert (me["timezone"], me["goal_min"]) == ("Europe/Paris", 30)
@@ -108,7 +124,7 @@ def test_first_plan_waits_for_the_onboarding_and_the_full_profile(pg, monkeypatc
     db.set_profile({"name": "Ana", "level": "I am new to Mandarin."})
     coach.state()
     assert started == []  # the profile is not complete: Home asks for it first
-    db.set_profile({k: "x" for k in llm.PROFILE_LABELS})
+    db.set_profile(dict.fromkeys(llm.PROFILE_LABELS, "x"))
     coach.state()
     assert started == ["First plan for this learner, with the full profile."]
 

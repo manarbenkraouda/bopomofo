@@ -5,6 +5,7 @@ AI energy refills at midnight in the user's time zone. The audio limit uses the 
 Rows older than two days are deleted.
 Work without a user (tests, tools) is not counted: every API route that leads to this work needs a sign-in.
 """
+
 from __future__ import annotations
 
 import time
@@ -26,8 +27,9 @@ class LimitReached(RuntimeError):
 
 def _used(kind: str) -> tuple[int, float]:
     with db.conn() as c:
-        n, cost = c.execute("SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM usage_log WHERE kind=? AND ts>=?",
-                            (kind, time.time() - DAY)).fetchone()
+        n, cost = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM usage_log WHERE kind=? AND ts>=?", (kind, time.time() - DAY)
+        ).fetchone()
     return int(n), float(cost)
 
 
@@ -39,15 +41,25 @@ def ai_quota() -> dict:
     start = datetime.combine(today, datetime.min.time(), tzinfo=tz).timestamp()
     reset = datetime.combine(today + timedelta(days=1), datetime.min.time(), tzinfo=tz).timestamp()
     with db.conn() as c:
-        n, cost = c.execute("SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM usage_log WHERE kind='ai' AND ts>=? AND ts<?",
-                            (start, reset)).fetchone()
+        n, cost = c.execute(
+            "SELECT COUNT(*), COALESCE(SUM(cost), 0) FROM usage_log WHERE kind='ai' AND ts>=? AND ts<?", (start, reset)
+        ).fetchone()
     n, cost = int(n), float(cost)
     blocked = n >= AI_DAILY_CALLS or cost >= AI_DAILY_LIMIT_USD
     used = max(n / max(1, AI_DAILY_CALLS), cost / max(0.000001, AI_DAILY_LIMIT_USD))
-    return {"user_id": db.current_user(), "blocked": blocked, "calls": n, "call_limit": AI_DAILY_CALLS,
-            "cost": cost, "cost_limit": AI_DAILY_LIMIT_USD,
-            "remaining_percent": 0 if blocked else max(1, round(100 * (1 - min(1, used)))),
-            "server_now": now, "period_started_at": start, "resets_at": reset, "timezone": tz.key}
+    return {
+        "user_id": db.current_user(),
+        "blocked": blocked,
+        "calls": n,
+        "call_limit": AI_DAILY_CALLS,
+        "cost": cost,
+        "cost_limit": AI_DAILY_LIMIT_USD,
+        "remaining_percent": 0 if blocked else max(1, round(100 * (1 - min(1, used)))),
+        "server_now": now,
+        "period_started_at": start,
+        "resets_at": reset,
+        "timezone": tz.key,
+    }
 
 
 def check_ai() -> None:

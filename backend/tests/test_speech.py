@@ -1,7 +1,7 @@
 """Speech and text tests. Uses Taiwan neural TTS recordings of known text as a stand-in for a learner."""
+
 import asyncio
 import hashlib
-import io
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +20,7 @@ def clip(text: str, rate: int = -10) -> np.ndarray:
     p = FIX / f"{hashlib.sha1(f'{text}|{rate}'.encode()).hexdigest()[:12]}.mp3"
     if not p.exists():
         import edge_tts
+
         asyncio.run(edge_tts.Communicate(text, "zh-TW-HsiaoChenNeural", rate=f"{rate:+d}%").save(str(p)))
     a, sr = sf.read(p, dtype="float32")
     if a.ndim > 1:
@@ -35,7 +36,18 @@ def model():
 
 
 def summary(res):
-    return [(s["expected"]["char"], s["heard"] and s["heard"]["zhuyin"], s["initial_ok"], s["final_ok"], s["tone_ok"], s["model_tone"], s["pitch_tone"]) for s in res["syllables"]]
+    return [
+        (
+            s["expected"]["char"],
+            s["heard"] and s["heard"]["zhuyin"],
+            s["initial_ok"],
+            s["final_ok"],
+            s["tone_ok"],
+            s["model_tone"],
+            s["pitch_tone"],
+        )
+        for s in res["syllables"]
+    ]
 
 
 def test_correct_sentence_scores_high():
@@ -54,6 +66,7 @@ def test_isolated_syllable_tone_accuracy():
     """Full pipeline on 99 practice syllables x 2 Taiwan voices. Isolated tones are the hardest case."""
     import json
     from collections import Counter
+
     items = json.loads((Path(__file__).parents[2] / "frontend/public/data/syllables.json").read_text(encoding="utf-8"))
     dirs = [Path(__file__).parents[2] / "frontend/public/audio/syllables", FIX / "male"]
     ok = n = 0
@@ -61,11 +74,14 @@ def test_isolated_syllable_tone_accuracy():
     for d in dirs:
         # Speaker reference as the app learns it: median pitch of this voice's recordings.
         from app import pitch
+
         tracks = []
         for it in items:
             a, sr = sf.read(d / f"{it['id']}.mp3", dtype="float32")
             a = a.mean(1) if a.ndim > 1 else a
-            f = pitch.track(np.interp(np.linspace(0, len(a) - 1, int(len(a) * 16000 / sr)), np.arange(len(a)), a).astype(np.float32))
+            f = pitch.track(
+                np.interp(np.linspace(0, len(a) - 1, int(len(a) * 16000 / sr)), np.arange(len(a)), a).astype(np.float32)
+            )
             tracks.append(f[f > 0])
         ref = float(np.median(np.concatenate(tracks)))
         for it in items:

@@ -8,6 +8,7 @@ kept: units to events, steps to plans, step ids inside answers, sentence ids ins
 that the onboarding built (from no answers) is replaced by the imported plans. The onboarding answers stay; the old
 profile only fills the facts the onboarding left empty. It writes to DATABASE_URL in one transaction.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,8 +50,11 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
     with db.conn() as c:
         if c.execute("SELECT (SELECT COUNT(*) FROM events) + (SELECT COUNT(*) FROM sentences)").fetchone()[0]:
             sys.exit(f"{user} already has answers or sentences in PostgreSQL. Nothing was imported.")
-        cols = {t: {r[0] for r in c.execute("SELECT column_name FROM information_schema.columns WHERE table_name=?", (t,))} - {"id", "user_id"}
-                for t in ("sentences", "events", "units", "plans", "steps", "milestones", "coach_calls", "coach_notes")}
+        cols = {
+            t: {r[0] for r in c.execute("SELECT column_name FROM information_schema.columns WHERE table_name=?", (t,))}
+            - {"id", "user_id"}
+            for t in ("sentences", "events", "units", "plans", "steps", "milestones", "coach_calls", "coach_notes")
+        }
 
         def insert(table: str, data: list[dict], fix=lambda r: r) -> dict[int, int]:
             """Insert rows with new ids. Returns old id -> new id."""
@@ -58,8 +62,10 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
             for r in data:
                 r = fix(dict(r))
                 keys = [k for k in r if k in cols[table]]
-                nid = c.execute(f"INSERT INTO {table}({', '.join(keys)}) VALUES ({', '.join('?' * len(keys))}) RETURNING id",
-                                [r[k] for k in keys]).fetchone()["id"]
+                nid = c.execute(
+                    f"INSERT INTO {table}({', '.join(keys)}) VALUES ({', '.join('?' * len(keys))}) RETURNING id",
+                    [r[k] for k in keys],
+                ).fetchone()["id"]
                 new[r["id"]] = nid
             counts[table] = len(data)
             return new
@@ -78,6 +84,7 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
                 p["ids"] = [sent.get(i, i) for i in p["ids"]]
             r["params"] = json.dumps(p, ensure_ascii=False)
             return r
+
         steps = insert("steps", [r for r in rows(src, "steps") if r["plan_id"] in plans], fix_step)
 
         def link(r):
@@ -86,6 +93,7 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
             if r.get("step_id") is not None:
                 r["step_id"] = steps.get(r["step_id"])
             return r
+
         insert("milestones", rows(src, "milestones"), link)
         insert("coach_calls", rows(src, "coach_calls"), link)
         insert("coach_notes", rows(src, "coach_notes"), link)
@@ -96,19 +104,25 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
                 d["step"] = steps.get(d["step"])
             r["details"] = json.dumps(d, ensure_ascii=False)
             return r
+
         events = insert("events", rows(src, "events"), fix_event)
 
         units = [u for u in rows(src, "units") if u["event_id"] in events]
         ukeys = [k for k in (units[0] if units else {}) if k in cols["units"]]
         if units:
-            c.executemany(f"INSERT INTO units({', '.join(ukeys)}) VALUES ({', '.join('?' * len(ukeys))})",
-                          [[events[u[k]] if k == "event_id" else u[k] for k in ukeys] for u in units])
+            c.executemany(
+                f"INSERT INTO units({', '.join(ukeys)}) VALUES ({', '.join('?' * len(ukeys))})",
+                [[events[u[k]] if k == "event_id" else u[k] for k in ukeys] for u in units],
+            )
         counts["units"] = len(units)
 
         days = rows(src, "days")
         for d in days:
-            c.execute("INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(user_id, day) DO UPDATE SET "
-                      "seconds=GREATEST(days.seconds, excluded.seconds)", (d["day"], d["seconds"], d.get("goal_min")))
+            c.execute(
+                "INSERT INTO days(day, seconds, goal_min) VALUES (?,?,?) ON CONFLICT(user_id, day) DO UPDATE SET "
+                "seconds=GREATEST(days.seconds, excluded.seconds)",
+                (d["day"], d["seconds"], d.get("goal_min")),
+            )
         counts["days"] = len(days)
 
         # Old attempts that the SQLite app never copied into events (very old databases only).
@@ -116,14 +130,21 @@ def copy(src: sqlite3.Connection, user: str, speaker: Path) -> dict:
         if "backfill" not in meta:
             old = rows(src, "attempts")
             for r in old:
-                db.add_event(db.legacy_event(r["area"], r["item"], bool(r["ok"]), r["score"], json.loads(r["details"] or "{}")),
-                             c=c, ts=r["created"], legacy=True)
+                db.add_event(
+                    db.legacy_event(r["area"], r["item"], bool(r["ok"]), r["score"], json.loads(r["details"] or "{}")),
+                    c=c,
+                    ts=r["created"],
+                    legacy=True,
+                )
             counts["attempts"] = len(old)
 
     # The profile: the onboarding answers stay, the old facts fill the rest.
     old_profile = next((json.loads(r["data"]) for r in rows(src, "profile")), {})
     now = db.get_profile()
-    merged = {**{k: v for k, v in old_profile.items() if k in llm.PROFILE_LABELS and str(v).strip()}, **{k: v for k, v in now.items() if str(v).strip()}}
+    merged = {
+        **{k: v for k, v in old_profile.items() if k in llm.PROFILE_LABELS and str(v).strip()},
+        **{k: v for k, v in now.items() if str(v).strip()},
+    }
     if merged != now:
         db.set_profile(merged)
         counts["profile facts added"] = len(merged) - len(now)

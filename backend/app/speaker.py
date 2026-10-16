@@ -1,4 +1,5 @@
 """The learner's pitch reference (median F0), learned from recordings of 2+ syllables. One per user, in the database."""
+
 from __future__ import annotations
 
 import json

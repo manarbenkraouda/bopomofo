@@ -3,6 +3,7 @@
 Used by the symbol quiz (symbols.py) and by the deep check worker (deep_check_core.py), which runs in its own process.
 A "unit" is a group of vocabulary ids that count as the same sound (for example ㄢ with every tone digit).
 """
+
 from __future__ import annotations
 
 import numpy as np

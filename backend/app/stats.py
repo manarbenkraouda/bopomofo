@@ -6,6 +6,7 @@ Words used here:
 - weak score: recency-weighted accuracy on first tries, pulled toward the average for that skill when
   there is little data (a Beta prior). Old answers count half after HALF_LIFE days.
 """
+
 from __future__ import annotations
 
 import csv
@@ -23,10 +24,18 @@ HALF_LIFE = 14.0
 PRIOR = 4.0  # weight of the skill average in the weak score, in answers
 SESSION_GAP = 15 * 60  # a pause longer than this starts a new session
 AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking"]
-VERB = {"reading": "said", "recognize": "typed", "listening": "picked", "speaking": "said", "dictation": "wrote", "writing": "wrote"}
+VERB = {
+    "reading": "said",
+    "recognize": "typed",
+    "listening": "picked",
+    "speaking": "said",
+    "dictation": "wrote",
+    "writing": "wrote",
+}
 
 
 # ---------- speaking: one recording gives tone, initial, final, and syllable units ----------
+
 
 def speaking_units(res: dict) -> list[dict]:
     sy = res.get("syllables") or []
@@ -37,42 +46,102 @@ def speaking_units(res: dict) -> list[dict]:
         base = {"pos": i, "ctx": e.get("char")}
         # "?" = the syllable was not heard, or its tone was not clear. None (old rows) = not recorded.
         heard_tone = (h.get("tone") if h else None) or "?"
-        out.append({**base, "kind": "tone", "expected": e["surface_tone"], "actual": heard_tone, "ok": s.get("tone_ok"),
-                    "lex": e["tone"] if e["tone"] != e["surface_tone"] else None,
-                    "prev": tones[i - 1] if i > 0 else None, "next": tones[i + 1] if i + 1 < len(tones) else None,
-                    "source": s.get("tone_source"), "uncertain": s.get("uncertain"),
-                    "extra": {"model": s.get("model_tone"), "pitch": s.get("pitch_tone"), "zhuyin": e.get("zhuyin")}})
+        out.append(
+            {
+                **base,
+                "kind": "tone",
+                "expected": e["surface_tone"],
+                "actual": heard_tone,
+                "ok": s.get("tone_ok"),
+                "lex": e["tone"] if e["tone"] != e["surface_tone"] else None,
+                "prev": tones[i - 1] if i > 0 else None,
+                "next": tones[i + 1] if i + 1 < len(tones) else None,
+                "source": s.get("tone_source"),
+                "uncertain": s.get("uncertain"),
+                "extra": {"model": s.get("model_tone"), "pitch": s.get("pitch_tone"), "zhuyin": e.get("zhuyin")},
+            }
+        )
         if s.get("initial_ok") is not None:
-            out.append({**base, "kind": "initial", "expected": e.get("initial") or "∅",
-                        "actual": (h.get("initial") or "∅") if h else "?", "ok": s["initial_ok"]})
+            out.append(
+                {
+                    **base,
+                    "kind": "initial",
+                    "expected": e.get("initial") or "∅",
+                    "actual": (h.get("initial") or "∅") if h else "?",
+                    "ok": s["initial_ok"],
+                }
+            )
         if s.get("final_ok") is not None:
-            out.append({**base, "kind": "final", "expected": e.get("final") or "∅",
-                        "actual": (h.get("final") or "∅") if h else "?", "ok": s["final_ok"]})
-        whole = bool(h) and bool(s.get("tone_ok")) and s.get("initial_ok") is not False and s.get("final_ok") is not False
-        said_as = zhuyin_of(e.get("initial") or "", e.get("final") or "", e["surface_tone"]) if e.get("final") is not None else e.get("zhuyin")
-        out.append({**base, "kind": "syllable", "expected": said_as, "actual": h.get("zhuyin") if h else "?", "ok": whole})
+            out.append(
+                {
+                    **base,
+                    "kind": "final",
+                    "expected": e.get("final") or "∅",
+                    "actual": (h.get("final") or "∅") if h else "?",
+                    "ok": s["final_ok"],
+                }
+            )
+        whole = (
+            bool(h) and bool(s.get("tone_ok")) and s.get("initial_ok") is not False and s.get("final_ok") is not False
+        )
+        said_as = (
+            zhuyin_of(e.get("initial") or "", e.get("final") or "", e["surface_tone"])
+            if e.get("final") is not None
+            else e.get("zhuyin")
+        )
+        out.append(
+            {**base, "kind": "syllable", "expected": said_as, "actual": h.get("zhuyin") if h else "?", "ok": whole}
+        )
         # Tone rules: one "sandhi" unit per syllable that tests a rule. actual: the tone said. extra.error:
         # "literal" = read the written tone where the rule changes it, "over" = changed 不/一 where it keeps its tone.
         rule = tested_rule(e)
         if rule:
             err = None if s.get("tone_ok") else (s.get("rule_error") or "other")
-            out.append({**base, "kind": "sandhi", "expected": rule, "actual": heard_tone, "ok": s.get("tone_ok"),
-                        "lex": e["tone"], "next": tones[i + 1] if i + 1 < len(tones) else None,
-                        "extra": {"said": e["surface_tone"], "error": err, "zhuyin": e.get("zhuyin")}})
+            out.append(
+                {
+                    **base,
+                    "kind": "sandhi",
+                    "expected": rule,
+                    "actual": heard_tone,
+                    "ok": s.get("tone_ok"),
+                    "lex": e["tone"],
+                    "next": tones[i + 1] if i + 1 < len(tones) else None,
+                    "extra": {"said": e["surface_tone"], "error": err, "zhuyin": e.get("zhuyin")},
+                }
+            )
     return out
 
 
-def log_speaking(text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0) -> int:
-    mode = mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
+def log_speaking(
+    text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0
+) -> int:
+    mode = (
+        mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
+    )
     ok = res["score"] >= 80
-    return db.add_event({"area": "speaking", "mode": mode, "item": text, "ok": ok, "score": res["score"],
-                  "first_try": ok and not help and try_n == 0, "tries": try_n + 1, "help": help,
-                  "details": {"heard": res.get("heard_raw"), "extra": len(res.get("extra") or []),
-                              "audio_seconds": (res.get("timing") or {}).get("audio_seconds"), **({"step": step} if step else {})},
-                  "units": [{**u, "help": help, "try_n": try_n} for u in speaking_units(res)]})
+    return db.add_event(
+        {
+            "area": "speaking",
+            "mode": mode,
+            "item": text,
+            "ok": ok,
+            "score": res["score"],
+            "first_try": ok and not help and try_n == 0,
+            "tries": try_n + 1,
+            "help": help,
+            "details": {
+                "heard": res.get("heard_raw"),
+                "extra": len(res.get("extra") or []),
+                "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
+                **({"step": step} if step else {}),
+            },
+            "units": [{**u, "help": help, "try_n": try_n} for u in speaking_units(res)],
+        }
+    )
 
 
 # ---------- helpers ----------
+
 
 def _rows(sql: str, args=()) -> list[dict]:
     with db.conn() as c:
@@ -120,17 +189,27 @@ def _href(area: str, kind: str, expected: str, also: list | None = None) -> str 
     if kind == "sandhi":
         if expected not in RULES:
             return None
-        return ("/speaking?source=rule&rules=" if area == "speaking" else "/listening?quiz=rule&rules=") + quote(expected)
+        return ("/speaking?source=rule&rules=" if area == "speaking" else "/listening?quiz=rule&rules=") + quote(
+            expected
+        )
     if kind == "tone":
         t = ",".join(v for v in vals if v in ("1", "2", "3", "4", "5"))
-        base = {"listening": "/listening?quiz=tone&tones=", "speaking": "/speaking?source=syllable&tones=", "writing": "/writing?mode=syllable&tones="}
+        base = {
+            "listening": "/listening?quiz=tone&tones=",
+            "speaking": "/speaking?source=syllable&tones=",
+            "writing": "/writing?mode=syllable&tones=",
+        }
         return base[area] + t if area in base else None
     if expected in ("∅", "?"):
         return None
     syms = quote(",".join(v for v in vals if v not in ("∅", "?")))
     if kind == "symbol":
-        return {"reading": "/reading?syms=", "recognize": "/recognize?syms=", "dictation": "/dictation?syms=",
-                "writing": "/writing?mode=symbol&syms="}.get(area, "/dictation?syms=") + syms
+        return {
+            "reading": "/reading?syms=",
+            "recognize": "/recognize?syms=",
+            "dictation": "/dictation?syms=",
+            "writing": "/writing?mode=symbol&syms=",
+        }.get(area, "/dictation?syms=") + syms
     if kind in ("initial", "final"):
         return ("/listening?quiz=zhuyin&syms=" if area == "listening" else "/speaking?source=syllable&syms=") + syms
     if kind in ("stroke", "order"):
@@ -148,11 +227,15 @@ def _label(kind: str, expected: str) -> str:
 
 # ---------- tone rules (sandhi) ----------
 
+
 def rule_stats(days: int | None = None) -> list[dict]:
     """Per tone rule: first tries in the rule quiz (listening/rule) and in every recording (speaking), the kind of error
     (literal: read the written tone; over: changed 不/一 where the tone stays; other), the last 7 days, and the hardest characters."""
-    rows = _rows("SELECT day, area, expected, actual, ok, help, ctx, extra FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
-                 " AND day>=? ORDER BY ts", (_since(days),))
+    rows = _rows(
+        "SELECT day, area, expected, actual, ok, help, ctx, extra FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
+        " AND day>=? ORDER BY ts",
+        (_since(days),),
+    )
     week_ago = (db.local_today() - timedelta(days=7)).isoformat()
     out = []
     for rid, r in RULES.items():
@@ -176,16 +259,32 @@ def rule_stats(days: int | None = None) -> list[dict]:
                         ex = {}
                 err[(ex or {}).get("error") or ("help" if x["ok"] else "other")] += 1
         recent = [x for x in rs if x["day"] > week_ago]
-        out.append({"rule": rid, "name": r["name"], "short": r["short"], "n": len(rs), "ok": len(good), "acc": _pct(len(good), len(rs)),
-                    "recent": _pct(sum(_good(x) for x in recent), len(recent)), "recent_n": len(recent),
-                    "errors": dict(err), "literal": err.get("literal", 0),
-                    "areas": {a: {"n": v[0], "ok": v[1], "acc": _pct(v[1], v[0])} for a, v in areas.items()},
-                    "chars": sorted(({"char": c, "n": v[0], "ok": v[1]} for c, v in chars.items()), key=lambda c: (c["ok"] / c["n"], -c["n"]))[:5],
-                    "quiz_href": "/listening?quiz=rule&rules=" + quote(rid), "speak_href": "/speaking?source=rule&rules=" + quote(rid)})
+        out.append(
+            {
+                "rule": rid,
+                "name": r["name"],
+                "short": r["short"],
+                "n": len(rs),
+                "ok": len(good),
+                "acc": _pct(len(good), len(rs)),
+                "recent": _pct(sum(_good(x) for x in recent), len(recent)),
+                "recent_n": len(recent),
+                "errors": dict(err),
+                "literal": err.get("literal", 0),
+                "areas": {a: {"n": v[0], "ok": v[1], "acc": _pct(v[1], v[0])} for a, v in areas.items()},
+                "chars": sorted(
+                    ({"char": c, "n": v[0], "ok": v[1]} for c, v in chars.items()),
+                    key=lambda c: (c["ok"] / c["n"], -c["n"]),
+                )[:5],
+                "quiz_href": "/listening?quiz=rule&rules=" + quote(rid),
+                "speak_href": "/speaking?source=rule&rules=" + quote(rid),
+            }
+        )
     return out
 
 
 # ---------- per item ----------
+
 
 def item_stats(units: list[dict], today: date) -> list[dict]:
     """Per (area, kind, expected): first-try accuracy, recency-weighted weak score, trend, and top confusions."""
@@ -224,23 +323,46 @@ def item_stats(units: list[dict], today: date) -> list[dict]:
         bn, bok = base[(area, kind)]
         p0 = (bok + 1) / (bn + 2)
         post = (d["wok"] + PRIOR * p0) / (d["wn"] + PRIOR)
-        out.append({"area": area, "kind": kind, "expected": exp, "n": d["n"], "ok": d["ok"], "acc": _pct(d["ok"], d["n"]),
-                    "post": round(100 * post, 1), "recent": _pct(d["rok"], d["rn"]), "before": _pct(d["pok"], d["pn"]),
-                    "recent_n": d["rn"], "last": d["last"], "top": [[a, n] for a, n in conf[(area, kind, exp)].most_common(3)]})
+        out.append(
+            {
+                "area": area,
+                "kind": kind,
+                "expected": exp,
+                "n": d["n"],
+                "ok": d["ok"],
+                "acc": _pct(d["ok"], d["n"]),
+                "post": round(100 * post, 1),
+                "recent": _pct(d["rok"], d["rn"]),
+                "before": _pct(d["pok"], d["pn"]),
+                "recent_n": d["rn"],
+                "last": d["last"],
+                "top": [[a, n] for a, n in conf[(area, kind, exp)].most_common(3)],
+            }
+        )
     out.sort(key=lambda x: x["post"])
     return out
 
 
 # ---------- main stats ----------
 
+
 def compute(days: int | None = 30, area: str | None = None) -> dict:
     today = db.local_today()
     since = _since(days)
     af = " AND area=?" if area else ""
     aa = (area,) if area else ()
-    events = _rows("SELECT id, ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays FROM events WHERE day>=?" + af + " ORDER BY ts", (since, *aa))
-    units = _rows("SELECT u.event_id, u.day, u.area, u.mode, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n, u.help, u.ctx, u.lex, u.prev, u.next,"
-                  " u.source, u.uncertain, e.legacy FROM units u JOIN events e ON e.id = u.event_id WHERE u.day>=?" + af.replace("area", "u.area"), (since, *aa))
+    events = _rows(
+        "SELECT id, ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays FROM events WHERE day>=?"
+        + af
+        + " ORDER BY ts",
+        (since, *aa),
+    )
+    units = _rows(
+        "SELECT u.event_id, u.day, u.area, u.mode, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n, u.help, u.ctx, u.lex, u.prev, u.next,"
+        " u.source, u.uncertain, e.legacy FROM units u JOIN events e ON e.id = u.event_id WHERE u.day>=?"
+        + af.replace("area", "u.area"),
+        (since, *aa),
+    )
     saved = {r["day"]: r["seconds"] for r in _rows("SELECT day, seconds FROM days")}
     all_events = _rows("SELECT ts, day, area, ok, ms FROM events ORDER BY ts")
     secs_all = _seconds_by_day(all_events, saved)
@@ -248,9 +370,19 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     def totals(evs: list[dict], d_from: str, d_to: str) -> dict:
         n = len(evs)
         ok = sum(e["ok"] for e in evs)
-        secs = sum(_seconds_by_day(evs, {}).values()) if area else sum(s for d, s in secs_all.items() if d_from <= d <= d_to)
-        return {"cards": n, "ok": ok, "acc": _pct(ok, n), "minutes": round(secs / 60), "days": len({e["day"] for e in evs}),
-                "ms": _median([e["ms"] for e in evs])}
+        secs = (
+            sum(_seconds_by_day(evs, {}).values())
+            if area
+            else sum(s for d, s in secs_all.items() if d_from <= d <= d_to)
+        )
+        return {
+            "cards": n,
+            "ok": ok,
+            "acc": _pct(ok, n),
+            "minutes": round(secs / 60),
+            "days": len({e["day"] for e in evs}),
+            "ms": _median([e["ms"] for e in evs]),
+        }
 
     overview = totals(events, since, today.isoformat())
     if days:
@@ -265,7 +397,14 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     d = date.fromisoformat(since if days else first_day)
     while d <= today:
         k = d.isoformat()
-        by_day[k] = {"day": k, "cards": 0, "ok": 0, "minutes": round(secs_area.get(k, 0) / 60, 1), "areas": {}, "_ms": []}
+        by_day[k] = {
+            "day": k,
+            "cards": 0,
+            "ok": 0,
+            "minutes": round(secs_area.get(k, 0) / 60, 1),
+            "areas": {},
+            "_ms": [],
+        }
         d += timedelta(days=1)
     for e in events:
         b = by_day.get(e["day"])
@@ -277,7 +416,10 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         a[0] += 1
         a[1] += e["ok"]
         b["_ms"].append(e["ms"])
-    daily = [{**{k: v for k, v in b.items() if k != "_ms"}, "acc": _pct(b["ok"], b["cards"]), "ms": _median(b["_ms"])} for b in by_day.values()]
+    daily = [
+        {**{k: v for k, v in b.items() if k != "_ms"}, "acc": _pct(b["ok"], b["cards"]), "ms": _median(b["_ms"])}
+        for b in by_day.values()
+    ]
 
     # Per area.
     per_area = {}
@@ -288,10 +430,18 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         ft = [e for e in evs if e["first_try"] is not None]
         sc = [e["score"] for e in evs if e["score"] is not None]
         ok = sum(e["ok"] for e in evs)
-        per_area[a] = {"n": len(evs), "ok": ok, "acc": _pct(ok, len(evs)), "first_try": _pct(sum(e["first_try"] for e in ft), len(ft)),
-                       "help": _pct(sum(e["help"] for e in evs), len(evs)), "tries": round(sum(e["tries"] or 1 for e in evs) / len(evs), 2),
-                       "ms": _median([e["ms"] for e in evs]), "replays": round(sum(e["replays"] or 0 for e in evs) / len(evs), 2),
-                       "score": round(sum(sc) / len(sc), 1) if sc else None, "modes": dict(Counter(e["mode"] or "-" for e in evs))}
+        per_area[a] = {
+            "n": len(evs),
+            "ok": ok,
+            "acc": _pct(ok, len(evs)),
+            "first_try": _pct(sum(e["first_try"] for e in ft), len(ft)),
+            "help": _pct(sum(e["help"] for e in evs), len(evs)),
+            "tries": round(sum(e["tries"] or 1 for e in evs) / len(evs), 2),
+            "ms": _median([e["ms"] for e in evs]),
+            "replays": round(sum(e["replays"] or 0 for e in evs) / len(evs), 2),
+            "score": round(sum(sc) / len(sc), 1) if sc else None,
+            "modes": dict(Counter(e["mode"] or "-" for e in evs)),
+        }
 
     # Confusion: every production with a known answer, including right ones (the diagonal).
     conf: Counter = Counter()
@@ -309,7 +459,9 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
 
     # Tones in context (speaking): the tone before, the tone after, tone changes, position, and which signal judged it.
     # Old rows saved no context, so they are left out here.
-    tone_units = [u for u in units if u["kind"] == "tone" and u["area"] == "speaking" and u["ok"] is not None and not u["legacy"]]
+    tone_units = [
+        u for u in units if u["kind"] == "tone" and u["area"] == "speaking" and u["ok"] is not None and not u["legacy"]
+    ]
 
     def grp(keyf) -> list[dict]:
         acc: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
@@ -322,17 +474,43 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         return [{"k": list(k), "n": v[0], "ok": v[1]} for k, v in acc.items()]
 
     multi = {u["event_id"] for u in tone_units if u["pos"] > 0}
-    tone_ctx = {"prev": grp(lambda u: (u["prev"], u["expected"])), "next": grp(lambda u: (u["expected"], u["next"])),
-                "sandhi": grp(lambda u: (u["lex"], u["expected"])), "source": grp(lambda u: (u["source"] or "-",)),
-                "position": grp(lambda u: ("alone" if u["event_id"] not in multi else "first" if u["pos"] == 0 else "last" if u["next"] is None else "middle", u["expected"])),
-                "uncertain": sum(u["uncertain"] for u in tone_units), "n": len(tone_units)}
+    tone_ctx = {
+        "prev": grp(lambda u: (u["prev"], u["expected"])),
+        "next": grp(lambda u: (u["expected"], u["next"])),
+        "sandhi": grp(lambda u: (u["lex"], u["expected"])),
+        "source": grp(lambda u: (u["source"] or "-",)),
+        "position": grp(
+            lambda u: (
+                "alone"
+                if u["event_id"] not in multi
+                else "first"
+                if u["pos"] == 0
+                else "last"
+                if u["next"] is None
+                else "middle",
+                u["expected"],
+            )
+        ),
+        "uncertain": sum(u["uncertain"] for u in tone_units),
+        "n": len(tone_units),
+    }
 
     # Strokes (dictation and writing): problems per symbol and per stroke.
     strokes: dict[str, dict] = {}
     for u in units:
         if u["kind"] not in ("stroke", "order"):
             continue
-        s = strokes.setdefault(u["expected"], {"sym": u["expected"], "n": 0, "status": Counter(), "by_stroke": defaultdict(Counter), "order_n": 0, "order_err": 0})
+        s = strokes.setdefault(
+            u["expected"],
+            {
+                "sym": u["expected"],
+                "n": 0,
+                "status": Counter(),
+                "by_stroke": defaultdict(Counter),
+                "order_n": 0,
+                "order_err": 0,
+            },
+        )
         if u["kind"] == "stroke":
             s["n"] += 1
             s["status"][u["actual"] or "?"] += 1
@@ -341,8 +519,18 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         else:
             s["order_n"] += 1
             s["order_err"] += 0 if u["ok"] else 1
-    stroke_list = sorted(({**s, "status": dict(s["status"]), "by_stroke": {k: dict(v) for k, v in s["by_stroke"].items()},
-                           "clean": _pct(s["status"].get("ok", 0), s["n"])} for s in strokes.values()), key=lambda s: s["clean"] if s["clean"] is not None else 101)
+    stroke_list = sorted(
+        (
+            {
+                **s,
+                "status": dict(s["status"]),
+                "by_stroke": {k: dict(v) for k, v in s["by_stroke"].items()},
+                "clean": _pct(s["status"].get("ok", 0), s["n"]),
+            }
+            for s in strokes.values()
+        ),
+        key=lambda s: s["clean"] if s["clean"] is not None else 101,
+    )
 
     # Time of day.
     hours: dict[int, list[int]] = defaultdict(lambda: [0, 0])
@@ -367,21 +555,48 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     items = item_stats(units, today)
     lv = levels.status()
     op = {"exercises": lv["exercises"], "symbols": lv["symbols"]}
-    return {"range": {"days": days, "since": since if days else first_day, "area": area},
-            "overview": overview, "daily": daily, "areas": per_area, "confusion": confusion, "expected": expected,
-            "items": items, "tone_ctx": tone_ctx, "strokes": stroke_list, "hours": by_hour, "sessions": sessions,
-            "rules": rule_stats(days), "mic_pairs": typed_fix.mic_pairs(), "deep_check": deep_check.summary(),
-            "recent": recent(area=area), "records": records(), "challenges": challenges(op=op), "weak": weak(items, op=op), "levels": lv,
-            "calendar": [{"day": dd, "minutes": round(s / 60, 1)} for dd, s in secs_all.items() if dd >= (today - timedelta(days=370)).isoformat()]}
+    return {
+        "range": {"days": days, "since": since if days else first_day, "area": area},
+        "overview": overview,
+        "daily": daily,
+        "areas": per_area,
+        "confusion": confusion,
+        "expected": expected,
+        "items": items,
+        "tone_ctx": tone_ctx,
+        "strokes": stroke_list,
+        "hours": by_hour,
+        "sessions": sessions,
+        "rules": rule_stats(days),
+        "mic_pairs": typed_fix.mic_pairs(),
+        "deep_check": deep_check.summary(),
+        "recent": recent(area=area),
+        "records": records(),
+        "challenges": challenges(op=op),
+        "weak": weak(items, op=op),
+        "levels": lv,
+        "calendar": [
+            {"day": dd, "minutes": round(s / 60, 1)}
+            for dd, s in secs_all.items()
+            if dd >= (today - timedelta(days=370)).isoformat()
+        ],
+    }
 
 
 def recent(limit: int = 80, area: str | None = None) -> list[dict]:
-    evs = _rows("SELECT id, ts, area, mode, item, ok, score, ms, tries, help, replays FROM events" + (" WHERE area=?" if area else "") +
-                " ORDER BY ts DESC LIMIT ?", ((area, limit) if area else (limit,)))
+    evs = _rows(
+        "SELECT id, ts, area, mode, item, ok, score, ms, tries, help, replays FROM events"
+        + (" WHERE area=?" if area else "")
+        + " ORDER BY ts DESC LIMIT ?",
+        ((area, limit) if area else (limit,)),
+    )
     if not evs:
         return []
     ids = [e["id"] for e in evs]
-    us = _rows(f"SELECT event_id, kind, expected, actual, ok, pos, try_n, help, ctx FROM units WHERE kind != 'stroke' AND event_id IN ({','.join('?' * len(ids))}) ORDER BY id", ids)
+    us = _rows(
+        f"SELECT event_id, kind, expected, actual, ok, pos, try_n, help, ctx FROM units WHERE kind != 'stroke' AND event_id IN ({','.join('?' * len(ids))}) ORDER BY id",
+        ids,
+    )
     by: dict[int, list] = defaultdict(list)
     for u in us:
         by[u.pop("event_id")].append(u)
@@ -400,13 +615,16 @@ def weak(items: list[dict], limit: int = 12, op: dict | None = None) -> list[dic
         href = _href(it["area"], it["kind"], it["expected"], [a for a, _ in it["top"][:2]])
         if not href or not levels.is_open(levels.exercise_of(href), op):
             continue
-        out.append({**it, "label": _label(it["kind"], it["expected"]), "verb": VERB.get(it["area"], "gave"), "href": href})
+        out.append(
+            {**it, "label": _label(it["kind"], it["expected"]), "verb": VERB.get(it["area"], "gave"), "href": href}
+        )
         if len(out) >= limit:
             break
     return out
 
 
 # ---------- records ----------
+
 
 def records() -> dict:
     evs = _rows("SELECT ts, day, area, ok, score, ms FROM events ORDER BY ts")
@@ -462,6 +680,7 @@ def records() -> dict:
 
 # ---------- daily challenges ----------
 
+
 def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     """Up to four goals for today, picked from the weakest skills before today, so they stay the same all day.
     Progress counts today's answers. Only exercises the level has unlocked."""
@@ -469,17 +688,37 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     op = op or levels.opened()
     t = today.isoformat()
     since = (today - timedelta(days=45)).isoformat()
-    past = _rows("SELECT day, area, kind, expected, actual, ok, try_n, help FROM units WHERE day>=? AND day<? AND kind!='stroke'", (since, t))
+    past = _rows(
+        "SELECT day, area, kind, expected, actual, ok, try_n, help FROM units WHERE day>=? AND day<? AND kind!='stroke'",
+        (since, t),
+    )
     now = _rows("SELECT area, kind, expected, ok, try_n, help FROM units WHERE day=?", (t,))
     now_ev = _rows("SELECT area, mode FROM events WHERE day=?", (t,))
     items = item_stats(past, today)
     out: list[dict] = []
 
     def weakest(area: str, kind: str, k: int = 1, min_n: int = 4) -> list[dict]:
-        return [i for i in items if i["area"] == area and i["kind"] == kind and i["n"] >= min_n and i["expected"] not in ("∅", "?") and i["post"] < 90][:k]
+        return [
+            i
+            for i in items
+            if i["area"] == area
+            and i["kind"] == kind
+            and i["n"] >= min_n
+            and i["expected"] not in ("∅", "?")
+            and i["post"] < 90
+        ][:k]
 
     def count(area: str, kind: str, exp: set, first: bool = False) -> int:
-        return sum(1 for u in now if u["area"] == area and u["kind"] == kind and u["expected"] in exp and u["ok"] and not u["help"] and (not first or u["try_n"] == 0))
+        return sum(
+            1
+            for u in now
+            if u["area"] == area
+            and u["kind"] == kind
+            and u["expected"] in exp
+            and u["ok"]
+            and not u["help"]
+            and (not first or u["try_n"] == 0)
+        )
 
     def tname(x: str) -> str:
         return "neutral tone" if x == "5" else "tone " + x
@@ -488,43 +727,90 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     if w:
         i = w[0]
         conf = (" Often heard as " + tname(i["top"][0][0]) + ".") if i["top"] and i["top"][0][0] != "?" else ""
-        out.append({"id": "speak-tone", "area": "speaking", "title": f"Say {tname(i['expected'])} right 8 times",
-                    "why": f"{i['acc']:.0f}% right on {i['n']} tries.{conf}", "target": 8,
-                    "progress": count("speaking", "tone", {i["expected"]}), "href": _href("speaking", "tone", i["expected"])})
+        out.append(
+            {
+                "id": "speak-tone",
+                "area": "speaking",
+                "title": f"Say {tname(i['expected'])} right 8 times",
+                "why": f"{i['acc']:.0f}% right on {i['n']} tries.{conf}",
+                "target": 8,
+                "progress": count("speaking", "tone", {i["expected"]}),
+                "href": _href("speaking", "tone", i["expected"]),
+            }
+        )
     w = weakest("listening", "tone")
     if w:
         i = w[0]
         other = i["top"][0][0] if i["top"] else None
         pair = {i["expected"], other} if other else {i["expected"]}
-        out.append({"id": "hear-tone", "area": "listening", "title": f"Hear {tname(i['expected'])}" + (f" vs {tname(other)}" if other else "") + ": 12 right",
-                    "why": f"{i['acc']:.0f}% right on {i['n']} questions." + (f" You picked {tname(other)} {i['top'][0][1]} times." if other else ""),
-                    "target": 12, "progress": count("listening", "tone", pair), "href": _href("listening", "tone", i["expected"], [other] if other else [])})
+        out.append(
+            {
+                "id": "hear-tone",
+                "area": "listening",
+                "title": f"Hear {tname(i['expected'])}" + (f" vs {tname(other)}" if other else "") + ": 12 right",
+                "why": f"{i['acc']:.0f}% right on {i['n']} questions."
+                + (f" You picked {tname(other)} {i['top'][0][1]} times." if other else ""),
+                "target": 12,
+                "progress": count("listening", "tone", pair),
+                "href": _href("listening", "tone", i["expected"], [other] if other else []),
+            }
+        )
     for area, verb in (("reading", "Read"), ("recognize", "Recognize"), ("dictation", "Write")):
         w = weakest(area, "symbol", 3, 3)
         if w:
             syms = [i["expected"] for i in w]
             n = sum(i["n"] for i in w)
             ok = sum(i["ok"] for i in w)
-            out.append({"id": area + "-syms", "area": area, "title": f"{verb} {' '.join(syms)} right on the first try 6 times",
-                        "why": f"Your weakest {area} symbols: {round(100 * ok / n)}% first try on {n} cards.", "target": 6,
-                        "progress": count(area, "symbol", set(syms), first=True), "href": _href(area, "symbol", syms[0], syms[1:])})
+            out.append(
+                {
+                    "id": area + "-syms",
+                    "area": area,
+                    "title": f"{verb} {' '.join(syms)} right on the first try 6 times",
+                    "why": f"Your weakest {area} symbols: {round(100 * ok / n)}% first try on {n} cards.",
+                    "target": 6,
+                    "progress": count(area, "symbol", set(syms), first=True),
+                    "href": _href(area, "symbol", syms[0], syms[1:]),
+                }
+            )
     for kind in ("initial", "final"):
         w = weakest("speaking", kind)
         if w:
             i = w[0]
             said = (" You often say " + i["top"][0][0] + ".") if i["top"] and i["top"][0][0] != "?" else ""
-            out.append({"id": "speak-" + kind, "area": "speaking", "title": f"Say the {kind} {i['expected']} right 6 times",
-                        "why": f"{i['acc']:.0f}% right on {i['n']} tries.{said}", "target": 6,
-                        "progress": count("speaking", kind, {i["expected"]}), "href": _href("speaking", kind, i["expected"])})
+            out.append(
+                {
+                    "id": "speak-" + kind,
+                    "area": "speaking",
+                    "title": f"Say the {kind} {i['expected']} right 6 times",
+                    "why": f"{i['acc']:.0f}% right on {i['n']} tries.{said}",
+                    "target": 6,
+                    "progress": count("speaking", kind, {i["expected"]}),
+                    "href": _href("speaking", kind, i["expected"]),
+                }
+            )
     # Tone rules: the weakest rule, in the quiz or in recordings.
-    rw = sorted((i for i in items if i["kind"] == "sandhi" and i["n"] >= 4 and i["expected"] in RULES and i["post"] < 90), key=lambda i: i["post"])
+    rw = sorted(
+        (i for i in items if i["kind"] == "sandhi" and i["n"] >= 4 and i["expected"] in RULES and i["post"] < 90),
+        key=lambda i: i["post"],
+    )
     if rw:
         i = rw[0]
         name = RULES[i["expected"]]["name"]
-        out.append({"id": "rule-" + i["expected"], "area": i["area"], "title": f"Use the {name} right 8 times",
-                    "why": f"{i['acc']:.0f}% right on {i['n']} tries. {RULES[i['expected']]['short']}", "target": 8,
-                    "progress": sum(1 for u in now if u["kind"] == "sandhi" and u["expected"] == i["expected"] and u["ok"] and not u["help"]),
-                    "href": _href(i["area"], "sandhi", i["expected"])})
+        out.append(
+            {
+                "id": "rule-" + i["expected"],
+                "area": i["area"],
+                "title": f"Use the {name} right 8 times",
+                "why": f"{i['acc']:.0f}% right on {i['n']} tries. {RULES[i['expected']]['short']}",
+                "target": 8,
+                "progress": sum(
+                    1
+                    for u in now
+                    if u["kind"] == "sandhi" and u["expected"] == i["expected"] and u["ok"] and not u["help"]
+                ),
+                "href": _href(i["area"], "sandhi", i["expected"]),
+            }
+        )
     # Tones first (the main goal of the app), then the others in a daily order.
     rnd = random.Random(t)
     rnd.shuffle(out)
@@ -532,18 +818,61 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     out.sort(key=lambda c: 0 if c["id"] in ("speak-tone", "hear-tone") or c["id"].startswith("rule-") else 1)
     out = out[:4]
     fill = [
-        {"id": "warm-listen", "area": "listening", "title": "Answer 20 listening questions", "why": "Daily ear training.", "target": 20,
-         "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] != "rule"), "href": "/listening?quiz=tone"},
-        {"id": "warm-rules", "area": "listening", "slot": "rules", "title": "Answer 10 tone rule questions", "why": "Know how tones change in words before you say sentences.",
-         "target": 10, "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] == "rule"), "href": "/listening?quiz=rule"},
-        {"id": "warm-read", "area": "reading", "title": "Read 15 symbols out loud", "why": "Daily reading.", "target": 15,
-         "progress": sum(1 for e in now_ev if e["area"] == "reading"), "href": "/reading"},
-        {"id": "warm-speak", "area": "speaking", "title": "Record 5 sentences", "why": "Daily speaking.", "target": 5,
-         "progress": sum(1 for e in now_ev if e["area"] == "speaking" and e["mode"] == "sentence"), "href": "/speaking"},
-        {"id": "warm-dict", "area": "dictation", "title": "Write 10 symbols from memory", "why": "Daily writing.", "target": 10,
-         "progress": sum(1 for e in now_ev if e["area"] == "dictation"), "href": "/dictation"},
-        {"id": "warm-recognize", "area": "recognize", "title": "Recognize 20 symbols silently", "why": "Daily symbol recall, no speaking.", "target": 20,
-         "progress": sum(1 for e in now_ev if e["area"] == "recognize"), "href": "/recognize"},
+        {
+            "id": "warm-listen",
+            "area": "listening",
+            "title": "Answer 20 listening questions",
+            "why": "Daily ear training.",
+            "target": 20,
+            "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] != "rule"),
+            "href": "/listening?quiz=tone",
+        },
+        {
+            "id": "warm-rules",
+            "area": "listening",
+            "slot": "rules",
+            "title": "Answer 10 tone rule questions",
+            "why": "Know how tones change in words before you say sentences.",
+            "target": 10,
+            "progress": sum(1 for e in now_ev if e["area"] == "listening" and e["mode"] == "rule"),
+            "href": "/listening?quiz=rule",
+        },
+        {
+            "id": "warm-read",
+            "area": "reading",
+            "title": "Read 15 symbols out loud",
+            "why": "Daily reading.",
+            "target": 15,
+            "progress": sum(1 for e in now_ev if e["area"] == "reading"),
+            "href": "/reading",
+        },
+        {
+            "id": "warm-speak",
+            "area": "speaking",
+            "title": "Record 5 sentences",
+            "why": "Daily speaking.",
+            "target": 5,
+            "progress": sum(1 for e in now_ev if e["area"] == "speaking" and e["mode"] == "sentence"),
+            "href": "/speaking",
+        },
+        {
+            "id": "warm-dict",
+            "area": "dictation",
+            "title": "Write 10 symbols from memory",
+            "why": "Daily writing.",
+            "target": 10,
+            "progress": sum(1 for e in now_ev if e["area"] == "dictation"),
+            "href": "/dictation",
+        },
+        {
+            "id": "warm-recognize",
+            "area": "recognize",
+            "title": "Recognize 20 symbols silently",
+            "why": "Daily symbol recall, no speaking.",
+            "target": 20,
+            "progress": sum(1 for e in now_ev if e["area"] == "recognize"),
+            "href": "/recognize",
+        },
     ]
     have = {c["area"] for c in out}
     for f in fill:
@@ -561,15 +890,18 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
 
 # ---------- export ----------
 
+
 def export_csv() -> str:
-    rows = _rows("SELECT e.id AS event, to_char(to_timestamp(e.ts) AT TIME ZONE ?, 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
-                 " e.score, e.ms, e.tries, e.help AS event_help, e.replays, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n,"
-                 " u.help, u.ctx, u.lex, u.prev, u.next, u.source, u.uncertain"
-                 " FROM events e LEFT JOIN units u ON u.event_id = e.id ORDER BY e.ts, u.id", (db.user_tz().key,))
+    rows = _rows(
+        "SELECT e.id AS event, to_char(to_timestamp(e.ts) AT TIME ZONE ?, 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
+        " e.score, e.ms, e.tries, e.help AS event_help, e.replays, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n,"
+        " u.help, u.ctx, u.lex, u.prev, u.next, u.source, u.uncertain"
+        " FROM events e LEFT JOIN units u ON u.event_id = e.id ORDER BY e.ts, u.id",
+        (db.user_tz().key,),
+    )
     buf = io.StringIO()
     if rows:
         w = csv.DictWriter(buf, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
     return buf.getvalue()
-

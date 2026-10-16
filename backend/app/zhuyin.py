@@ -1,8 +1,9 @@
 """Bopomofo (Zhuyin) helpers: text to syllables, Taiwan readings, tone sandhi."""
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 
 from pypinyin import Style, pinyin
 
@@ -13,12 +14,37 @@ CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 
 # Readings where the Taiwan standard (MOE) differs from the mainland reading that pypinyin returns.
 TW_CHAR = {
-    "期": "ㄑㄧˊ", "危": "ㄨㄟˊ", "微": "ㄨㄟˊ", "究": "ㄐㄧㄡˋ", "企": "ㄑㄧˋ", "髮": "ㄈㄚˇ",
-    "質": "ㄓˋ", "液": "ㄧˋ", "擊": "ㄐㄧˊ", "綜": "ㄗㄨㄥˋ", "帆": "ㄈㄢˊ", "暫": "ㄓㄢˋ",
-    "骰": "ㄊㄡˊ", "播": "ㄅㄛˋ", "誰": "ㄕㄟˊ", "跡": "ㄐㄧ", "穴": "ㄒㄩㄝˋ", "癌": "ㄞˊ",
-    "息": "ㄒㄧ", "惜": "ㄒㄧ", "昔": "ㄒㄧ", "夕": "ㄒㄧ", "細": "ㄒㄧˋ",
+    "期": "ㄑㄧˊ",
+    "危": "ㄨㄟˊ",
+    "微": "ㄨㄟˊ",
+    "究": "ㄐㄧㄡˋ",
+    "企": "ㄑㄧˋ",
+    "髮": "ㄈㄚˇ",
+    "質": "ㄓˋ",
+    "液": "ㄧˋ",
+    "擊": "ㄐㄧˊ",
+    "綜": "ㄗㄨㄥˋ",
+    "帆": "ㄈㄢˊ",
+    "暫": "ㄓㄢˋ",
+    "骰": "ㄊㄡˊ",
+    "播": "ㄅㄛˋ",
+    "誰": "ㄕㄟˊ",
+    "跡": "ㄐㄧ",
+    "穴": "ㄒㄩㄝˋ",
+    "癌": "ㄞˊ",
+    "息": "ㄒㄧ",
+    "惜": "ㄒㄧ",
+    "昔": "ㄒㄧ",
+    "夕": "ㄒㄧ",
+    "細": "ㄒㄧˋ",
 }
-TW_WORD = {"垃圾": ["ㄌㄜˋ", "ㄙㄜˋ"], "認識": ["ㄖㄣˋ", "ㄕˋ"], "頭髮": ["ㄊㄡˊ", "ㄈㄚˇ"], "一起": ["ㄧ", "ㄑㄧˇ"], "不是": ["ㄅㄨˋ", "ㄕˋ"]}
+TW_WORD = {
+    "垃圾": ["ㄌㄜˋ", "ㄙㄜˋ"],
+    "認識": ["ㄖㄣˋ", "ㄕˋ"],
+    "頭髮": ["ㄊㄡˊ", "ㄈㄚˇ"],
+    "一起": ["ㄧ", "ㄑㄧˇ"],
+    "不是": ["ㄅㄨˋ", "ㄕˋ"],
+}
 
 # Tone change rules (sandhi). The written Bopomofo keeps the dictionary tone; speakers change it.
 RULES = {
@@ -44,7 +70,9 @@ TONE_LABEL = {1: "tone 1", 2: "tone 2", 3: "tone 3", 4: "tone 4", 5: "neutral to
 def rule_line(char: str, written: int, said: int, rule: str) -> str:
     """One explicit sentence: what is written, what is said, and the rule."""
     r = RULES[rule]
-    return f"{char} is written {TONE_LABEL[written]}, but here you say it as {TONE_LABEL[said]}. {r['name']}: {r['short']}"
+    return (
+        f"{char} is written {TONE_LABEL[written]}, but here you say it as {TONE_LABEL[said]}. {r['name']}: {r['short']}"
+    )
 
 
 KEEP_LINE = {
@@ -64,15 +92,46 @@ def tested_rule(e: dict) -> str | None:
 # Short phrases for the tone rule exercises: (text, index of the syllable to test, English).
 # Some phrases keep the written tone, so the learner also learns when a rule does not apply.
 RULE_PHRASES = [
-    ("你好", 0, "hello"), ("很好", 0, "very good"), ("可以", 0, "can, may"), ("水果", 0, "fruit"), ("老虎", 0, "tiger"),
-    ("洗手", 0, "wash hands"), ("雨傘", 0, "umbrella"), ("小姐", 0, "miss"), ("給我", 0, "give me"), ("我也是", 0, "me too"),
-    ("我很好", 1, "I am fine"), ("我是", 0, "I am"), ("很忙", 0, "very busy"), ("我要", 0, "I want"),
-    ("不是", 0, "is not"), ("不要", 0, "do not want"), ("不對", 0, "not right"), ("不去", 0, "not go"), ("不會", 0, "cannot"),
-    ("不用", 0, "no need"), ("不錯", 0, "not bad"), ("不客氣", 0, "you are welcome"),
-    ("不好", 0, "not good"), ("不吃", 0, "not eat"), ("不來", 0, "not come"), ("不能", 0, "cannot"),
-    ("一個", 0, "one (thing)"), ("一樣", 0, "the same"), ("一定", 0, "surely"), ("一下", 0, "a moment"), ("一半", 0, "half"),
-    ("一天", 0, "one day"), ("一起", 0, "together"), ("一年", 0, "one year"), ("一點", 0, "a little"), ("一直", 0, "always"),
-    ("一杯", 0, "one cup"), ("第一", 1, "first"), ("星期一", 2, "Monday"), ("十一", 1, "eleven"),
+    ("你好", 0, "hello"),
+    ("很好", 0, "very good"),
+    ("可以", 0, "can, may"),
+    ("水果", 0, "fruit"),
+    ("老虎", 0, "tiger"),
+    ("洗手", 0, "wash hands"),
+    ("雨傘", 0, "umbrella"),
+    ("小姐", 0, "miss"),
+    ("給我", 0, "give me"),
+    ("我也是", 0, "me too"),
+    ("我很好", 1, "I am fine"),
+    ("我是", 0, "I am"),
+    ("很忙", 0, "very busy"),
+    ("我要", 0, "I want"),
+    ("不是", 0, "is not"),
+    ("不要", 0, "do not want"),
+    ("不對", 0, "not right"),
+    ("不去", 0, "not go"),
+    ("不會", 0, "cannot"),
+    ("不用", 0, "no need"),
+    ("不錯", 0, "not bad"),
+    ("不客氣", 0, "you are welcome"),
+    ("不好", 0, "not good"),
+    ("不吃", 0, "not eat"),
+    ("不來", 0, "not come"),
+    ("不能", 0, "cannot"),
+    ("一個", 0, "one (thing)"),
+    ("一樣", 0, "the same"),
+    ("一定", 0, "surely"),
+    ("一下", 0, "a moment"),
+    ("一半", 0, "half"),
+    ("一天", 0, "one day"),
+    ("一起", 0, "together"),
+    ("一年", 0, "one year"),
+    ("一點", 0, "a little"),
+    ("一直", 0, "always"),
+    ("一杯", 0, "one cup"),
+    ("第一", 1, "first"),
+    ("星期一", 2, "Monday"),
+    ("十一", 1, "eleven"),
 ]
 
 
@@ -82,20 +141,32 @@ def rule_phrases() -> list[dict]:
         items = analyze_text(text)
         s = syllables_of(text)[i]
         rule = tested_rule(s) or "3-3"
-        out.append({"text": text, "english": en, "target": i, "rule": rule, "changes": s["surface_tone"] != s["tone"],
-                    "char": s["char"], "written": s["tone"], "said": s["surface_tone"], "zhuyin": s["zhuyin"],
-                    "said_zhuyin": zhuyin_of(s["initial"], s["final"], s["surface_tone"]), "items": items})
+        out.append(
+            {
+                "text": text,
+                "english": en,
+                "target": i,
+                "rule": rule,
+                "changes": s["surface_tone"] != s["tone"],
+                "char": s["char"],
+                "written": s["tone"],
+                "said": s["surface_tone"],
+                "zhuyin": s["zhuyin"],
+                "said_zhuyin": zhuyin_of(s["initial"], s["final"], s["surface_tone"]),
+                "items": items,
+            }
+        )
     return out
 
 
 @dataclass
 class Syllable:
     char: str
-    zhuyin: str          # citation form, e.g. "ㄋㄧˇ"
+    zhuyin: str  # citation form, e.g. "ㄋㄧˇ"
     initial: str
     final: str
-    tone: int            # citation tone 1-5
-    surface_tone: int    # tone after sandhi (what a native speaker says)
+    tone: int  # citation tone 1-5
+    surface_tone: int  # tone after sandhi (what a native speaker says)
     pinyin: str
     alt_tones: list[int] = field(default_factory=list)  # other tones a native speaker may also use here
     rule: str | None = None  # tone change rule that sets surface_tone: "3-3", "bu" or "yi"
@@ -111,7 +182,7 @@ def split_zhuyin(z: str) -> tuple[str, str, int]:
             tone = n
             z = z.replace(m, "")
     initial = z[0] if z and z[0] in INITIALS else ""
-    return initial, z[len(initial):], tone
+    return initial, z[len(initial) :], tone
 
 
 def zhuyin_of(initial: str, final: str, tone: int) -> str:

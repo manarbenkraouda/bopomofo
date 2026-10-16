@@ -29,10 +29,16 @@ if DEEP_CHECK not in ("off", "shadow", "apply"):
     DEEP_CHECK = "shadow"
 # Limits for each user (app/limits.py), so one account cannot use up the AI credit, CPU, or disk.
 # AI energy refills at midnight in the learner's time zone; the audio clip limit uses the last 24 hours.
-AI_DAILY_LIMIT_USD = float(os.getenv("AI_DAILY_LIMIT_USD", "1"))  # AI spend per local day: coach, sentences, translation
+AI_DAILY_LIMIT_USD = float(
+    os.getenv("AI_DAILY_LIMIT_USD", "1")
+)  # AI spend per local day: coach, sentences, translation
 AI_DAILY_CALLS = int(os.getenv("AI_DAILY_CALLS", "400"))  # AI calls per local day, also when the provider gives no cost
-TTS_DAILY_CLIPS = int(os.getenv("TTS_DAILY_CLIPS", "3000"))  # new text-to-speech clips (a replay from the cache is free)
-TTS_CACHE_MB_PER_USER = float(os.getenv("TTS_CACHE_MB_PER_USER", "200"))  # audio cache; the clips used least recently go first
+TTS_DAILY_CLIPS = int(
+    os.getenv("TTS_DAILY_CLIPS", "3000")
+)  # new text-to-speech clips (a replay from the cache is free)
+TTS_CACHE_MB_PER_USER = float(
+    os.getenv("TTS_CACHE_MB_PER_USER", "200")
+)  # audio cache; the clips used least recently go first
 MODEL_DIR = Path(os.getenv("MODEL_DIR", ROOT / "models"))
 DATA_DIR = Path(os.getenv("DATA_DIR", ROOT / "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)

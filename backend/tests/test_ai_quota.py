@@ -1,4 +1,5 @@
 """Daily AI energy: server timing, user isolation, and paid-work admission. No provider calls."""
+
 import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -6,7 +7,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from app import coach, db, limits, llm
-from tests.test_auth import A, B, client  # noqa: F401
+from tests.users import A, B
 
 
 def at(day, zone="Europe/Paris"):
@@ -47,10 +48,13 @@ def test_ai_wait_ends_at_local_midnight(client, monkeypatch):
     assert r.status_code == 200 and r.json()["ai_quota"]["remaining_percent"] == 90
 
 
-@pytest.mark.parametrize("day,next_day,hours", [
-    ("2026-03-29T00:00:00", "2026-03-30T00:00:00", 23),
-    ("2026-10-25T00:00:00", "2026-10-26T00:00:00", 25),
-])
+@pytest.mark.parametrize(
+    "day,next_day,hours",
+    [
+        ("2026-03-29T00:00:00", "2026-03-30T00:00:00", 23),
+        ("2026-10-25T00:00:00", "2026-10-26T00:00:00", 25),
+    ],
+)
 def test_refill_follows_daylight_saving_days(client, monkeypatch, day, next_day, hours):
     freeze(monkeypatch, at(day))
     with db.as_user("user_a"):
@@ -85,7 +89,9 @@ def test_manual_and_background_coach_wait_without_starting_jobs(client, monkeypa
         limits.record("ai", 1.0)
         db.save_settings({"onboarded_at": 1})
         with db.conn() as c:
-            pid = c.execute("INSERT INTO plans(ts,status) VALUES (?,?) RETURNING id", (limits.time.time(), "active")).fetchone()[0]
+            pid = c.execute(
+                "INSERT INTO plans(ts,status) VALUES (?,?) RETURNING id", (limits.time.time(), "active")
+            ).fetchone()[0]
         assert coach.start("new plan") is False
         assert coach.start_story(pid) is False
     assert client.post("/api/coach/plan", json={"reason": "new plan"}, headers=A).status_code == 429
@@ -112,11 +118,24 @@ def test_due_checkpoint_waits_for_the_refill(pg, monkeypatch):
     freeze(monkeypatch, at("2026-10-11T12:00:00"))
     monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # keep the tone step; this test is about the checkpoint wait
     monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
-    coach.build("test", run_pipeline=lambda *args: {"steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3], "target": 50}, set())], "diagnosis": "x"})
+    coach.build(
+        "test",
+        run_pipeline=lambda *args: {
+            "steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3], "target": 50}, set())],
+            "diagnosis": "x",
+        },
+    )
     sid = coach.state()["steps"][0]["id"]
     for _ in range(coach.CHECK_EVERY):
-        db.add_event({"area": "listening", "item": "x", "ok": True, "details": {"step": sid},
-                      "units": [{"kind": "tone", "expected": "3", "actual": "3", "ok": True}]})
+        db.add_event(
+            {
+                "area": "listening",
+                "item": "x",
+                "ok": True,
+                "details": {"step": sid},
+                "units": [{"kind": "tone", "expected": "3", "actual": "3", "ok": True}],
+            }
+        )
     started = []
     monkeypatch.setattr(coach, "LIVE", True)
     monkeypatch.setattr(coach, "_bg", lambda fn, *args: started.append(fn.__name__))

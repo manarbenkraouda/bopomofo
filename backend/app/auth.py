@@ -3,6 +3,7 @@
 The browser sends the Clerk session token as "Authorization: Bearer <token>". Every route needs a valid token,
 except the public ones below. The user id in the token (sub) becomes the database user of the request (db.set_user).
 """
+
 from __future__ import annotations
 
 from clerk_backend_api.security import authenticate_request_async
@@ -16,8 +17,11 @@ from .config import CLERK_AUTHORIZED_PARTIES, CLERK_JWT_KEY, CLERK_SECRET_KEY
 # /api/tts needs a sign-in: each user has their own audio cache, and the browser fetches the audio with the token.
 PUBLIC = {"/api/health", "/api/tts/voices"}
 
-_options = AuthenticateRequestOptions(secret_key=CLERK_SECRET_KEY or None, jwt_key=CLERK_JWT_KEY or None,
-                                      authorized_parties=CLERK_AUTHORIZED_PARTIES or None)
+_options = AuthenticateRequestOptions(
+    secret_key=CLERK_SECRET_KEY or None,
+    jwt_key=CLERK_JWT_KEY or None,
+    authorized_parties=CLERK_AUTHORIZED_PARTIES or None,
+)
 
 
 async def user_id(request: Request) -> str | None:

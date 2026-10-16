@@ -9,6 +9,7 @@ SPEECH_RUNTIME chooses the profile. Without it, Linux means vps and every other 
 ASR_NUM_THREADS, TTS_NUM_THREADS, and ASR_MODEL_FILE override one value of the profile.
 Both profiles use the FP32 speech model when present, and the int8 model (tools/quantize_model.py) when it is not.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,8 +34,10 @@ class Runtime:
     tts_threads: int
 
     def describe(self) -> str:
-        return (f"{self.profile}: speech model {self.asr_model.name} on {self.asr_threads} threads, "
-                f"voices on {self.tts_threads} threads")
+        return (
+            f"{self.profile}: speech model {self.asr_model.name} on {self.asr_threads} threads, "
+            f"voices on {self.tts_threads} threads"
+        )
 
 
 def _threads(env: Mapping[str, str], name: str, default: int) -> int:
@@ -46,8 +49,12 @@ def _threads(env: Mapping[str, str], name: str, default: int) -> int:
     return int(raw)
 
 
-def resolve(env: Mapping[str, str] = os.environ, platform: str = sys.platform, cpus: int | None = os.cpu_count(),
-            model_dir: Path = MODEL_DIR) -> Runtime:
+def resolve(
+    env: Mapping[str, str] = os.environ,
+    platform: str = sys.platform,
+    cpus: int | None = os.cpu_count(),
+    model_dir: Path = MODEL_DIR,
+) -> Runtime:
     profile = env.get("SPEECH_RUNTIME", "").strip().lower() or ("vps" if platform.startswith("linux") else "local")
     if profile not in PROFILES:
         raise ValueError(f"SPEECH_RUNTIME must be one of {', '.join(PROFILES)} (got {profile!r}).")
@@ -61,7 +68,9 @@ def resolve(env: Mapping[str, str] = os.environ, platform: str = sys.platform, c
         model = Path(configured) if Path(configured).is_absolute() else model_dir / configured
     else:
         model = model_dir / FP32_MODEL if (model_dir / FP32_MODEL).is_file() else model_dir / INT8_MODEL
-    return Runtime(profile, model, _threads(env, "ASR_NUM_THREADS", asr), inter_op, _threads(env, "TTS_NUM_THREADS", tts))
+    return Runtime(
+        profile, model, _threads(env, "ASR_NUM_THREADS", asr), inter_op, _threads(env, "TTS_NUM_THREADS", tts)
+    )
 
 
 RUNTIME = resolve()

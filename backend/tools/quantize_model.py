@@ -1,4 +1,5 @@
 """Create an ARM-friendly dynamic-int8 ONNX model for CPU inference."""
+
 from __future__ import annotations
 
 import argparse
