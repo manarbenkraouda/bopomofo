@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.14",
+    "gsap": "^3.13.0",
     "motion": "^12",
     "next": "16.4.0",
     "react": "19.3.0",

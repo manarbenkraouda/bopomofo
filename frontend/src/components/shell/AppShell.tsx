@@ -12,7 +12,7 @@ import { LAST_KEY, routeFor, ROUTES } from "@/lib/routes";
 import { goalMinutes, markActive, setGoalMinutes, tick, useToday } from "@/lib/session";
 import { playSfx, setSfxEnabled, SFX_KEY } from "@/lib/sfx";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSelectedLayoutSegment } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
 import { ControlsBar } from "./ControlsBar";
 import { BottomNav, Rail } from "./Navigation";
@@ -23,11 +23,15 @@ import { StepBanner } from "./StepBanner";
 type Overlay = null | "palette" | "help" | "goto";
 
 /**
- * The sign-in and sign-up pages show only the Clerk form, and the onboarding and the placement test fill the screen.
- * Every other page gets the app shell, and first checks that the onboarding (and a due placement test) is done.
+ * The landing page is public and draws its own page. It shows at "/" through a rewrite, so it is found by its route
+ * segment: usePathname() reads "/welcome" in the prerendered HTML and "/" in the browser, and the two would not hydrate. The sign-in and sign-up pages show only the Clerk form, and the
+ * onboarding and the placement test fill the screen. Every other page gets the app shell, and first checks that the
+ * onboarding (and a due placement test) is done.
  */
 export function Frame({ children }: { children: React.ReactNode }) {
   const path = usePathname();
+  const segment = useSelectedLayoutSegment();
+  if (segment === "welcome") return children;
   if (path.startsWith("/onboarding") || path.startsWith("/placement")) return <div className="h-full">{children}</div>;
   if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
     return (
