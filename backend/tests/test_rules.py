@@ -10,8 +10,8 @@ from app.zhuyin import rule_phrases, syllables_of
 
 @pytest.fixture()
 def tmpdb(pg, monkeypatch):
-    monkeypatch.setattr(coach, "LIVE", False)
-    monkeypatch.setattr(coach, "ALPHABET_GATE", 0)
+    monkeypatch.setattr(coach.settings, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 0)
     with db.conn() as c:
         for n in range(2, levels.MAX_LEVEL + 1):
             c.execute(
@@ -70,15 +70,17 @@ def test_recordings_save_one_sandhi_unit_per_rule_syllable_and_the_stats_count_l
     assert r["3-3"]["n"] == 2 and r["3-3"]["literal"] == 2 and r["3-3"]["acc"] == 0
     assert r["bu"]["acc"] == 100 and r["yi"]["n"] == 0
     assert levels._keys_of("sandhi", "3-3") == ["rule:3-3"] and levels._keys_of("sandhi", "x") == []
-    facts = story.story_facts(coach.digest(), [], [])
+    facts = story.story_facts(coach.digest.digest(), [], [])
     assert (
         facts["rule.33.literal"]["value"] == 2 and facts["rule.bu.pct"]["value"] == 100 and "rule.yi.pct" not in facts
     )
 
 
 def test_tone_rule_steps_are_checked_and_count_only_sandhi_answers(tmpdb, monkeypatch):
-    monkeypatch.setattr(coach, "RULES_GATE", False)
-    s = coach.clean_step({"type": "tone_rules", "rules": ["bu", "nope", "bu"], "mode": "quiz", "target": 8}, set())
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)
+    s = coach.cleaning.clean_step(
+        {"type": "tone_rules", "rules": ["bu", "nope", "bu"], "mode": "quiz", "target": 8}, set()
+    )
     assert s["params"] == {"rules": ["bu"], "mode": "quiz"}
     pid = coach.build(
         "test", run_pipeline=lambda d, reason, run: {"diagnosis": "t", "steps": [s], "milestones": None, "findings": []}
@@ -101,12 +103,12 @@ def test_tone_rule_steps_are_checked_and_count_only_sandhi_answers(tmpdb, monkey
                 "units": [unit],
             }
         )
-    assert coach.step_progress(coach._step(step["id"])) == {"progress": 1, "tried": 2, "right": 1}
+    assert coach.progress.step_progress(coach.store.step(step["id"])) == {"progress": 1, "tried": 2, "right": 1}
     assert pid
 
 
 def test_rule_gate_puts_rules_before_sentences(tmpdb):
-    rs = coach.rules_status()
+    rs = coach.gates.rules_status()
     assert rs["open"] and rs["gate"] and set(rs["missing"]) == {"3-3", "bu", "yi"}
     sent = {
         "type": "speak_sentences",
@@ -114,7 +116,7 @@ def test_rule_gate_puts_rules_before_sentences(tmpdb):
         "params": {"texts": ["我很好"], "ids": [1], "reps": 2, "min_score": 80},
     }
     other = {"type": "listen_tones", "title": "tones", "params": {"tones": [3]}}
-    steps, removed = coach.rules_gate([sent, other], rs)
+    steps, removed = coach.gates.rules_gate([sent, other], rs)
     assert removed == ["say sentences"]
     assert [s["type"] for s in steps][:2] == ["tone_rules", "tone_rules"] and steps[0]["params"].get("learn")
     assert steps[-1]["type"] == "listen_tones" and all(s["type"] != "speak_sentences" for s in steps)

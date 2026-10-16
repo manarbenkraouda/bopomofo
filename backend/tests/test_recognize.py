@@ -9,9 +9,9 @@ from app import coach, db, stats
 
 @pytest.fixture()
 def tmpdb(pg, monkeypatch):
-    monkeypatch.setattr(coach, "LIVE", False)
-    monkeypatch.setattr(coach, "ALPHABET_GATE", 0)
-    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
+    monkeypatch.setattr(coach.settings, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 0)
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)  # the tone rule gate has its own test
 
 
 def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):
@@ -39,7 +39,7 @@ def fake(steps, milestones=None):
     def run(d, reason, run_id):
         return {
             "diagnosis": "test",
-            "steps": [coach.clean_step(s, set()) for s in steps],
+            "steps": [coach.cleaning.clean_step(s, set()) for s in steps],
             "milestones": milestones,
             "findings": [],
         }
@@ -88,9 +88,9 @@ def test_recognize_answers_keep_the_typed_symbol(tmpdb):
 
 def test_recognize_steps_count_typed_answers_inside_the_step(tmpdb):
     assert (
-        coach.clean_step({"type": "recognize_symbols", "syms": ["zh", "ㄓㄗ"]}, set()) is None
+        coach.cleaning.clean_step({"type": "recognize_symbols", "syms": ["zh", "ㄓㄗ"]}, set()) is None
     )  # single Bopomofo symbols only
-    s = coach.clean_step({"type": "recognize_symbols", "syms": ["ㄓ", "ㄗ", "x", "ㄓ"], "target": 12}, set())
+    s = coach.cleaning.clean_step({"type": "recognize_symbols", "syms": ["ㄓ", "ㄗ", "x", "ㄓ"], "target": 12}, set())
     assert s["params"] == {"syms": ["ㄓ", "ㄗ"]} and s["target"] == 12
     coach.build("test", run_pipeline=fake([{"type": "recognize_symbols", "syms": ["ㄓ", "ㄗ"], "target": 5}]))
     step = coach.state()["steps"][0]
@@ -101,7 +101,7 @@ def test_recognize_steps_count_typed_answers_inside_the_step(tmpdb):
     answer("recognize", "symbol", "ㄙ", True, step=step["id"])  # not the focus
     answer("recognize", "symbol", "ㄗ", True)  # outside the step
     answer("recognize", "symbol", "ㄗ", False, step=step["id"])
-    assert coach.step_progress(coach._step(step["id"])) == {"progress": 3, "tried": 4, "right": 3}
+    assert coach.progress.step_progress(coach.store.step(step["id"])) == {"progress": 3, "tried": 4, "right": 3}
 
 
 def test_typed_pinyin_counts_as_knowing_a_symbol_and_feeds_the_coach(tmpdb):
@@ -127,7 +127,7 @@ def test_typed_pinyin_counts_as_knowing_a_symbol_and_feeds_the_coach(tmpdb):
     zh = next(x for x in st["symbols"] if x["sym"] == "ㄓ")
     assert "ㄓ" in st["known"] and zh["type"] == "2/2" and zh["reps"] == 2
     assert "ㄣ" in st["learning"]
-    d = coach.digest()
+    d = coach.digest.digest()
     assert d["symbols"]["recognize_mixups"] == [{"shown": "ㄣ", "typed_as": "ㄥ", "times": 3, "of": 3}]
     assert any(m["mode"] == "recognize" and m["needs_alphabet"] for m in d["overview"]["modes"])
     assert any(r["area"] == "recognize" and r["x"] == "ㄣ" for r in d["symbols"]["skills"])
@@ -136,9 +136,9 @@ def test_typed_pinyin_counts_as_knowing_a_symbol_and_feeds_the_coach(tmpdb):
     facts = story.story_facts(d, [], [])
     assert facts["mix.recognize.symbol.ㄣ>ㄥ"]["value"] == 3 and "ㄥ" in facts["mix.recognize.symbol.ㄣ>ㄥ"]["label"]
     assert "mode.recognize.pct" in facts
-    plan = coach.rules_plan(d)
+    plan = coach.fallback.rules_plan(d)
     assert any(s["type"] == "recognize_symbols" and "ㄣ" in s["syms"] for s in plan["steps"])
-    m = coach.clean_milestone(
+    m = coach.cleaning.clean_milestone(
         {
             "title": "Recognize ㄣ",
             "area": "recognize",
@@ -148,4 +148,4 @@ def test_typed_pinyin_counts_as_knowing_a_symbol_and_feeds_the_coach(tmpdb):
             "window": 20,
         }
     )
-    assert m and m["criterion"]["area"] == "recognize" and coach.needs_alphabet(m["criterion"])
+    assert m and m["criterion"]["area"] == "recognize" and coach.gates.needs_alphabet(m["criterion"])

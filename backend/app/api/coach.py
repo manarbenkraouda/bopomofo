@@ -44,7 +44,7 @@ def coach_story(pid: int):
 @router.post("/coach/plan/{pid}/story")
 def coach_story_write(pid: int):
     """Write the headline and story of a saved plan again (older plans, or after a failure). Runs in the background."""
-    if not coach._plan_row(pid):
+    if not coach.store.plan(pid):
         raise HTTPException(404, "No such plan")
     limits.check_ai()
     coach.start_story(pid)

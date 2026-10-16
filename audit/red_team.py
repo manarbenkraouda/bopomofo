@@ -157,9 +157,9 @@ def run():
             db.set_user("audit_a")
             s = db.add_sentence({"hanzi": "安全測試", "english": "audit only", "words": []}, "audit", "beginner")
             pid = coach.build("audit isolation", run_pipeline=lambda digest, reason, run: {
-                "diagnosis": "audit only", "steps": [coach.clean_step({"type": "read_symbols", "syms": ["ㄅ"], "target": 5}, set())],
+                "diagnosis": "audit only", "steps": [coach.cleaning.clean_step({"type": "read_symbols", "syms": ["ㄅ"], "target": 5}, set())],
                 "milestones": None, "findings": []})
-            sid = coach._steps(pid)[0]["id"]
+            sid = coach.store.steps(pid)[0]["id"]
             for path in [f"/api/sentences/{s['id']}", f"/api/coach/step/{sid}",
                          f"/api/coach/plan/{pid}/story"]:
                 r = client.get(path, headers=B)
@@ -169,7 +169,7 @@ def run():
                    {"delete_status": r.status_code, "owner_read_status": client.get(f"/api/sentences/{s['id']}", headers=A).status_code})
             r = client.post(f"/api/coach/step/{sid}/skip", headers=B, json={"reason": "not_now"})
             db.set_user("audit_a")
-            record("Other user cannot skip a step", coach._step(sid)["status"] == "open", response(r))
+            record("Other user cannot skip a step", coach.store.step(sid)["status"] == "open", response(r))
             r = client.post(f"/api/coach/plan/{pid}/story", headers=B)
             record("Other user cannot rewrite a plan story", r.status_code == 404, response(r))
 

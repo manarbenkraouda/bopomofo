@@ -51,5 +51,5 @@ def client(pg, monkeypatch):
 
     monkeypatch.setattr(auth, "CLERK_SECRET_KEY", "sk_test_fake")
     monkeypatch.setattr(auth, "user_id", fake_user_id)
-    monkeypatch.setattr(coach, "LIVE", False)  # no plan is built after the onboarding
+    monkeypatch.setattr(coach.settings, "LIVE", False)  # no plan is built after the onboarding
     return TestClient(main.app)  # not a context manager: the startup does not run

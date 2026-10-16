@@ -80,7 +80,7 @@ def story_stats(units: list[dict], events: list[dict], secs: dict[str, int], tod
         "minutes_by_day_28d": {d: round(s / 60) for d, s in sorted(secs.items()) if d >= d28},
         "minutes_28d": round(sum(s for d, s in secs.items() if d >= d28) / 60),
         "streak": db.streak(days, today),
-        "answers_total": coach._q("SELECT COUNT(*) AS n FROM events")[0]["n"],
+        "answers_total": coach.store.query("SELECT COUNT(*) AS n FROM events")[0]["n"],
         "tones": tones,
     }
 
@@ -285,7 +285,7 @@ def story_context(d: dict, steps: list[dict]) -> dict:
             "learning": a.get("seen_not_known", ""),
             "new": a.get("never_practiced", ""),
             "reps": a.get("right_repetitions") or {},
-            "reps_needed": a.get("repetitions_before_tests") or coach.LEARN_REPS,
+            "reps_needed": a.get("repetitions_before_tests") or coach.settings.LEARN_REPS,
             "next": nxt,
         },
         "calendar": cal,
@@ -372,7 +372,7 @@ MOODS = ["warm", "calm", "bright", "deep", "win"]
 MAX_CARDS, MIN_CARDS, MAX_BLOCKS, MAX_CHARTS = 9, 5, 4, 2
 TONE_NAMES = re.compile(r"\b(?:[Tt]ones?)\s+[1-5](?:\s*(?:,|and|or|&|/|vs\.?|versus)\s*(?:tone\s+)?[1-5])*\b")
 PLACEHOLDER = re.compile(r"\{([^{}\s]{1,60})\}")
-SYM_RE = re.compile(f"^[{coach.SYMS}]$")
+SYM_RE = re.compile(f"^[{coach.settings.SYMS}]$")
 
 
 def catalog_text() -> str:
@@ -558,9 +558,14 @@ def clean_card(card, facts: dict, strict: bool = True) -> tuple[dict | None, lis
     chars = sum(
         len(json.dumps(b["props"], ensure_ascii=False)) for b in blocks if b["type"] in ("headline", "text", "kicker")
     )
-    seconds = coach._int(card.get("seconds"), 6, 10, max(6, min(10, round(5 + chars / 45 + charts * 1.5))))
+    seconds = coach.validate.integer(card.get("seconds"), 6, 10, max(6, min(10, round(5 + chars / 45 + charts * 1.5))))
     mood = card.get("mood") if card.get("mood") in MOODS else "warm"
-    return {"id": coach._text(card.get("id"), 20) or "c", "mood": mood, "seconds": seconds, "blocks": blocks}, errors
+    return {
+        "id": coach.validate.text(card.get("id"), 20) or "c",
+        "mood": mood,
+        "seconds": seconds,
+        "blocks": blocks,
+    }, errors
 
 
 def _has_cta(c: dict) -> bool:
@@ -607,7 +612,7 @@ def check_headline(h, gate: bool) -> tuple[str | None, list[str]]:
         errors.append("more than 2 sentences")
     if re.search(r"\d|%", TONE_NAMES.sub("", h)):
         errors.append("it has a number: write no numbers and no stats")
-    if gate and not re.search(f"alphabet|symbol|bopomofo|zhuyin|letter|[{coach.SYMS}]", h, re.I):
+    if gate and not re.search(f"alphabet|symbol|bopomofo|zhuyin|letter|[{coach.settings.SYMS}]", h, re.I):
         errors.append(
             "the learner does not know the alphabet yet: the headline must be about the symbols or the alphabet"
         )
@@ -905,20 +910,20 @@ def write(pid: int, run: str | None = None, live: bool | None = None) -> dict:
     """Build and save the headline and story of a saved plan, from its saved digest, steps, and milestones."""
     import uuid
 
-    plan = coach._plan_row(pid)
+    plan = coach.store.plan(pid)
     if not plan:
         raise ValueError(f"no plan {pid}")
     d = json.loads(plan["digest"] or "{}")
     if not d.get("story"):  # plans saved before the story existed: these numbers are read now
-        d["story"] = coach.story_stats_now()
+        d["story"] = coach.planner.story_stats_now()
     raw = json.loads(plan["raw"] or "{}")
-    steps = coach._steps(pid)
-    ms = coach.state_milestones()
+    steps = coach.store.steps(pid)
+    ms = coach.planner.state_milestones()
     run = run or uuid.uuid4().hex[:12]
-    use_model = coach.LIVE if live is None else live
+    use_model = coach.settings.LIVE if live is None else live
 
     async def ask(stage, task, payload):
-        return await coach.call(stage, task, payload, run, plan_id=pid, common=STORY_COMMON)
+        return await coach.model.call(stage, task, payload, run, plan_id=pid, common=STORY_COMMON)
 
     out = make(d, steps, ms, raw.get("pace"), raw.get("findings") or [], ask if use_model else None)
     with db.conn() as c:
@@ -931,7 +936,7 @@ def write(pid: int, run: str | None = None, live: bool | None = None) -> dict:
 
 
 def get(pid: int) -> dict | None:
-    plan = coach._plan_row(pid)
+    plan = coach.store.plan(pid)
     if not plan or not plan.get("story"):
         return None
     spec = json.loads(plan["story"])

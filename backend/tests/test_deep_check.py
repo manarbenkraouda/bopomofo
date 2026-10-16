@@ -230,7 +230,7 @@ def test_analyze_never_sends_or_saves_the_model_output(pg, monkeypatch):
     from app.asr import recognizer
     from app.zhuyin import analyze_text
 
-    coach.LIVE = False
+    coach.settings.LIVE = False
     monkeypatch.setattr(config, "DEEP_CHECK", "shadow")
     monkeypatch.setattr(recognizer, "session", object())  # ready, without the model
     lp = lp_of(ba_frames(0.55, 0.40))
@@ -339,7 +339,7 @@ def deep_notices():
 def dbt(pg):
     from app import coach
 
-    coach.LIVE = False
+    coach.settings.LIVE = False
 
 
 def test_shadow_changes_nothing(dbt):

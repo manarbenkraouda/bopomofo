@@ -117,7 +117,7 @@ def test_days_follow_the_learner_time_zone(pg):
 
 def test_first_plan_waits_for_the_onboarding_and_the_full_profile(pg, monkeypatch):
     started = []
-    monkeypatch.setattr(coach, "start", lambda reason, as_next=False: started.append(reason) or False)
+    monkeypatch.setattr(coach.planner, "start", lambda reason, as_next=False: started.append(reason) or False)
     coach.state()
     assert started == []
     db.save_settings({"onboarded_at": 1.0})
@@ -131,6 +131,6 @@ def test_first_plan_waits_for_the_onboarding_and_the_full_profile(pg, monkeypatc
 
 def test_onboarding_does_not_start_a_plan(client, monkeypatch):
     started = []
-    monkeypatch.setattr(coach, "start", lambda reason, as_next=False: started.append(reason) or False)
+    monkeypatch.setattr(coach.planner, "start", lambda reason, as_next=False: started.append(reason) or False)
     assert client.post("/api/onboarding", json=ONBOARD, headers=A).json()["onboarded"]
     assert started == []

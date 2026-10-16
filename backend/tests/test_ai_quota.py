@@ -83,7 +83,7 @@ def test_quota_is_private_and_counts_calls_without_cost(client, monkeypatch):
 def test_manual_and_background_coach_wait_without_starting_jobs(client, monkeypatch):
     freeze(monkeypatch, at("2026-10-11T12:00:00"))
     started = []
-    monkeypatch.setattr(coach, "LIVE", True)
+    monkeypatch.setattr(coach.settings, "LIVE", True)
     monkeypatch.setattr(db, "spawn", lambda *args: started.append(args))
     with db.as_user("user_a"):
         limits.record("ai", 1.0)
@@ -110,23 +110,25 @@ def test_coach_does_not_retry_another_model_on_quota(pg, monkeypatch):
 
     monkeypatch.setattr(llm, "_chat", denied)
     with pytest.raises(limits.LimitReached):
-        asyncio.run(coach.call("test", "test", {}, "test"))
+        asyncio.run(coach.model.call("test", "test", {}, "test"))
     assert calls == [True]
 
 
 def test_due_checkpoint_waits_for_the_refill(pg, monkeypatch):
     freeze(monkeypatch, at("2026-10-11T12:00:00"))
-    monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # keep the tone step; this test is about the checkpoint wait
-    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
+    monkeypatch.setattr(
+        coach.settings, "ALPHABET_GATE", 0
+    )  # keep the tone step; this test is about the checkpoint wait
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)  # the tone rule gate has its own test
     coach.build(
         "test",
         run_pipeline=lambda *args: {
-            "steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3], "target": 50}, set())],
+            "steps": [coach.cleaning.clean_step({"type": "listen_tones", "tones": [2, 3], "target": 50}, set())],
             "diagnosis": "x",
         },
     )
     sid = coach.state()["steps"][0]["id"]
-    for _ in range(coach.CHECK_EVERY):
+    for _ in range(coach.settings.CHECK_EVERY):
         db.add_event(
             {
                 "area": "listening",
@@ -137,11 +139,11 @@ def test_due_checkpoint_waits_for_the_refill(pg, monkeypatch):
             }
         )
     started = []
-    monkeypatch.setattr(coach, "LIVE", True)
-    monkeypatch.setattr(coach, "_bg", lambda fn, *args: started.append(fn.__name__))
+    monkeypatch.setattr(coach.settings, "LIVE", True)
+    monkeypatch.setattr(coach.practice, "_bg", lambda fn, *args: started.append(fn.__name__))
     limits.record("ai", 1.0)
     assert coach.refresh()["checking"] == [] and started == []
-    assert coach._step(sid)["checked_n"] == 0  # still due
+    assert coach.store.step(sid)["checked_n"] == 0  # still due
     with db.conn() as c:
         c.execute("DELETE FROM usage_log")
     assert coach.refresh()["checking"] == [sid] and started == ["checkpoint"]

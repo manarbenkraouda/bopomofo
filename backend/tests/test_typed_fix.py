@@ -7,7 +7,7 @@ from app import coach, db, stats, typed_fix
 
 @pytest.fixture(autouse=True)
 def _db(pg):
-    coach.LIVE = False
+    coach.settings.LIVE = False
 
 
 SYL = {"char": "破", "zhuyin": "ㄆㄛˋ", "initial": "ㄆ", "final": "ㄛ", "tone": 4, "surface_tone": 4}
@@ -117,7 +117,7 @@ def test_five_confirmations_fix_the_older_misses_of_the_pair():
     assert pairs == [
         {"area": "speaking", "kind": "initial", "expected": "ㄆ", "heard": "ㄅ", "n": 5, "confirmed": True}
     ]
-    assert coach.digest()["sounds"]["mic_pairs"] == pairs
+    assert coach.digest.digest()["sounds"]["mic_pairs"] == pairs
 
 
 def test_reading_typed_units_count_as_pairs():

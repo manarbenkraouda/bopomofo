@@ -1,4 +1,4 @@
--- What the coach is building in the background for each user (app/coach.py), shared by every API process. During a
+-- What the coach is building in the background for each user (app/coach/jobs.py), shared by every API process. During a
 -- deploy two processes run: the old one finishes the job and the new one shows its progress from this row.
 -- beat: the last sign of life of the job; a running job without a recent beat died with its process.
 CREATE TABLE coach_jobs (

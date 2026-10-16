@@ -2,7 +2,7 @@
 
 Data flow: the mode builds units → api.event → POST /api/progress/event (EventIn, UnitIn in backend/app/api/progress.py) → db.add_event → the
 "events" and "units" tables → stats.py → /api/stats (Stats screen), /api/stats/challenges (Home and Stats),
-/api/progress/summary (db.summary, Home tiles), /api/stats/export.csv. coach.digest() reads the same tables.
+/api/progress/summary (db.summary, Home tiles), /api/stats/export.csv. coach.digest.digest() reads the same tables.
 
 ## Storage and API (backend/app/db.py, backend/app/api/)
 

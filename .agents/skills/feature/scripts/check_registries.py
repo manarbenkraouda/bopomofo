@@ -53,10 +53,10 @@ api = read("lib/api.ts")
 coach_ui = read("components/coach/Coach.tsx")
 focus = read("lib/focus.tsx")
 banner = read("components/shell/StepBanner.tsx")
-src_digest = inspect.getsource(coach.digest)
-src_hit = inspect.getsource(coach._hit)
-src_rules = inspect.getsource(coach.rules_plan)
-src_ms = inspect.getsource(coach.clean_milestone)
+src_digest = inspect.getsource(coach.digest.digest)
+src_hit = inspect.getsource(coach.progress.hit)
+src_rules = inspect.getsource(coach.fallback.rules_plan)
+src_ms = inspect.getsource(coach.cleaning.clean_milestone)
 
 # Areas
 for a in stats.AREAS:
@@ -66,8 +66,8 @@ for a in stats.AREAS:
     need(a in stats.VERB, f"area {a}: missing in stats.VERB")
     need(q in line_of(api, "area: \"reading\""), f"area {a}: missing in the PracticeEvent area union (lib/api.ts)")
     need(f'"/{a}"' in route_ex, f"area {a}: no route in ROUTE_EXERCISES (lib/levels.tsx)")
-    note(a in coach.TYPES.values(), f"area {a}: no coach step type trains it (coach.TYPES)")
-    need(any(k == a or k.startswith(a + "/") for k in coach.MEASURES), f"area {a}: missing in coach.MEASURES (what the mode measures)")
+    note(a in coach.settings.TYPES.values(), f"area {a}: no coach step type trains it (coach.settings.TYPES)")
+    need(any(k == a or k.startswith(a + "/") for k in coach.settings.MEASURES), f"area {a}: missing in coach.settings.MEASURES (what the mode measures)")
     note(a in inspect.getsource(stats.challenges), f"area {a}: no daily challenge in stats.challenges()")
 
 # Exercises: the level tree (backend/app/levels.py EXERCISES) and the UI routes (lib/levels.tsx ROUTE_EXERCISES) list the same ones.
@@ -84,28 +84,28 @@ for k in sorted(db.UNIT_KINDS):
     need(f'"{k}"' in kinds_ts, f"unit kind {k}: missing in the Unit kind union (lib/api.ts)")
     if k in ("stroke", "order", "syllable"):
         continue
-    note(f'"{k}"' in src_digest, f"unit kind {k}: not used in coach.digest() (the analysts cannot see it)")
-    note(f'"{k}"' in src_ms, f"unit kind {k}: not a milestone unit (coach.clean_milestone)")
+    note(f'"{k}"' in src_digest, f"unit kind {k}: not used in coach.digest.digest() (the analysts cannot see it)")
+    note(f'"{k}"' in src_ms, f"unit kind {k}: not a milestone unit (coach.cleaning.clean_milestone)")
 
 # Coach step types
-for t, area in coach.TYPES.items():
+for t, area in coach.settings.TYPES.items():
     need(area in stats.AREAS, f"step type {t}: area {area} is not in stats.AREAS")
-    need(f"- {t}:" in coach.PLAN, f"step type {t}: not described in the PLAN prompt")
+    need(f"- {t}:" in coach.prompts.PLAN, f"step type {t}: not described in the PLAN prompt")
     need(f'"{t}"' in line_of(api, "export type StepType"), f"step type {t}: missing in StepType (lib/api.ts)")
     need(f"{t}:" in line_of(coach_ui, "export const STEP_ICON"), f"step type {t}: missing in STEP_ICON (Coach.tsx)")
     need(f"{t}:" in coach_ui[coach_ui.find("const STEP_KIND"):coach_ui.find("const DOMAIN")], f"step type {t}: missing in STEP_KIND (Coach.tsx)")
-    note(t in coach.DEFAULT_TARGET, f"step type {t}: no DEFAULT_TARGET (fine only when the target is derived, like speak_sentences)")
-    note(f'"{t}"' in src_hit, f"step type {t}: not named in coach._hit (it uses the last, generic rule)")
-    note(f'"{t}"' in src_rules, f"step type {t}: never used by coach.rules_plan (the fallback cannot plan it)")
+    note(t in coach.settings.DEFAULT_TARGET, f"step type {t}: no DEFAULT_TARGET (fine only when the target is derived, like speak_sentences)")
+    note(f'"{t}"' in src_hit, f"step type {t}: not named in coach.progress.hit (it uses the last, generic rule)")
+    note(f'"{t}"' in src_rules, f"step type {t}: never used by coach.fallback.rules_plan (the fallback cannot plan it)")
     try:
-        url = coach.href({"type": t, "params": {}, "id": 1})
+        url = coach.progress.href({"type": t, "params": {}, "id": 1})
         need(url.endswith("&step=1"), f"step type {t}: href() does not end with &step=")
     except Exception as e:  # noqa: BLE001
         missing.append(f"step type {t}: href() fails with empty params: {type(e).__name__}: {e}")
 
 # Analyst domains
-for d in coach.DOMAINS:
-    need(f'"{d}":' in src_digest, f"domain {d}: no slice in coach.digest()")
+for d in coach.prompts.DOMAINS:
+    need(f'"{d}":' in src_digest, f"domain {d}: no slice in coach.digest.digest()")
     need(f"{d}:" in line_of(coach_ui, "const DOMAIN"), f"domain {d}: missing in DOMAIN (Coach.tsx)")
 
 # Focus params read by the practice modes

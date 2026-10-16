@@ -20,6 +20,6 @@
 - **Focus params**: read them with useFocus (tones, syms, items, ids). Add new params there, in useClearHref, and in the
   StepBanner FOCUS_KEYS. FocusChip shows the focus and clears it with X. Stats Train links and coach steps use these params.
 - **Data**: static content goes in frontend/public/data/*.json (loadData in lib/zhuyin.ts). The coach reads the same file
-  for candidates (see coach.SYLLABLES_FILE), so keep one source that both sides read.
+  for candidates (see coach.settings.SYLLABLES_FILE), so keep one source that both sides read.
 - **Audio**: ttsUrl for playback; tts.pregenerate for new texts that will be played soon.
 

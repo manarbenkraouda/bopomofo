@@ -15,9 +15,9 @@ SYL = levels.EXERCISES["writing/syllable"][2]
 
 @pytest.fixture()
 def tmpdb(pg, monkeypatch):
-    monkeypatch.setattr(coach, "LIVE", False)
-    monkeypatch.setattr(coach, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
-    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
+    monkeypatch.setattr(coach.settings, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 0)  # the alphabet rule has its own test
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)  # the tone rule gate has its own test
 
 
 def answer(area, sym, ok, ms=1500, ts=None):
@@ -46,7 +46,7 @@ def fake(steps):
     def run(d, reason, run_id):
         return {
             "diagnosis": "test",
-            "steps": [c for c in (coach.clean_step(s, set()) for s in steps) if c],
+            "steps": [c for c in (coach.cleaning.clean_step(s, set()) for s in steps) if c],
             "milestones": None,
             "findings": [],
         }
@@ -93,15 +93,15 @@ def test_level_one_opens_the_alphabet_and_the_tones_only(tmpdb):
         "recognize_symbols",
         "listen_tones",
     }
-    assert coach.clean_step({"type": "write_symbols", "syms": ["ㄅ"]}, set()) is None
-    assert coach.clean_step({"type": "speak_sounds", "unit": "tone", "tones": [3]}, set()) is None
-    assert coach.clean_step({"type": "listen_sounds", "syms": ["ㄅ"]}, set()) is None
+    assert coach.cleaning.clean_step({"type": "write_symbols", "syms": ["ㄅ"]}, set()) is None
+    assert coach.cleaning.clean_step({"type": "speak_sounds", "unit": "tone", "tones": [3]}, set()) is None
+    assert coach.cleaning.clean_step({"type": "listen_sounds", "syms": ["ㄅ"]}, set()) is None
     assert (
-        coach.clean_step({"type": "read_symbols", "syms": ["ㄚ"]}, set()) is None
+        coach.cleaning.clean_step({"type": "read_symbols", "syms": ["ㄚ"]}, set()) is None
     )  # a finals symbol: its chapter is closed
-    assert coach.clean_step({"type": "read_symbols", "syms": ["ㄚ", "ㄅ"]}, set())["params"]["syms"] == ["ㄅ"]
-    assert coach.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())
-    plan = coach.rules_plan(coach.digest())
+    assert coach.cleaning.clean_step({"type": "read_symbols", "syms": ["ㄚ", "ㄅ"]}, set())["params"]["syms"] == ["ㄅ"]
+    assert coach.cleaning.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())
+    plan = coach.fallback.rules_plan(coach.digest.digest())
     assert plan["steps"] and all(levels.step_allowed(s["type"], s, levels.opened()) for s in plan["steps"])
 
 
@@ -141,8 +141,8 @@ def test_the_coach_never_plans_a_locked_exercise(tmpdb):
 
     pid = coach.build("test", run_pipeline=rogue)
     assert [s["type"] for s in coach.state()["steps"]] == ["listen_tones"]
-    assert json.loads(coach._plan_row(pid)["raw"])["level_rule"]["level"] == 1
-    assert "Use only these step types: read_symbols, recognize_symbols, listen_tones" in coach.level_rule(
+    assert json.loads(coach.store.plan(pid)["raw"])["level_rule"]["level"] == 1
+    assert "Use only these step types: read_symbols, recognize_symbols, listen_tones" in coach.prompts.level_rule(
         levels.opened()
     )
 
@@ -164,7 +164,9 @@ def test_level_two_unlocks_for_good_and_a_drop_brings_a_notice_and_a_review(tmpd
     st = levels.check()
     assert st["level"] == 2 and "dictation" in st["exercises"] and "listening/zhuyin" not in st["exercises"]
     assert any(n["kind"] == "unlock" and n["title"] == "Level 2: Write the alphabet" for n in st["notices"])
-    assert coach.clean_step({"type": "write_symbols", "syms": ["ㄚ"]}, set())  # every symbol is open from level 2
+    assert coach.cleaning.clean_step(
+        {"type": "write_symbols", "syms": ["ㄚ"]}, set()
+    )  # every symbol is open from level 2
     levels.mark_seen([n["id"] for n in st["notices"]])
     for s in "ㄅㄆㄇㄈ":  # four known symbols drop: the level goal is no longer met
         for _ in range(6):
@@ -177,8 +179,8 @@ def test_level_two_unlocks_for_good_and_a_drop_brings_a_notice_and_a_review(tmpd
     pid = coach.build("test", run_pipeline=fake([{"type": "listen_tones", "tones": [2, 3]}]))
     steps = coach.state()["steps"]
     assert steps[0]["type"] == "recognize_symbols" and steps[0]["params"]["syms"] == list("ㄅㄆㄇㄈ")
-    assert json.loads(coach._plan_row(pid)["raw"])["level_rule"]["review"] == ["Review: ㄅ ㄆ ㄇ ㄈ"]
-    assert coach._plan_row(pid)["diagnosis"].startswith("Review first: ㄅ ㄆ ㄇ ㄈ")
+    assert json.loads(coach.store.plan(pid)["raw"])["level_rule"]["review"] == ["Review: ㄅ ㄆ ㄇ ㄈ"]
+    assert coach.store.plan(pid)["diagnosis"].startswith("Review first: ㄅ ㄆ ㄇ ㄈ")
     m = [x for x in coach.state()["milestones"] if x["criterion"]["unit"] == "level"]
     assert len(m) == 1 and m[0]["title"] == "Reach level 3: Syllables"
     for s in "ㄅㄆㄇㄈ":  # the symbols come back: 10 right answers today (the earlier days still count)

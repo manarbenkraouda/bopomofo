@@ -10,9 +10,9 @@ from app import coach, db, story
 
 @pytest.fixture()
 def tmpdb(pg, monkeypatch):
-    monkeypatch.setattr(coach, "LIVE", False)
-    monkeypatch.setattr(coach, "ALPHABET_GATE", 30)
-    monkeypatch.setattr(coach, "RULES_GATE", False)  # the tone rule gate has its own test
+    monkeypatch.setattr(coach.settings, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 30)
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)  # the tone rule gate has its own test
 
 
 FACTS = {
@@ -109,10 +109,10 @@ def test_model_story_and_fallback(tmpdb):
             "diagnosis": "x",
             "findings": [],
             "milestones": None,
-            "steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())],
+            "steps": [coach.cleaning.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())],
         },
     )
-    plan = coach._plan_row(pid)
+    plan = coach.store.plan(pid)
     assert plan["headline"] and json.loads(plan["story"])["source"] == "rules"  # no model in tests: the fixed story
     st = coach.state()
     assert st["plan"]["headline"] == plan["headline"] and st["plan"]["has_story"] and st["history"][0]["headline"]
@@ -149,7 +149,7 @@ def test_model_story_and_fallback(tmpdb):
         }
 
     d = json.loads(plan["digest"])
-    out = story.make(d, coach._steps(pid), coach.state_milestones(), None, [], ask)
+    out = story.make(d, coach.store.steps(pid), coach.planner.state_milestones(), None, [], ask)
     assert out["headline_source"] == "llm" and "86" not in out["headline"] and out["story"]["source"] == "llm"
     assert "story:card2#2" in calls and "headline#2" in calls
     cards = out["story"]["cards"]
@@ -159,7 +159,7 @@ def test_model_story_and_fallback(tmpdb):
     async def broken(stage, task, payload):
         raise RuntimeError("no credit")
 
-    out = story.make(d, coach._steps(pid), coach.state_milestones(), None, [], broken)
+    out = story.make(d, coach.store.steps(pid), coach.planner.state_milestones(), None, [], broken)
     assert out["story"]["source"] == "rules" and out["headline"] == story.template_headline(True) and out["errors"]
 
 
@@ -170,14 +170,14 @@ def test_older_plan_gets_a_story(tmpdb):
             "diagnosis": "x",
             "findings": [],
             "milestones": None,
-            "steps": [coach.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())],
+            "steps": [coach.cleaning.clean_step({"type": "listen_tones", "tones": [2, 3]}, set())],
         },
     )
-    d = json.loads(coach._plan_row(pid)["digest"])
+    d = json.loads(coach.store.plan(pid)["digest"])
     d.pop("story")
     with db.conn() as c:  # a plan saved before the story existed
         c.execute("UPDATE plans SET headline=NULL, story=NULL, digest=? WHERE id=?", (json.dumps(d), pid))
     assert story.get(pid) is None and not coach.state()["plan"]["has_story"]
     story.write(pid, live=False)
     assert story.get(pid)["cards"] and coach.state()["plan"]["has_story"]
-    assert asyncio.iscoroutinefunction(coach.call)
+    assert asyncio.iscoroutinefunction(coach.model.call)

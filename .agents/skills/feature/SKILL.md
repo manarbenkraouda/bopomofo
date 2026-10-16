@@ -6,7 +6,7 @@ description: Add or change a feature of bopomofo (this repo's Mandarin and Bopom
 # Feature
 
 A feature is done only when every answer it produces is measured in detail, shown in the stats, and usable by the coach.
-The coach can only see what coach.digest() sends and can only plan the step types it knows, so a feature without
+The coach can only see what coach.digest.digest() sends and can only plan the step types it knows, so a feature without
 stats and a coach step type never appears in the learner's plans. The learner wants extremely granular stats: when an
 answer can be wrong in a specific way, record that way, so that plans can target it.
 
@@ -60,7 +60,7 @@ It checks registration only, not behavior.
 ## Verify
 
 - Backend tests in backend/tests, using the pattern of test_tracking.py and test_coach.py: the pg fixture of conftest.py
-  (empty tables in TEST_DATABASE_URL, user "user_test"), coach.LIVE = False, and a fake model with no network. SQL uses ?
+  (empty tables in TEST_DATABASE_URL, user "user_test"), coach.settings.LIVE = False, and a fake model with no network. SQL uses ?
   placeholders and PostgreSQL syntax; new tables need a migration in backend/app/migrations with a user_id column and the
   own_rows policy. Test at least these: the units saved for an answer, the stats rows for the new
   kind, clean_step for each new step type, and step_progress counting only the new type's answers inside the step.

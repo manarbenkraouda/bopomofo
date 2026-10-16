@@ -1,7 +1,24 @@
 # Coach layer
 
-Files: backend/app/coach.py, frontend/src/components/coach/Coach.tsx, frontend/src/components/shell/StepBanner.tsx,
+Files: the backend/app/coach/ package, frontend/src/components/coach/Coach.tsx, frontend/src/components/shell/StepBanner.tsx,
 frontend/src/lib/api.ts (CoachStep, StepType), backend/tests/test_coach.py.
+
+Where each name lives in backend/app/coach/:
+
+| Module | Names |
+|---|---|
+| settings.py | TYPES, DEFAULT_TARGET, MEASURES, NEEDS_ALPHABET, ALPHABET_GATE, LEARN_REPS, SYLLABLES_FILE, LIVE |
+| prompts.py | DOMAINS, ANALYZE, PLAN, ALPHABET_RULE, ALPHABET_MILESTONE_RULE, level_rule() |
+| digest.py | digest() |
+| gates.py | alphabet_status(), alphabet_gate(), needs_alphabet(), rules_status(), rules_gate() |
+| validate.py | tones(), syms(), pairs(), integer(), text() |
+| cleaning.py | clean_step(), clean_milestone(), focus_of() |
+| decks.py | syllables(), syllable_history(), candidates(), deck_problems(), focus_check() |
+| progress.py | hit(), step_progress(), baseline(), href(), milestone_progress() |
+| pipeline.py | pipeline(), write_sentences(), pick_deck(), milestone_menu(), apply_review() |
+| fallback.py | rules_plan() |
+| planner.py | build(), start() |
+| practice.py | checkpoint(), apply_checkpoint(), debrief(), refresh(), skip() |
 
 A feature reaches the coach in three ways. Do each one that applies.
 
@@ -33,10 +50,10 @@ A feature reaches the coach in three ways. Do each one that applies.
   (radicals, characters) needs the same three parts: a repetition mode, a repetition count per item, and a recall phase.
 - TYPES[type] = area. DEFAULT_TARGET[type], unless the target is derived (speak_sentences: reps × sentences).
 - PLAN prompt: add the type with its params JSON and what "done" means.
-- clean_step: check every param against known values (see _tones and _syms), and return None when the step cannot be
+- clean_step: check every param against known values (see validate.tones and validate.syms), and return None when the step cannot be
   measured.
-- _hit(step, unit): which units inside the step count. step_progress: a special case when progress is per item (see
-  speak_sentences). _before: the 30-day comparison for the debrief.
+- hit(step, unit): which units inside the step count. step_progress: a special case when progress is per item (see
+  speak_sentences). baseline: the 30-day comparison for the debrief.
 - href(step): the mode URL with the focus params and &step=. The mode must read those params: add a new param to Focus
   and useFocus in frontend/src/lib/focus.tsx, to the list in useClearHref, and to FOCUS_KEYS in StepBanner.tsx, so the
   learner can apply a checkpoint change.
@@ -57,7 +74,7 @@ Every plan has a headline (max 2 sentences, no numbers) and an animated story of
 from a catalog of blocks and never types a number: it refers to facts by key, and story.py fills the values in.
 
 - Facts: add the new feature's numbers to story_facts() (accuracy per item, the main confusions as mix.<area>.<kind>.<a>><b>,
-  counts, and a series when a trend matters). Facts come from the saved digest only; if a number is not in coach.digest(),
+  counts, and a series when a trend matters). Facts come from the saved digest only; if a number is not in coach.digest.digest(),
   add it there (or in story_stats()) first. Give each fact a plain label: the model reads it.
 - Mode names: add the new area or mode to story.MODE_LABEL.
 - Blocks: use the existing blocks when they can show the data (bars for items side by side, confusion for mix-ups,
@@ -73,7 +90,7 @@ from a catalog of blocks and never types a number: it refers to facts by key, an
 
 - test_coach.py: clean_step accepts good params and rejects bad ones; step_progress counts only answers inside the step
   that match the focus; the checker rejects incomplete content.
-- One live coach.build on a copy of the database: the new domain gives findings, and the planner can choose the step type.
+- One live coach.build() on a copy of the database: the new domain gives findings, and the planner can choose the step type.
   Look at the coach_calls table for errors, time, and cost.
 
 ## Example: Traditional characters

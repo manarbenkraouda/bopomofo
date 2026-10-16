@@ -22,7 +22,7 @@ def client(pg, monkeypatch):
 
     monkeypatch.setattr(auth, "CLERK_SECRET_KEY", "sk_test_fake")
     monkeypatch.setattr(auth, "user_id", fake_user_id)
-    monkeypatch.setattr(coach, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "LIVE", False)
     return TestClient(main.app)
 
 
@@ -178,7 +178,7 @@ def test_a_good_test_opens_level_four_counts_the_symbols_and_runs_once(client):
     with db.as_user("user_a"):
         a = coach.alphabet_status()
         assert a["known_count"] >= len(syms) - 2
-        assert coach.digest()["overview"]["placement"]["placed_at_level"] == 4
+        assert coach.digest.digest()["overview"]["placement"]["placed_at_level"] == 4
         # A placed symbol that the learner then misses twice is not known any more.
         s = syms[5]
         for _ in range(2):
