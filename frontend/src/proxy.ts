@@ -17,7 +17,8 @@ export default clerkMiddleware(async (auth, req) => {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and static files (audio, video, images, fonts, the manifest).
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|wav|mp3|mp4|webmanifest)).*)",
+    // Skip Next.js internals, Vercel Analytics (/_vercel/insights) and static files (audio, video, images, fonts,
+    // the manifest). Without the _vercel skip, auth.protect() sends a signed-out visitor's page views to /sign-in.
+    "/((?!_next|_vercel|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|wav|mp3|mp4|webmanifest)).*)",
   ],
 };

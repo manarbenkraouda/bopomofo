@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Analytics } from "@vercel/analytics/next";
 import { Geist } from "next/font/google";
 import "./globals.css";
 import { ApiAuth } from "@/components/shell/ApiAuth";
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <ApiAuth />
           <Frame>{children}</Frame>
         </ClerkProvider>
+        <Analytics />
       </body>
     </html>
   );
