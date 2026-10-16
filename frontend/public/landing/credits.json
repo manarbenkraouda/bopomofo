@@ -154,6 +154,15 @@
   "credit": "App screens from a demo account with seeded practice data"
  },
  {
+  "file": "landing/say/*.mp3",
+  "media": "audio",
+  "title": "Model audio of the speaking demo (你好, 不要, 一起吃飯, 對不起, normal and slow)",
+  "creator": "Generated for this page with the app's Kokoro voice (sherpa-onnx kokoro-multi-lang-v1_1, speaker 3)",
+  "license": "Apache-2.0 model; the output is project media",
+  "creditRequired": false,
+  "credit": "Voice: Kokoro (Apache-2.0)"
+ },
+ {
   "file": "/mascot/bobo-face.webp, bobo-celebrate.webp, bobo-writing.webp (app files)",
   "media": "image",
   "title": "Bobo mascot art",

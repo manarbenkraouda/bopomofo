@@ -1569,3 +1569,380 @@ body:has(.landing) {
     width: 130px;
   }
 }
+/* Repeat after Bobo: the Speaking drill with the real speech check. */
+.landing .say {
+  min-height: 100svh;
+  padding-block: 16svh 12svh;
+  align-content: start;
+}
+.landing .say h2 {
+  grid-column: 1 / 6;
+  grid-row: 1;
+  font-size: var(--step-head);
+  max-width: 11ch;
+  align-self: end;
+}
+.landing .say .copy {
+  grid-column: 1 / 5;
+  grid-row: 2;
+  margin-top: 2rem;
+}
+.landing .say .copy p + p {
+  margin-top: 0.9em;
+}
+.landing .say .copy .small {
+  color: #6d655a;
+  max-width: 44ch;
+}
+.landing .say-stage {
+  grid-column: 6 / 13;
+  grid-row: 1 / span 2;
+  align-self: center;
+  display: flex;
+  justify-content: flex-end;
+}
+.landing [data-ui].say-card {
+  --ink: #f2ece2;
+  --muted: #9a92a3;
+  --line: #322d3a;
+  width: 100%;
+  max-width: 40rem;
+  padding: 2rem 2.2rem 2.2rem;
+  background: var(--night);
+  color: var(--paper);
+  border-radius: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  font-family: var(--font);
+  font-size: 16px;
+  box-shadow: 0 2.4rem 5rem rgba(20, 18, 24, 0.28);
+}
+.landing [data-ui] .phrases {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.landing [data-ui] .phrases button {
+  min-height: 2.5rem;
+  padding: 0 0.95rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: #cfc8bb;
+  font-size: 1rem;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 140ms var(--ease-out);
+}
+.landing [data-ui] .phrases button:active {
+  transform: scale(0.96);
+}
+.landing [data-ui] .phrases button[aria-pressed="true"] {
+  background: var(--paper);
+  border-color: var(--paper);
+  color: var(--night);
+}
+.landing [data-ui] .pill.close {
+  background: var(--seal);
+  color: var(--seal-ink);
+}
+.landing [data-ui] .phrase {
+  display: flex;
+  justify-content: center;
+  min-height: 1.6em;
+  margin-block: 0.4rem 0;
+}
+.landing [data-ui] .meaning {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 0.7rem;
+  color: #cfc8bb;
+  text-align: center;
+}
+.landing [data-ui] .meaning b {
+  color: var(--paper);
+  font-weight: 500;
+}
+.landing [data-ui] .note {
+  max-width: 44ch;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #8d8790;
+  text-align: center;
+}
+.landing [data-ui] .controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.landing [data-ui] .rec {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 22rem;
+  min-height: 3.6rem;
+  border-radius: 0.9rem;
+  background: #c2461f;
+  color: #fff;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition:
+    background-color 180ms ease,
+    transform 140ms var(--ease-out);
+}
+.landing [data-ui] .rec:disabled {
+  background: #26222c;
+  color: #77707d;
+  cursor: not-allowed;
+}
+.landing [data-ui] .rec.on {
+  background: var(--seal);
+  transform: scale(0.98);
+}
+.landing [data-ui] .rec .dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+.landing [data-ui] .rec.on .dot {
+  animation: l-blink 900ms ease-in-out infinite;
+}
+.landing [data-ui] .rec .meter {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+}
+.landing [data-ui] .rec .meter span {
+  display: block;
+  height: 100%;
+  background: #fff;
+  transform-origin: left;
+  transition: transform 80ms linear;
+}
+.landing [data-ui] .say-result {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  animation: l-up 420ms var(--ease-out) both;
+}
+.landing [data-ui] .score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.9rem;
+  color: #cfc8bb;
+  font-size: 0.9rem;
+}
+.landing [data-ui] .score b {
+  font-size: 3.2rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.landing [data-ui] .score b.ok {
+  color: var(--ok);
+}
+.landing [data-ui] .score b.close {
+  color: var(--seal);
+}
+.landing [data-ui] .score b.bad {
+  color: #ef5b5b;
+}
+.landing [data-ui] .score .time {
+  margin-left: auto;
+  color: #8d8790;
+  font-size: 0.8rem;
+}
+.landing [data-ui] .tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.landing [data-ui] .tiles > li {
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.8rem;
+  background: var(--card);
+  border-top: 3px solid #ef5b5b;
+}
+.landing [data-ui] .tiles > li.ok {
+  border-top-color: var(--ok);
+}
+.landing [data-ui] .tiles .head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+.landing [data-ui] .tiles .ch {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.landing [data-ui] .tiles .zy {
+  color: #cfc8bb;
+  font-size: 0.95rem;
+}
+.landing [data-ui] .tiles .mark {
+  margin-left: auto;
+  color: #ef5b5b;
+}
+.landing [data-ui] .tiles li.ok .mark {
+  color: var(--ok);
+}
+.landing [data-ui] .tiles .heard {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+  color: #8d8790;
+}
+.landing [data-ui] .tiles .heard b {
+  color: var(--paper);
+  font-weight: 500;
+}
+.landing [data-ui] .msgs {
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #cfc8bb;
+}
+.landing [data-ui] .msgs li + li {
+  margin-top: 0.3rem;
+}
+.landing [data-ui] .curve {
+  margin: 0;
+}
+.landing [data-ui] .curve figcaption {
+  margin-top: 0.3rem;
+  font-size: 0.75rem;
+  color: #8d8790;
+}
+.landing [data-ui] .say-result .check {
+  align-self: flex-end;
+}
+/* The status line stays in the page for screen readers, but takes no room when it is empty. */
+.landing [data-ui].say-card .ask:empty {
+  min-height: 0;
+  margin-block: -0.5rem;
+}
+@media (hover: hover) and (pointer: fine) {
+  .landing [data-ui] .phrases button[aria-pressed="false"]:hover {
+    color: var(--paper);
+    border-color: #4a4452;
+  }
+  .landing [data-ui] .rec:not(:disabled):not(.on):hover {
+    background: #d0532b;
+  }
+}
+@keyframes l-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing [data-ui] .rec.on .dot {
+    animation: none;
+  }
+}
+@media (max-width: 64em) {
+  .landing .say h2,
+  .landing .say .copy {
+    grid-column: 1 / -1;
+  }
+  .landing .say .copy {
+    max-width: 40rem;
+  }
+  .landing .say-stage {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-content: flex-start;
+    margin-top: 3rem;
+  }
+}
+@media (max-width: 40em) {
+  .landing .say {
+    padding-block: 14svh 8svh;
+  }
+  .landing .say-stage {
+    margin-top: 2rem;
+  }
+  .landing [data-ui].say-card {
+    padding: 1.4rem 1rem 1.2rem;
+    border-radius: 1.2rem;
+    font-size: 15px;
+  }
+  .landing [data-ui] .score b {
+    font-size: 2.6rem;
+  }
+  .landing [data-ui] .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The project links in the header: GitHub and Buy Me a Coffee. The labels go away on narrow screens. */
+.landing .top .icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: opacity 180ms ease;
+}
+.landing .top .icon-link svg {
+  flex: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .landing .top .icon-link:hover .label {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 0.07em;
+  }
+}
+@media (max-width: 72em) {
+  .landing .top .icon-link .label {
+    display: none;
+  }
+}
+@media (max-width: 40em) {
+  .landing .top .icon-link {
+    min-width: 36px;
+  }
+  .landing .top .actions {
+    gap: 0.35rem;
+  }
+  .landing .top .signin {
+    white-space: nowrap;
+    padding-inline: 0.3rem;
+  }
+  .landing .top .button {
+    padding: 0 0.85rem;
+    margin-left: 0.25rem;
+  }
+  .landing .top .wordmark span {
+    display: none;
+  }
+}

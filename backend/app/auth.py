@@ -15,7 +15,8 @@ from .config import CLERK_AUTHORIZED_PARTIES, CLERK_JWT_KEY, CLERK_SECRET_KEY
 
 # Open without sign-in. A valid token is still read, so /api/health can show the user's voice pitch.
 # /api/tts needs a sign-in: each user has their own audio cache, and the browser fetches the audio with the token.
-PUBLIC = {"/api/health", "/api/tts/voices"}
+# /api/demo/speech is the speaking demo of the front page. It saves nothing and has its own limits (api/demo.py).
+PUBLIC = {"/api/health", "/api/tts/voices", "/api/demo/speech"}
 
 _options = AuthenticateRequestOptions(
     secret_key=CLERK_SECRET_KEY or None,

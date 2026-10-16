@@ -4,7 +4,7 @@ Each route needs a signed-in user (auth.require_user, set on the app), except th
 A route that saves an answer refreshes the coach and returns its level notices (see notices.py).
 """
 
-from . import coach, learner, levels, progress, sentences, speech, stats, system, text, tts
+from . import coach, demo, learner, levels, progress, sentences, speech, stats, system, text, tts
 
 ROUTERS = [
     system.router,
@@ -17,4 +17,5 @@ ROUTERS = [
     stats.router,
     coach.router,
     levels.router,
+    demo.router,
 ]
