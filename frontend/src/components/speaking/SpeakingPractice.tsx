@@ -1,109 +1,45 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { ruleLine, RulesGuide, type Rules } from "@/components/listening/RuleQuiz";
+import { PlayButton } from "@/components/PlayButton";
+import { Burst, FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Feedback";
+import { PinyinCheck } from "@/components/quiz/PinyinCheck";
+import { ActionBar } from "@/components/shell/ActionBar";
+import { Kbd } from "@/components/shell/Kbd";
+import { ZhuyinText } from "@/components/ZhuyinText";
+import { api, ttsUrl, type Health, type RulePhrase, type Sentence, type SpeechResult } from "@/lib/api";
+import { playAudio } from "@/lib/audio";
+import { correctedScore, pollDeepCheck } from "@/lib/deepCheck";
+import { FocusChip, matches, useFocus } from "@/lib/focus";
+import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
+import { useLevels } from "@/lib/levels";
+import { useReview } from "@/lib/review";
+import { playSfx } from "@/lib/sfx";
+import { PHONE, useViewport } from "@/lib/useFit";
+import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
+import { loadData, syllableAudio, type SyllableItem } from "@/lib/zhuyin";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  api,
-  ttsUrl,
-  type Health,
-  type RulePhrase,
-  type Sentence,
-  type SpeechResult,
-  type Syl,
-  type TextItem,
-} from "@/lib/api";
-import { playAudio } from "@/lib/audio";
-import { FocusChip, matches, useFocus, type Focus } from "@/lib/focus";
-import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
-import { playSfx } from "@/lib/sfx";
-import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
-import { useReview } from "@/lib/review";
-import { correctedScore, pollDeepCheck } from "@/lib/deepCheck";
-import { loadData, syllableAudio, TONE_NAME, type SyllableItem } from "@/lib/zhuyin";
-import { PlayButton } from "@/components/PlayButton";
-import { ActionBar } from "@/components/shell/ActionBar";
-import { PHONE, useViewport } from "@/lib/useFit";
-import { PitchChart } from "@/components/PitchChart";
-import { ZhuyinText } from "@/components/ZhuyinText";
-import { Burst, FxFrame, StatusPill, useCountUp, type FxStatus } from "@/components/quiz/Feedback";
-import { PinyinCheck } from "@/components/quiz/PinyinCheck";
-import { Kbd } from "@/components/shell/Kbd";
-import { RulesGuide, ruleLine, type Rules } from "@/components/listening/RuleQuiz";
-import { useLevels } from "@/lib/levels";
-
-type Source = "rule" | "sentence" | "syllable" | "custom";
-type Card = { text: string; items: TextItem[]; english?: string; audio: string; slow?: string; rule?: RulePhrase };
-const SOURCES: Source[] = ["rule", "sentence", "syllable", "custom"];
-const SOURCE_LABEL: Record<Source, string> = {
-  rule: "Tone rules",
-  sentence: "Sentences",
-  syllable: "Syllables",
-  custom: "My own text",
-};
-const RULE_NAME: Record<string, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
-const grade = (score: number): FxStatus => (score >= 85 ? "right" : score >= 60 ? "close" : "wrong");
-const verdict = (score: number) =>
-  (score >= 85 ? "Excellent! " : score >= 60 ? "Almost: " : "Keep practicing: ") + score;
-/** The score of a right recording, as the backend saves it (stats.log_speaking). */
-const RIGHT = 80;
-/** Misses of a one-syllable card before the app asks what the learner said: the model can mix up close sounds (b and p). */
-const CHECK_AFTER = 3;
-/** The typed Pinyin check: not asked yet, open, closed with Esc (it can open again), or answered. */
-type Check = "none" | "open" | "closed" | "done";
-/** A recording where the model heard another initial or final (or nothing). */
-const soundMiss = (r: SpeechResult) =>
-  r.syllables.some((s) => !s.heard || s.initial_ok === false || s.final_ok === false);
-/** For speaking, a tone focus means the tone as said (after tone changes). */
-const sylMatch = (i: Syl, f: Focus) =>
-  (!f.tones.length || f.tones.includes(i.surface_tone)) &&
-  (!f.syms.length || f.syms.some((x) => (i.initial + i.final).includes(x)));
-/** The Pinyin of a text, with the punctuation kept next to the word before it. */
-const pinyinOf = (items: TextItem[]) =>
-  items
-    .map((i) => (i.type === "syllable" ? i.pinyin : i.text))
-    .join(" ")
-    .replace(/\s+([，。！？、；：,.!?;:])/g, "$1");
-const sentenceCard = (s: Sentence): Card => ({
-  text: s.hanzi,
-  items: s.items,
-  english: s.english,
-  audio: ttsUrl(s.hanzi),
-  slow: ttsUrl(s.hanzi, -35),
-});
-const ruleCard = (p: RulePhrase): Card => ({
-  text: p.text,
-  items: p.items,
-  english: p.english,
-  audio: ttsUrl(p.text),
-  slow: ttsUrl(p.text, -35),
-  rule: p,
-});
-/** The syllables whose said tone is not the written tone, with the rule that changes them. */
-const changed = (items: TextItem[]) =>
-  items.filter((i): i is Syl => i.type === "syllable" && i.surface_tone !== i.tone);
-const saidZhuyin = (s: Syl) =>
-  s.zhuyin.replace(/[ˊˇˋ˙]/g, "") +
-  ({ 1: "", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "" } as Record<number, string>)[s.surface_tone];
-
-/** Before recording: every tone the rules change in this text, said plainly. The Bopomofo shows the written tone only. */
-function ToneChanges({ items }: { items: TextItem[] }) {
-  const list = changed(items);
-  if (!list.length) return null;
-  return (
-    <div className="flex flex-col items-center gap-1 text-sm cjk max-w-2xl" role="note">
-      <div className="text-muted">The tone changes here. Say it this way:</div>
-      <div className="flex flex-wrap justify-center gap-2">
-        {list.map((s, i) => (
-          <span key={i} className="rounded-lg border border-accent/40 bg-accent/5 px-2.5 py-1">
-            <b>{s.char}</b> <span className="text-muted line-through decoration-1">{s.zhuyin}</span> →{" "}
-            <b className="text-accent">{saidZhuyin(s)}</b>
-            <span className="text-muted"> · {s.rule ? RULE_NAME[s.rule] : "tone change"}</span>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
+  changed,
+  CHECK_AFTER,
+  grade,
+  pinyinOf,
+  RIGHT,
+  ruleCard,
+  sentenceCard,
+  soundMiss,
+  SOURCE_LABEL,
+  SOURCES,
+  sylMatch,
+  verdict,
+  type Card,
+  type Check,
+  type Source,
+} from "./cards";
+import { ResultView } from "./ResultView";
+import { ToneChanges } from "./ToneChanges";
 
 /**
  * Speaking, as a quiz: one card at a time. Read it aloud and record.
@@ -779,135 +715,6 @@ export function SpeakingPractice() {
       {ruleData && (source === "rule" || (card && changed(card.items).length > 0)) && (
         <RulesGuide rules={ruleData.rules} />
       )}
-    </div>
-  );
-}
-
-function Badge({ ok, label }: { ok: boolean | null; label: string }) {
-  if (ok === null) return <span className="text-[11px] px-1.5 py-0.5 rounded bg-bg text-muted">{label} –</span>;
-  return (
-    <span className={"text-[11px] px-1.5 py-0.5 rounded " + (ok ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad")}>
-      {label} {ok ? "✓" : "✗"}
-    </span>
-  );
-}
-
-/** What the check heard, syllable by syllable. The pitch chart and the tone guide are folded. */
-function ResultView({ result, onHear }: { result: SpeechResult; onHear: (char: string) => void }) {
-  const sy = result.syllables;
-  const tone = sy.filter((s) => s.tone_ok).length;
-  const sounds = sy.filter((s) => s.heard && s.initial_ok !== false && s.final_ok !== false).length;
-  const shown = useCountUp(result.score);
-  return (
-    <div className="card p-5 md:p-6 flex flex-col gap-4">
-      <div className="flex items-baseline gap-x-4 gap-y-1 flex-wrap">
-        <div
-          className={
-            "text-4xl font-semibold tabular-nums " +
-            (result.score >= 85 ? "text-ok" : result.score >= 60 ? "text-rough" : "text-bad")
-          }
-        >
-          {shown}
-        </div>
-        <div className="text-muted">
-          tones{" "}
-          <b className="text-ink">
-            {tone}/{sy.length}
-          </b>{" "}
-          · sounds{" "}
-          <b className="text-ink">
-            {sounds}/{sy.length}
-          </b>
-        </div>
-        <div className="text-xs text-muted sm:ml-auto">Tap a syllable to hear it</div>
-      </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
-        {sy.map((s, i) => {
-          const ok = s.heard && s.tone_ok && s.initial_ok !== false && s.final_ok !== false;
-          return (
-            <button
-              key={i}
-              onClick={() => onHear(s.expected.char)}
-              className={
-                "text-left rounded-xl border p-3 hover:shadow-sm " +
-                (ok ? "border-ok/40 bg-ok/5" : "border-bad/40 bg-bad/5")
-              }
-            >
-              <div className="flex items-center gap-2 cjk">
-                <span className="text-2xl">{s.expected.char}</span>
-                <span className="text-accent">{s.expected.zhuyin}</span>
-                <span className="ml-auto text-sm">
-                  {ok ? <span className="text-ok">✓</span> : <span className="text-bad">✗</span>}
-                </span>
-              </div>
-              <div className="text-xs text-muted mt-1 cjk">
-                {s.expected.surface_tone !== s.expected.tone && (
-                  <>
-                    written {s.expected.zhuyin} · say <b className="text-accent">{saidZhuyin(s.expected)}</b>
-                    {s.expected.rule ? " (" + RULE_NAME[s.expected.rule] + ")" : ""} ·{" "}
-                  </>
-                )}
-                heard <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
-              </div>
-              {s.rule_error === "literal" && (
-                <div className="mt-2 text-xs font-semibold text-bad">
-                  You read the written tone. The {RULE_NAME[s.rule ?? ""] ?? "tone rule"} changes it here.
-                </div>
-              )}
-              {s.rule_error === "over" && (
-                <div className="mt-2 text-xs font-semibold text-bad">
-                  The {RULE_NAME[s.rule ?? ""]} does not apply here: keep the written tone.
-                </div>
-              )}
-              {!ok && (
-                <div className="flex gap-1 mt-2 flex-wrap">
-                  <Badge ok={s.heard ? s.initial_ok : false} label="initial" />
-                  <Badge ok={s.heard ? s.final_ok : false} label="final" />
-                  <Badge ok={s.tone_ok} label="tone" />
-                </div>
-              )}
-              {s.messages.length > 0 && (
-                <ul className="mt-2 text-xs leading-snug list-disc pl-4 cjk">
-                  {s.messages.map((m, k) => (
-                    <li key={k}>{m}</li>
-                  ))}
-                </ul>
-              )}
-              {s.tone_source === "pitch" && (
-                <div className="text-[11px] text-muted mt-1">Tone estimated from your voice.</div>
-              )}
-              {s.tone_source === "model+pitch" && (
-                <div className="text-[11px] text-muted mt-1">
-                  Low falling tone 3 (Taiwan style), from your pitch range.
-                </div>
-              )}
-              {s.uncertain && !s.tone_ok && !s.rule_error && (
-                <div className="text-[11px] text-rough mt-1">
-                  Hard to hear: it sounded between tone {s.model_tone} and tone {s.pitch_tone}.
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      {result.extra.length > 0 && (
-        <div className="text-sm text-muted cjk">Extra sounds heard: {result.extra.map((e) => e.zhuyin).join(" ")}</div>
-      )}
-      <details className="text-sm">
-        <summary className="cursor-pointer text-muted">Pitch curve</summary>
-        <div className="mt-2 text-xs text-muted mb-1">
-          Your pitch (black) against the target tone shapes (colored bands), per syllable
-        </div>
-        <PitchChart result={result} />
-      </details>
-      <details className="text-xs text-muted">
-        <summary className="cursor-pointer">Tone guide</summary>
-        <ul className="mt-2 grid sm:grid-cols-2 gap-1">
-          {[1, 2, 3, 4, 5].map((t) => (
-            <li key={t}>{TONE_NAME[t]}</li>
-          ))}
-        </ul>
-      </details>
     </div>
   );
 }

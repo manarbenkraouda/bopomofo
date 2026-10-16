@@ -21,14 +21,12 @@ export function LevelPath() {
   const { lv, known } = useLevels();
   const cur = lv?.levels.find((l) => l.current) ?? null;
   useHotkeys("levels", [
-    ...(cur?.opens ?? [])
-      .slice(0, 9)
-      .map((o, i) => ({
-        keys: ["Digit" + (i + 1), "Numpad" + (i + 1)],
-        label: o.label,
-        run: () => router.push(o.href),
-        bar: false,
-      })),
+    ...(cur?.opens ?? []).slice(0, 9).map((o, i) => ({
+      keys: ["Digit" + (i + 1), "Numpad" + (i + 1)],
+      label: o.label,
+      run: () => router.push(o.href),
+      bar: false,
+    })),
     {
       keys: [],
       label: "Start an exercise of your level",

@@ -1,18 +1,18 @@
 "use client";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { focusChips, STEP_ICON } from "@/components/coach/stepMeta";
+import { GoalBar, Stars } from "@/components/levels/LevelUi";
+import { BoboFace, BoboPose, poseFor, VMark } from "@/components/mascot/Bobo";
+import { Caps, Kbd } from "@/components/shell/Kbd";
 import { api, type Challenge, type CoachState, type Levels, type Profile } from "@/lib/api";
 import { useHotkeys } from "@/lib/hotkeys";
+import { EXERCISE_DESC, exerciseOf, useLevels } from "@/lib/levels";
 import { usePref } from "@/lib/prefs";
 import { missingFacts, PROFILE_KEYS, PROFILE_LABELS, useProfile } from "@/lib/profile";
 import { LAST_KEY, routeFor } from "@/lib/routes";
 import { goalMinutes, useToday } from "@/lib/session";
-import { EXERCISE_DESC, exerciseOf, useLevels } from "@/lib/levels";
-import { Caps, Kbd } from "@/components/shell/Kbd";
-import { focusChips, STEP_ICON } from "@/components/coach/Coach";
-import { BoboFace, BoboPose, poseFor, VMark } from "@/components/mascot/Bobo";
-import { GoalBar, Stars } from "@/components/levels/LevelUi";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 const NEW_DAYS = 3 * 86400;
@@ -122,14 +122,12 @@ export function Dashboard() {
       run: () => last && router.push(last.href),
       when: !!last,
     },
-    ...open
-      .slice(0, 9)
-      .map((m, i) => ({
-        keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]],
-        label: m.label,
-        run: () => router.push(m.href),
-        bar: false,
-      })),
+    ...open.slice(0, 9).map((m, i) => ({
+      keys: ["Digit" + DIGITS[i], "Numpad" + DIGITS[i]],
+      label: m.label,
+      run: () => router.push(m.href),
+      bar: false,
+    })),
     { keys: [], label: "Open an exercise", show: ["1–" + Math.min(9, open.length)], when: open.length > 0 },
     { keys: ["KeyV"], label: "My levels", run: () => router.push("/levels") },
     ...shownChallenges.map((c, i) => ({

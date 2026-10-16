@@ -6,6 +6,7 @@ backend/.venv/
 backend/.venv-export/
 **/__pycache__/
 .pytest_cache/
+.ruff_cache/
 
 # Speech model: 3.6 GB, rebuilt with backend/tools/export_model.py. vocab.json is small and is kept.
 backend/models/*
@@ -24,3 +25,8 @@ frontend/.env*.local
 Thumbs.db
 .vscode/
 .idea/
+
+# Local logs and coverage output
+*.log
+.coverage
+htmlcov/

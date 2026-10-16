@@ -1,55 +1,45 @@
 "use client";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { api, ttsUrl, type Sentence, type Syl, type Unit } from "@/lib/api";
+
+import { PlayButton } from "@/components/PlayButton";
+import { StrokeAnim } from "@/components/StrokeAnim";
+import { Burst, FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Feedback";
+import { ActionBar } from "@/components/shell/ActionBar";
+import { Kbd } from "@/components/shell/Kbd";
+import { api, type Unit } from "@/lib/api";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, matches, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
+import { useLevels } from "@/lib/levels";
 import { buildTemplates, type Pt, type Templates } from "@/lib/matcher";
-import { playSfx } from "@/lib/sfx";
 import { useReview } from "@/lib/review";
+import { playSfx } from "@/lib/sfx";
 import { now, since, TONE_OF_MARK, writtenUnits } from "@/lib/track";
 import { PHONE, useViewport } from "@/lib/useFit";
 import {
   loadData,
-  NOTES,
   splitZhuyin,
-  symbolAudio,
   syllableAudio,
+  symbolAudio,
   type MoeRow,
   type StrokeData,
   type SyllableItem,
 } from "@/lib/zhuyin";
-import { PlayButton } from "@/components/PlayButton";
-import { ActionBar } from "@/components/shell/ActionBar";
-import { Kbd } from "@/components/shell/Kbd";
-import { StrokeAnim } from "@/components/StrokeAnim";
-import { Burst, FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Feedback";
+import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { COLORS, Guide, ResultOverlay, UserStrokes } from "./Overlay";
+import { ResultRow } from "./ResultRow";
 import { Sheet } from "./Sheet";
-import { BOX, gradeSheet, segment, shiftOf, clusterStrokes, type Graded, type Row } from "./segment";
-import { Guide, ResultOverlay, UserStrokes, COLORS } from "./Overlay";
-import { useLevels } from "@/lib/levels";
+import { itemKey, sentenceWords, tokensOf, type Item } from "./items";
+import { BOX, clusterStrokes, gradeSheet, segment, shiftOf, type Graded } from "./segment";
 
 type Mode = "symbol" | "syllable" | "word";
-type Group = { char?: string; zhuyin: string };
-type Item = { key: string; groups: Group[]; audio: string; english?: string };
 
 const MODES: Mode[] = ["symbol", "syllable", "word"];
+
 const MODE_LABEL: Record<Mode, string> = { symbol: "Symbols", syllable: "Syllables", word: "Words" };
+
 /** Room on the sheet, in line heights, per syllable: most syllables have 2 or 3 symbols and a tone mark, plus the space after it. */
 const PER_SYLLABLE = 3.6;
-/** What is written for an item, as saved in the answer: the Bopomofo of each syllable, with spaces. */
-const itemKey = (it: Item) => it.groups.map((g) => g.zhuyin).join(" ");
-
-/** The tokens of a syllable in writing order: the neutral dot first, the other marks last. */
-const tokensOf = (z: string, withTone: boolean) => {
-  const { symbols, tone } = splitZhuyin(z);
-  return [
-    ...(withTone && tone === "˙" ? [{ sym: tone, mark: true }] : []),
-    ...symbols.map((s) => ({ sym: s, mark: false })),
-    ...(withTone && tone && tone !== "˙" ? [{ sym: tone, mark: true }] : []),
-  ];
-};
 
 export function WritingPractice() {
   const [data, setData] = useState<{ strokes: StrokeData; table: MoeRow[]; syllables: SyllableItem[] } | null>(null);
@@ -676,65 +666,4 @@ export function WritingPractice() {
       )}
     </div>
   );
-}
-
-function ResultRow({ x, data, syllable, toneOne }: { x: Row; data: StrokeData; syllable?: string; toneOne: boolean }) {
-  let sym: React.ReactNode = "",
-    items: string[] = [],
-    note = "";
-  if (x.kind === "symbol") {
-    sym = x.expected;
-    items = x.r.messages.length ? x.r.messages : ["Small shape notes."];
-    if (!x.r.ok && x.r.nearly && x.r.strokes.some((s) => s.status === "joined"))
-      items = [...items, "Accepted: MOE allows a 3-stroke form of " + x.expected + "."];
-    note = NOTES[x.expected] ?? "";
-  } else if (x.kind === "missing") {
-    sym = <StrokeAnim sym={x.expected} data={data} size={56} numbers={false} />;
-    items = [x.tone ? "The tone mark " + x.expected + " is missing." : "The symbol " + x.expected + " is missing."];
-    note = NOTES[x.expected] ?? "";
-  } else if (x.kind === "extra") {
-    sym = "✕";
-    items = [
-      x.tone && toneOne
-        ? "This syllable is tone 1, which has no mark. You wrote " + (x.guess ?? "a mark") + "."
-        : "Extra " +
-          (x.tone ? "mark" : "symbol") +
-          (x.guess ? " (it looks like " + x.guess + ")" : "") +
-          ". If it is part of the symbol before it, write them closer; if it is a new symbol, leave a space.",
-    ];
-  }
-  return (
-    <div className="grid grid-cols-[64px_1fr] gap-3 py-2 border-t border-line">
-      <div className="cjk text-3xl grid place-items-center">{sym}</div>
-      <div>
-        {syllable && <div className="text-xs text-muted cjk">{syllable}</div>}
-        <ul className="list-disc pl-5 text-[15px] cjk">
-          {items.map((t, i) => (
-            <li key={i}>{t}</li>
-          ))}
-        </ul>
-        {note && <div className="text-xs text-muted mt-1">MOE: {note}</div>}
-      </div>
-    </div>
-  );
-}
-
-// Words of a sentence, with Bopomofo from the sentence context.
-function sentenceWords(s: Sentence): Item[] {
-  const out: Item[] = [];
-  let from = 0;
-  for (const w of s.words) {
-    const at = s.hanzi.indexOf(w.text, from);
-    if (at < 0) continue;
-    from = at + w.text.length;
-    const sylls = s.items.slice(at, at + w.text.length).filter((x): x is Syl => x.type === "syllable");
-    if (!sylls.length || sylls.length !== w.text.length || sylls.length > 4) continue;
-    out.push({
-      key: s.id + ":" + at,
-      groups: sylls.map((x) => ({ char: x.char, zhuyin: x.zhuyin })),
-      audio: ttsUrl(w.text, -10),
-      english: w.english,
-    });
-  }
-  return out;
 }

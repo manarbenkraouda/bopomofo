@@ -134,14 +134,12 @@ export function UnlockOverlay({
   useHotkeys(
     "unlock",
     [
-      ...opens
-        .slice(0, 9)
-        .map((o, i) => ({
-          keys: ["Digit" + (i + 1), "Numpad" + (i + 1)],
-          label: o.label,
-          run: () => onGo(o.href),
-          bar: false,
-        })),
+      ...opens.slice(0, 9).map((o, i) => ({
+        keys: ["Digit" + (i + 1), "Numpad" + (i + 1)],
+        label: o.label,
+        run: () => onGo(o.href),
+        bar: false,
+      })),
       {
         keys: ["Enter"],
         label: opens[0] ? "Start: " + opens[0].label : "Close",
