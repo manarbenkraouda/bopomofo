@@ -1,0 +1,30 @@
+# bopomofo
+
+> bopomofo (https://bopomofo.app) is a free, open-source web app to learn Bopomofo (Zhuyin, 注音), the phonetic alphabet of Taiwan Mandarin. Learners read the 37 symbols with Ministry of Education audio, write each symbol in stroke order, train their ears with listening and dictation drills, and speak with tone feedback. The mascot and coach is Bobo, a Formosan black bear. The code is AGPL-3.0-only.
+
+Key facts about Bopomofo:
+
+- Bopomofo is also called Zhuyin, Zhuyin fuhao, 注音 or 注音符號. The name comes from its first four symbols: ㄅ ㄆ ㄇ ㄈ (b, p, m, f).
+- It has 37 symbols: 21 initials (ㄅ to ㄙ), 3 medials (ㄧ ㄨ ㄩ) and 13 finals (ㄚ to ㄦ).
+- Tone 1 has no mark. Tones 2, 3 and 4 use ˊ ˇ ˋ. The neutral tone uses ˙, written before the syllable in horizontal text.
+- A syllable has one to three symbols plus a tone mark. Example: 學 = ㄒㄩㄝˊ (xué).
+- It was designed in 1913 by the Commission on the Unification of Pronunciation and published officially in 1918. It was renamed 注音符號 in 1930.
+- Taiwan teaches children to read with Bopomofo in grade 1. Hanyu Pinyin became Taiwan's official romanization in 2009, for names and signs.
+- Most Zhuyin keyboards use the standard (Dachen, 大千) layout. Tone keys: Space = tone 1, 6 = ˊ, 3 = ˇ, 4 = ˋ, 7 = ˙.
+
+## Guides
+
+- [What is Bopomofo?](https://bopomofo.app/what-is-bopomofo): definition, name, how syllables work, history, Bopomofo compared with pinyin, and FAQ.
+- [Bopomofo chart](https://bopomofo.app/bopomofo-chart): all 37 symbols with pinyin, the name of each symbol, an English sound hint, stroke counts, MOE audio and stroke order.
+- [Bopomofo tones](https://bopomofo.app/bopomofo-tones): the four tones and the neutral tone, pitch contours, where the marks go, and tone changes (tone sandhi).
+- [Zhuyin keyboard](https://bopomofo.app/zhuyin-keyboard): the standard layout, tone keys, how to type 你好, and setup on Windows, macOS, iPhone and Android.
+
+## The app
+
+- [bopomofo, learn Bopomofo](https://bopomofo.app/): home page with a symbol demo and a "repeat after me" speaking demo.
+- [Make a free account](https://bopomofo.app/sign-up)
+- [Source code on GitHub](https://github.com/manarbenkraouda/bopomofo): AGPL-3.0-only. Symbol audio and stroke data: Ministry of Education, Taiwan, CC BY 4.0.
+
+## Optional
+
+- [Support the hosting](https://buymeacoffee.com/manarbenkraouda)

@@ -1,6 +1,7 @@
 "use client";
 
 import { LockedScreen, UnlockOverlay } from "@/components/levels/LevelUi";
+import { GUIDES } from "@/components/landing/brand";
 import { BoboPose } from "@/components/mascot/Bobo";
 import { AiEnergyWait, AiQuotaProvider } from "@/components/quota/AiQuota";
 import { api, type Health, type LevelNotice } from "@/lib/api";
@@ -31,7 +32,8 @@ type Overlay = null | "palette" | "help" | "goto";
 export function Frame({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const segment = useSelectedLayoutSegment();
-  if (segment === "welcome") return children;
+  // The landing page and the public guides draw their own page, without the app shell.
+  if (segment === "welcome" || GUIDES.some((g) => g.href === path)) return children;
   if (path.startsWith("/onboarding") || path.startsWith("/placement")) return <div className="h-full">{children}</div>;
   if (path.startsWith("/sign-in") || path.startsWith("/sign-up")) {
     return (

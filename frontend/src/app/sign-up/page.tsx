@@ -1,6 +1,6 @@
 import { SignUp } from "@clerk/nextjs";
 
-export const metadata = { title: "Sign up · bopomofo" };
+export const metadata = { title: "Sign up · bopomofo", robots: { index: false } };
 
 // A new account goes to the onboarding first.
 export default function Page() {

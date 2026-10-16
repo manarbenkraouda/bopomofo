@@ -1,22 +1,34 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Metadata, Viewport } from "next";
+import { FAQ } from "@/components/landing/faq";
 import { Landing } from "@/components/landing/Landing";
 import { DRILL_SYMBOLS, HERO_SYMBOLS, type LandingData } from "@/components/landing/symbols";
+import { JsonLd, ORGANIZATION, pageMeta, WEB_APP, WEBSITE } from "@/lib/seo";
 import { symbolAudio, type MoeRow, type StrokeData } from "@/lib/zhuyin";
 
-const TITLE = "bopomofo: learn Taiwan Mandarin, one sound at a time";
-const DESCRIPTION =
-  "Learn Taiwan Mandarin through Bopomofo (注音). Read the 37 symbols, write each stroke, hear the tones, and say it yourself, with Bobo the bear as your coach.";
+export const metadata: Metadata = pageMeta({
+  path: "/",
+  title: "bopomofo: learn Bopomofo (Zhuyin 注音) and Taiwan Mandarin",
+  description:
+    "Learn Bopomofo (Zhuyin, 注音), the phonetic alphabet of Taiwan Mandarin. Read the 37 symbols, write each stroke, hear the 5 tones and say them. Free and open source.",
+});
 
-export const metadata: Metadata = {
-  title: TITLE,
-  description: DESCRIPTION,
-  openGraph: {
-    title: TITLE,
-    description: "Read 注音. Write each stroke. Hear the difference. Say it yourself.",
-    images: [{ url: "/landing/bobo-night-market.jpg", width: 1672, height: 941 }],
-  },
+const STRUCTURED = {
+  "@context": "https://schema.org",
+  "@graph": [
+    WEBSITE,
+    ORGANIZATION,
+    WEB_APP,
+    {
+      "@type": "FAQPage",
+      mainEntity: FAQ.map((f) => ({
+        "@type": "Question",
+        name: f.q,
+        acceptedAnswer: { "@type": "Answer", text: f.a },
+      })),
+    },
+  ],
 };
 
 export const viewport: Viewport = { themeColor: "#141218" };
@@ -34,6 +46,7 @@ const data: LandingData = {
 export default function Page() {
   return (
     <>
+      <JsonLd data={STRUCTURED} />
       {/* The reveals hide content only when this script ran, so the page stays readable without JavaScript. */}
       <script dangerouslySetInnerHTML={{ __html: "document.documentElement.classList.add('js')" }} />
       <Landing {...data} />

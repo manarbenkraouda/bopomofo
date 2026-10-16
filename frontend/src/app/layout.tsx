@@ -11,7 +11,11 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 export const metadata: Metadata = {
   metadataBase: new URL("https://bopomofo.app"),
   title: "bopomofo",
-  description: "Learn Bopomofo: reading, writing, listening, and speaking with tone feedback.",
+  description:
+    "Learn Bopomofo (Zhuyin, 注音), the phonetic alphabet of Taiwan Mandarin: reading, writing, listening, and speaking with tone feedback.",
+  applicationName: "bopomofo",
+  creator: "Manar Benkraouda",
+  category: "education",
   appleWebApp: { capable: true, title: "bopomofo", statusBarStyle: "black-translucent" },
 };
 
