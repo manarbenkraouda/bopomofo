@@ -1,0 +1,8 @@
+# Apple Silicon export environment. PyPI's macOS wheel does not use the +cpu version suffix.
+# Intel Macs should copy the exported ONNX files from a supported export machine.
+torch==2.9.1
+transformers
+onnx
+onnxscript
+huggingface_hub
+onnxruntime

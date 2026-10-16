@@ -1,179 +1,92 @@
 # bopomofo
 
-A personal app to learn Bopomofo (注音符號) and Taiwan Mandarin: reading, writing, listening, and speaking with feedback on every stroke and every tone.
+**Learn Taiwan Mandarin, one sound at a time.**
 
-- **Frontend:** Next.js 16 (frontend/), http://localhost:3210
-- **Domain:** https://bopomofo.app
-- **Backend:** FastAPI (backend/), http://127.0.0.1:8765 (port 8000 is used by Docker on this PC)
-- **Location on this PC:** C:\Users\manar\Documents\zhuyin-studio
+Read 注音. Write each stroke. Hear the difference. Say it yourself.
 
-## Start
+<p align="center">
+  <img src="frontend/public/mascot/bobo.webp" alt="Bobo, the bopomofo mascot" width="200" />
+</p>
 
-Double-click **start.cmd**. It opens two small windows (backend and frontend) and the browser. Close those windows to stop the app.
+bopomofo is a practice app for the 37 Bopomofo symbols and Taiwan Mandarin. It combines local speech checks, handwriting feedback, and a coach that uses your practice history to choose the next drill.
 
-A new account starts with a short onboarding (/onboarding, seven questions): your name, why you learn Mandarin, your Mandarin level, how much Bopomofo you know, a daily goal, your time zone, and the microphone. The answers go into your profile, and the coach writes your first plan from them. Every other page sends you to the onboarding until it is done. Learners who say they talk about everyday topics or more then take a placement test (/placement, about 10 minutes) that can open levels 2 to 4 at once.
+[Run locally](docs/setup/README.md) · [Learner guide](docs/user-guide.md) · [Architecture](docs/architecture.md) · [Contribute](CONTRIBUTING.md)
 
-Record one full sentence on the Speaking page early. The app learns your pitch range from it and uses it to check single-syllable tones.
+## Practice, with useful feedback
 
-## Install on a new machine
+| Skill  | What you do                               | What the app checks                                 |
+| ------ | ----------------------------------------- | --------------------------------------------------- |
+| Read   | Say a symbol or type its pinyin           | Symbol recognition and recall                       |
+| Listen | Identify tones, symbols, and tone changes | Confusions and spoken tone rules                    |
+| Write  | Draw symbols, syllables, and words        | Shape, stroke order, direction, and missing strokes |
+| Speak  | Record syllables and sentences            | Initials, finals, tones, and pitch                  |
 
-The repository does not contain the secret key, the speech model (3.6 GB), or your personal data. To install:
+- **A guided path:** five levels, an optional placement test, and permanent exercise unlocks.
+- **A coach with evidence:** focused drills, progress checks, and explanations tied to saved statistics.
+- **Personal sentences:** Taiwan Mandarin, Bopomofo, English, word meanings, and local audio.
+- **Practice from memory:** helped answers and later tries stay distinct from first-try recall.
+- **Keyboard and touch controls:** press and hold to record, writing with a pointer, and page shortcuts.
 
-1. Install [git](https://git-scm.com), [uv](https://docs.astral.sh/uv/) and [bun](https://bun.sh).
-2. Clone the repository:
+The [learner guide](docs/user-guide.md) lists every mode, shortcut, and learning rule.
 
-       git clone git@github.com:manarbenkraouda/bopomofo.git
-       cd bopomofo
+## Run your own instance
 
-3. Create the PostgreSQL role and databases (see Database).
-4. Run **setup.cmd**. It creates the Python environment, installs the frontend packages, and creates backend/.env.
-5. Fill in backend/.env: the OpenRouter key, DATABASE_URL, and the Clerk secret key. Run `clerk env pull --file frontend/.env.local` for the Clerk keys of the frontend (see Sign-in), then `cd frontend && bun run build`.
-6. Create the speech model (see Speech model), or copy the backend/models folder from another machine.
-7. Run **start.cmd**.
+You need Git, uv, Bun, PostgreSQL, your own Clerk application, and an OpenRouter API key. Speech weights and voice models are downloaded separately.
 
-setup.cmd uses the Windows ARM64 Python (cpython-3.12-windows-aarch64). On an x64 PC, change it to cpython-3.12-windows-x86_64.
+1. Follow the [shared setup](docs/setup/README.md): clone the repository, create the databases, and configure your accounts.
+2. Install packages and speech models with your platform guide.
+3. Start the API on port `8765` and the frontend on port `3210`. Open `http://localhost:3210` and finish onboarding.
 
-## What is inside
+| Platform             | Instructions                           | Validation                                                             |
+| -------------------- | -------------------------------------- | ---------------------------------------------------------------------- |
+| Windows ARM64        | [Windows guide](docs/setup/windows.md) | Maintainer's reference setup on Snapdragon X2 Elite                    |
+| Windows x64          | [Windows guide](docs/setup/windows.md) | Python 3.12 runtime packages resolve; hardware run still needed        |
+| macOS, Apple Silicon | [macOS guide](docs/setup/macos.md)     | Runtime and export packages resolve; hardware run still needed         |
+| macOS, Intel         | [macOS guide](docs/setup/macos.md)     | Runtime packages resolve; copy speech exports from a supported machine |
 
-A new learner does not see every exercise. The exercises unlock level by level (see "Levels" in How it works). Level 1 opens Symbols, Reading, Recognize, and the tone quiz. The app shows only what is open: the side bar, the command palette, the G keys, the Home tiles, and the variant chips in a practice mode list the open exercises, and a "🔒 +N" link leads to the Levels page. A locked page shows what opens it (Enter goes to Levels). When a level opens, a celebration screen lists the new exercises (Enter starts the first one).
+Package resolution is not a full platform test. The guides state these limits and include manual commands. `setup.cmd` uses the Windows ARM64 reference configuration.
 
-| Page | What it does |
-|---|---|
-| Onboarding | After sign-up, one question per screen: name, why you learn, Mandarin level, Bopomofo level, daily goal, time zone (found on the device, with a search of every zone), and the microphone. Back, a progress bar, a fixed Continue bar on a phone, and keys on a desktop (Enter, Esc, 1-6). The answers go to the profile and the settings, and the coach builds the first plan from them. Signed-in learners who have not finished it are sent back to it. |
-| Placement test | Once, after the onboarding, for the levels "everyday" and "fluent". Part 1 (only when the learner knows some Bopomofo): each of the 37 symbols in a random order, type its pinyin, one try (Enter checks, Space is "I don't know"). Part 2: say 42 syllables that together use all 37 symbols and each tone 9 to 12 times, then 12 sentences with the tone rules (3-3, 不, 一) and the neutral tone, one recording each (hold Space or R while you speak, Enter goes on, the right arrow skips one); the speech check scores each initial, final, and tone. The voice part can be skipped, and so can the whole test (start from level 1). The result screen shows the level, the scores, and the sounds to practice first. Until it is done or skipped, every page sends the learner to it. |
-| Home | The next coach step (Enter starts it), then your level card: the goals with their progress and, at level 1, the alphabet chapters. Continue goes back to the last exercise. "Your exercises" shows the open exercises as tiles with their stars and a NEW badge for 3 days after they open (keys 1-9), then the exercises of the next level as locked tiles. Then the daily challenges of the open exercises. V opens Levels. |
-| Levels | The guided path. Your level and its progress bar, then one card per level: what it opens, its chapters, and its goals with progress. A grid of the 37 symbols shows your best stars for each, and a list shows the known items to review (they dropped under the limits). |
-| Coach | A plan written by a model from all your stats: 3 to 7 exact drills, each with the numbers that justify it ("tone 4 by ear: 78.6% on 28, often taken for tone 2"). A step ends when you reach its target, never on a date. Only answers given inside a step count for it. Every 10 answers in a step, the coach checks them and can continue, narrow the focus, extend, ease, or end the step. When a step ends, it compares the step with the 30 days before. When one step is left, the next plan is built in the background, so it is ready at once. Milestones are long goals measured on your latest answers. "How do we know?" (W) opens the plan story: a headline and cards with the evidence behind the plan. Skip a step with H (too hard), E (too easy), or N (not now); P builds a new plan now. Home shows the next step first (Enter starts it). |
-| Stats | Full history, down to each tone and stroke. Today: four daily challenges from your weakest skills, ranked weak spots (press Enter to train one), period totals against the period before, and personal records. Tones: the tone rules first (per rule: accuracy, quiz against said aloud, how often you read the written tone or changed a tone that stays, the hardest characters, and Quiz / Say it links), then confusion tables (the tone you said, heard, or wrote instead), tone accuracy by the tone before and after, position, and tone changes. Sounds: initial and final mix-ups. Symbols: per-symbol accuracy, what you said, typed, or wrote instead, the symbols you take for others in Recognize, and stroke problems. History: answers per day, practice calendar, time of day, sessions, the last answers, and a CSV export. Every "Train" link opens a practice mode limited to that weak spot (?tones=3,2 or ?syms=ㄗ,ㄘ). |
-| Reading | Random symbols without end: say each one out loud. Hold R (or the button) while you say it, and let go to check; the app moves on when you say it right. The "Hands-free" chip switches to a microphone that listens all the time. After you hear the answer (MOE recording), you still say the symbol to move on, and the card counts as not known yet. |
-| Listening | Quizzes: name the tone, pick the matching Bopomofo (level 3), or the tone rules (level 3, ?quiz=rule: a short phrase with 3-3 sandhi, 不, or 一; one syllable is marked, and you give the tone it is said with, 1-4; the written tone has a "written" tag). After a rule answer, the app states the rule and says if you read the written tone or changed a tone that stays. ?learn=1 shows the rule and the answer first; ?rules=3-3,bu,yi limits the rules. After an answer, compare the tones of the same syllable. Only the open quizzes show. |
-| Dictation | Random symbols without end: hear a symbol name, then write the symbol by hand. Stroke order counts. After Show strokes, you still write the symbol yourself, and the card counts as not known yet. |
-| Speaking | A quiz: one card at a time, hold R (or the button) while you read it aloud, then let go (or upload a recording). A local speech model checks each syllable: initial, final, and tone. It shows your pitch curve against the target tone shapes. The Bopomofo shows the written (dictionary) tone, so before you record a sentence, a "Tone changes" panel lists each syllable that a rule changes (我 ㄨㄛˇ → ㄨㄛˊ, 3-3 rule). When you read the written tone, the result says so and states the rule ("You read the written tone (ㄨㄛˇ, tone 3). 我 is written tone 3, but here you say it as tone 2. 3-3 rule: ..."). The Cheat button (Space) plays the model and unlocks the slow audio and the Pinyin; the recordings after it count as helped in the stats. Cards: single syllables and tone-rule phrases (level 3, ?source=rule), your sentences (level 4), or any text you type (level 5). |
-| Writing | Hear a sound and write the Bopomofo by hand on one ruled sheet, left to right, with a small space between symbols and the tone mark after each syllable. The app splits the ink into symbols and tone marks (bars under the writing show the split), lines them up with the answer, and corrects each one: wrong symbol, stroke order, direction, missing, extra, joined strokes, shape. Missing symbols show as pink ghosts. Modes: single symbols, syllables with tone marks, and words from your sentences. Watch the correct stroke order after each answer. |
-| Recognize | Symbol recall with no microphone. The symbol pronunciation plays after a correct answer. A symbol is shown, and you type its pinyin with your own keyboard (b or bo for ㄅ, zh for ㄓ, v or ü for ㄩ, eh or ê for ㄝ). A wrong answer shows which symbol your pinyin stands for, and the stats save it as that symbol (ㄓ typed as z = ㄗ). Text that is the pinyin of no symbol is refused and does not count. Space shows the answer; after it, you still type the answer, or skip with →. ?learn=1 shows the answer from the start for repetition. |
-| Symbols | The 37 symbols and 5 tones, with official MOE recordings and animated stroke order. Each symbol shows if you know it, are learning it (with its count of repetitions), or have not practiced it yet. P shows or hides the Pinyin hints. |
-| Sentences | Generates short Taiwan Mandarin sentences on any topic (OpenRouter, deepseek/deepseek-v4.1-flash), at your level and about your own life (from your profile). Each sentence has Bopomofo beside the characters (Taiwan style), English, word glosses, and audio (normal and slow). Z switches between Bopomofo, Pinyin, and characters only. Click a character to hear it. Quick lookup: paste any Chinese text to get Bopomofo, audio, and a translation. Sentences are saved in a library. |
-| Profile | Facts about you in English (name, job, city, family, hobbies, level...). Generated sentences use them. Leave a field empty to skip it. |
-| Settings | AI energy, voice, theme (dark or light), daily goal, time zone, and sound effects. The daily goal and the time zone are saved with your account, so they are the same on every device. |
+Speech recognition and voice synthesis run locally on the CPU through ONNX Runtime. Sign-in uses Clerk. Sentence and coach generation use OpenRouter and can include your profile fields and practice statistics. The app is not fully offline.
 
-Keyboard: G then a letter = go to a page (G H Home, G V Levels, G C Coach, G T Stats, G R Reading, G L Listening, G D Dictation, G S Speaking, G W Writing, G I Recognize, G B Symbols, G E Sentences, G P Profile, G , Settings; only open pages), Ctrl+K = commands, ? = all shortcuts, M = sounds on or off, Alt+Enter = full screen. In the practice modes: Space = play, Enter = check / next, hold R = record (Reading, Speaking), Ctrl+Z = undo stroke (Writing), 1-4 = answer (Listening). In Recognize, the letters type pinyin: Esc leaves the answer field so the app keys work, and Enter goes back to it.
+## Find your way through the code
 
-## How it works
+```text
+backend/
+  app/api/         HTTP routes
+  app/coach/       Planning, validation, progress, and jobs
+  app/story/       Evidence and plan explanations
+  app/migrations/ PostgreSQL schema
+  app/            Speech, scoring, storage, and learning rules
+  tests/          Domain, API, database, and speech tests
+  tools/          Model preparation and diagnostics
+frontend/
+  src/app/        Next.js routes
+  src/components/ Practice screens and local views
+  src/lib/api/    Transport, events, audio, and typed contracts
+  src/lib/        Scheduling, input, audio capture, and UI state
+docs/             Setup, architecture, configuration, and operations
+```
 
-- **Speech model:** [Chuatury/wav2vec2-mms-1b-cmn-phonetic](https://huggingface.co/Chuatury/wav2vec2-mms-1b-cmn-phonetic), exported to ONNX and run on the CPU with ONNX Runtime. It outputs Bopomofo with tones per syllable. About 0.5 s of processing for a 2.5 s sentence on the Snapdragon X2 Elite. License: CC-BY-NC-4.0 (personal use).
-- **Symbol names (Reading):** free transcription is weak on one short sound, so the backend asks a narrower question: which of the 37 symbol names fits the audio best (backend/app/symbols.py). Each name gets a CTC score from the speech model, without tones, and the best name wins.
-- **Press and hold to record (frontend/src/lib/holdmic.ts):** Reading, Speaking, and the placement test record while a key or the button is held. The microphone stays open while the page is shown, and each recording keeps 0.5 s of audio from before the press and 0.35 s after the release, so a b or p said at the same moment as the press is not cut. Echo cancellation and noise suppression are off, because they can weaken the short burst of b, p, d, and t after a silence; the app stops its own audio at the press. When the browser has not allowed the microphone yet, the first press only turns it on. In the hands-free mode of Reading, the browser detects each utterance and sends it with 0.3 s of audio before and after it.
-- **Tones on single syllables:** the model labels many Taiwan-style low-falling tone 3 syllables as tone 4. The backend learns your pitch range from your sentence recordings and corrects these cases. Measured on 198 isolated syllables (two Taiwan TTS voices): 161 correct (81%). Most remaining errors are TTS tone-1 clips that fall in pitch. Record one sentence before single-syllable practice.
-- **Bopomofo for text:** pypinyin with Taiwan (MOE) corrections for common words (星期 ㄑㄧˊ, 垃圾 ㄌㄜˋ ㄙㄜˋ, 誰 ㄕㄟˊ...), and neutral-tone dots in front (˙ㄇㄚ). Some readings can still follow mainland usage.
-- **Audio:** offline voices: Kokoro v1.1-zh (female, default, and male) and MediaTek Breeze2-VITS (Taiwan accent). Kokoro's downloaded model includes its Apache-2.0 license. The Breeze2 ONNX model card currently has no license metadata; verify the weight terms before commercial deployment. Choose a voice in Settings. On test sentences the speech model scored Kokoro 93-100 and Breeze2 87-100 (average 93). Breeze2 runs directly on ONNX Runtime with the app's own Zhuyin analyzer, because the sherpa-onnx text front end merged and dropped its syllables. setup.cmd downloads the voices (backend/tools/download_voices.py) into backend/models. Audio is cached per user in backend/data/tts/<user id>; "Clear audio cache" in Settings deletes only your own clips.
-- **Writing data:** stroke outlines and centerlines from the Taiwan Ministry of Education 國語注音符號手冊; stroke counts match the handbook for all 37 symbols.
-- **Data:** PostgreSQL (DATABASE_URL): sentences, practice history, coach plans, profile, settings, and your pitch reference, per user. backend/data keeps only the audio cache. Git ignores this folder.
-- **Time zone:** each learner's settings (meta key "settings": time zone, daily goal, level, onboarding answers) set where their day starts. The day of each answer, the streak, "today" in the stats and the coach, the hours chart, and the CSV times use it. Change it in Settings. A learner without one uses DEFAULT_TIMEZONE (UTC).
-- **Users:** sign-in is Clerk. The frontend sends the Clerk session token with every API request, and the backend checks it (backend/app/auth.py). Every table has a user_id column, and PostgreSQL row-level security shows each request only the rows of its user (backend/app/db.py). /api/health and /api/tts/voices are open without sign-in. /api/tts needs a sign-in too: the browser fetches each clip with the token and plays it from memory (frontend/src/lib/audio.ts).
-- **Limits:** each user has a daily AI energy meter (backend/app/limits.py, table usage_log). New sentences, translations, coach plans, checkpoints, and stories use it. When it is empty, the top bar and the screen show a countdown to midnight in the learner's time zone; AI buttons stay locked until the server confirms the refill, while saved sentences and practice keep working. A new audio clip limit uses the last 24 hours. Above a limit the API answers 429. Request bodies are limited to 1 MB (16 MB for audio uploads), and a recording must be 30 s or shorter in its header before it is decoded. See Configuration for the values.
-- **Practice history:** one row per answer in "events" (area, mode, item, right or wrong, time to answer, tries, help, replays), and one row per part of the answer in "units": the expected tone, initial, final, symbol, syllable, or stroke, and what you actually produced. Speaking also saves the tone before and after, the tone change, and which signal judged the tone. "days" keeps your active minutes per day.
-- **Days and time zones:** each user has a time zone (set in the onboarding or in Settings). Your day starts at midnight there, and the streak, the daily goal, the stats per day and per hour, the daily challenges, and the coach all follow it. A user without a time zone gets DEFAULT_TIMEZONE.
-- **Coach (backend/app/coach/):** a pipeline of small model decisions, all logged in the "coach_calls" table with model, time, and cost. 1) Five analysts in parallel (listening tones, speaking tones, sounds, symbols, sentences) and a pace call. 2) A planner turns the findings into steps. 3) For each step: a writer makes new sentences for an exact focus (tones, tone pairs such as 3-3, symbols); the app's Bopomofo analyzer checks each sentence and sends rejected ones back with the reason. A picker chooses the exact syllables of a drill deck, and the app checks that the deck holds every focus tone. 4) A reviewer keeps, drops, or changes each step, and a milestone call sets the long goals. The backend checks every decision: unknown symbols are dropped, targets are clamped, a checkpoint can only shrink a focus to a subset, and a listening quiz keeps at least two tones. If the model fails, a plan is built by rules. A plan costs about $0.05 and takes 40-50 s; a checkpoint costs about $0.003 and takes 4-14 s. Steps open practice modes with ?step= (answers carry the step id), ?items= (a deck), and ?ids= (sentences). The first plan waits for the onboarding, so it can use your level, goal, and reasons.
-- **Recognize (frontend/src/lib/pinyin.ts):** every symbol has one pinyin answer and the syllable it is named with (ㄅ b / bo, ㄧ i / yi / y), and no two symbols share a spelling. So a wrong answer always names the symbol you took it for, and each try is saved as a symbol unit with that symbol as "actual" and the typed text in "extra". The coach sees these mix-ups (symbols.recognize_mixups) and can plan recognize_symbols steps with both symbols of a pair.
-- **Alphabet rule:** the 37 symbols come first. This is a rule in code, not a model decision. A symbol is known when you say it, type its pinyin (Recognize), or write it right on the first try, without help, in the last 2 answers and in 80% of the last 5. While you know fewer than 30 symbols, every plan starts with the next group of symbols to learn (the weakest symbols already seen, then at most 4 new ones), and drills that show Bopomofo wait. A new symbol starts with 10 repetitions with the answer shown; recall tests start after that.
-- **Tone rules (backend/app/zhuyin.py):** the Bopomofo shows the written tone, but three rules change the tone that is said: 3-3 (tone 3 before tone 3 is said tone 2), 不 (tone 2 before tone 4), and 一 (tone 2 before tone 4, tone 4 before tones 1-3). apply_sandhi tags each changed syllable with its rule. Each answer on a rule syllable (rule quiz or any recording) is saved as a sandhi unit with the error kind: literal (you read the written tone), over (you changed 不 or 一 where it stays), or other. GET /api/rules gives the rules and the practice phrases. Rule gate: this is a rule in code, like the alphabet rule. When the tone rule exercises are open and a rule is not known yet (under 3 stars in the rule quiz and in the rule phrases said aloud), every plan starts with tone_rules steps (learn mode for rules never practiced, then from memory, then aloud), and sentence steps wait. The coach sees per rule the accuracy, the error kinds, and the hardest characters (tone_rules in the digest), can plan tone_rules steps, and the plan story can cite the rule facts.
-- **Levels (backend/app/levels.py):** a guided path of 5 levels. 1 Read the alphabet: Symbols, Reading, Recognize, tone quiz. 2 Write the alphabet: Dictation, Write symbols. 3 Syllables: Bopomofo quiz, Write syllables, Say syllables, and the tone rules (3-3 sandhi, 不, 一) by ear and aloud. 4 Words and sentences: Say sentences, Write words, Sentences. 5 Free speaking. Level 1 gives the symbols in chapters: initials, then medials, then finals; a chapter opens when 80% of the one before has two stars. Each item (a symbol or a tone) has stars per exercise, from tests only (first try, no help, not in learn mode): ★ seen; ★★ at least 5 tests (10 for the quizzes) and 90% right in the last 10 (20 for the quizzes; 85% for speaking); ★★★ also a median time of the right answers at or below the speed limit (the quizzes 4 s; exercises without a timer use accuracy only) and right answers on 2 different days. The alphabet exercises of levels 1 and 2 (Reading, Recognize, Dictation, Write symbols) ask less, so a learner who knows the alphabet moves on in one short session: ★★ at 3 tests and 80% right in the last 10, ★★★ also under the speed limit (Recognize 4 s, Reading 5 s) on one day. Practice time alone never counts. A level opens when the goals of the level before it are met, for example 30 of the 37 symbols at ★★★ in Reading or Recognize (levels 1 and 2), and 34 of 37 in the syllable exercises (level 3). Learners who said they read Bopomofo, or who met the level 1 goal in the placement test, skip the 2-day rule for the alphabet. Unlocks are permanent (table level_unlocks). When a known item drops (under 80% right, or 25% slower than the limit), the learner gets a message and the next plan starts with a short review of it. The coach model sees only the open exercises, and code removes any step, milestone, weak spot, or challenge of a locked exercise. Open steps of a locked exercise (plans from before the levels) are closed as "not unlocked yet". GET /api/levels returns the path, the goals, and the stars. The speed limits are first estimates, not yet checked on real answers. The stars come from one summary row per exercise and item (table level_items: counts, right days, the last tests). Each answer updates only the rows of the items it tests, so the level check does not read the history and stays fast after years of practice. The history of a learner is read once, to build the summaries.
-- **Placement test (backend/app/placement.py):** the test only fills the stats and loads the level before the first plan. The answers are normal Recognize and Speaking answers, so they count in the stats and the stars. There is no pass mark and no minimum number of recordings: an item the learner did not answer is not proven. POST /api/placement/finish reads only the learner's own answers of the last 6 hours, by event id, first recordings only. A symbol is proven when it is typed right; in the voice parts, a symbol or a tone is proven when it is more often right than wrong. The proven items are compared with the goals of the levels: the level 1 goal (30 of 37 symbols typed right) opens level 2, and the coach counts those symbols as known until the last 2 answers in one direction are wrong. Also the level 3 goals for sounds and tones met in the syllables (34 of 37 symbols, the 4 tones): level 3. Also the level 4 goal met in the sentences (the 5 tones): level 4. Level 5 needs the normal goals. The alphabet part taken, or a symbol proven by voice, opens every alphabet chapter. The browser keeps a draft for 5 hours, so the learner can stop and come back. The test only adds unlocks and runs once (409 after). The coach sees the result in overview.placement.
-- **Plan story (backend/app/story.py):** the model writes the headline and the "How do we know?" cards from a fixed catalog of blocks (text, numbers, charts, symbols). It never writes a number itself: it points to facts that the backend computed from the plan's saved stats, and the backend fills them in. If the model is not available, a fixed story is built from the same facts.
-- **Card order (frontend/src/lib/review.ts):** every practice mode uses one scheduler: a working set of 5 items, repeated at growing gaps, and reviews due from earlier days (10 minutes, then 1, 3, 7, 16, 35, 80, 180 days). Weak items come more often, but never alone. With a focus (a coach step or a "Train" link), about 30% of the cards come from the other items of the mode, and at most 4 focus cards come in a row. Without a focus, 20% of the repeated cards go to another item already met, and at most 4 cards in a row are items missed in this session. In both cases, when the last 8 cards hold fewer than 4 different items, the next card is another one. An item missed again and again comes back after 1, then 3, then 5 other cards. Cards from outside a focus do not count for the coach step. Learn mode, coach sentence decks, and tone rule phrases keep their exact items.
+The backend uses FastAPI and PostgreSQL with per-user row-level security. The frontend uses Next.js, React, and TypeScript. Model output passes fixed checks before it can become a plan or explanation.
 
-## Configuration
+Read [architecture](docs/architecture.md) for module ownership and behavior rules. Read [configuration](docs/configuration.md) for environment variables, limits, and model paths. Existing server operations are described in [deployment](docs/deployment.md).
 
-backend/.env:
+## Work on the project
 
-    OPENROUTER_API_KEY=sk-or-...
-    OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
-    COACH_MODEL=typesafe/jev-router    # optional; the coach falls back to OPENROUTER_MODEL
-    DATABASE_URL=postgresql://bopomofo_app:...@127.0.0.1:5432/bopomofo
-    TEST_DATABASE_URL=postgresql://bopomofo_app:...@127.0.0.1:5432/bopomofo_test
-    CLERK_SECRET_KEY=sk_test_...
-    CLERK_AUTHORIZED_PARTIES=https://bopomofo.app   # production: the frontend origins
-    DEFAULT_TIMEZONE=UTC                            # optional; for users who have not chosen a time zone yet
-    AI_DAILY_LIMIT_USD=1                            # optional; AI spend per user each local day, refilled at midnight
-    AI_DAILY_CALLS=400                              # optional; AI calls per user each local day, refilled at midnight
-    TTS_DAILY_CLIPS=3000                            # optional; new audio clips per user in 24 hours (replays are free)
-    TTS_CACHE_MB_PER_USER=200                       # optional; audio cache per user; the clips used least recently go first
+From `frontend/`:
 
-frontend/.env.local (written by `clerk env pull`):
+```sh
+bun install --frozen-lockfile
+bun run check
+bun run build
+```
 
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
-    CLERK_SECRET_KEY=sk_test_...
-    NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-    NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-    NEXT_PUBLIC_API_URL=https://api.bopomofo.app    # optional; default: the page's host on port 8765
+The build needs your Clerk configuration. Backend checks need a separate test database. Tests erase its learner tables. [CONTRIBUTING.md](CONTRIBUTING.md) has the exact commands and separates fast tests from tests that need speech weights or remote generation.
 
-## Database
+Refactors must preserve API responses, grading rules, prompts, keyboard actions, saved keys, and background work. The [cleanup verification record](docs/cleanup-verification.md) states what was checked and what still needs a device or signed-in browser.
 
-PostgreSQL 14 or newer. The backend applies backend/app/migrations/*.sql in order when it starts (table schema_migrations).
+## Project status and reuse
 
-The app role must own the database and must not be a superuser or have BYPASSRLS: those roles skip row-level security, so every user would see all data. The backend refuses to start with such a role. As the postgres superuser:
+The repository is being prepared for public collaboration. A source license has not yet been selected. The speech model has noncommercial terms, and some bundled media and voice assets still need an attribution and redistribution review.
 
-    CREATE ROLE bopomofo_app LOGIN PASSWORD '...' NOSUPERUSER NOBYPASSRLS;
-    CREATE DATABASE bopomofo OWNER bopomofo_app;
-    CREATE DATABASE bopomofo_test OWNER bopomofo_app;
-
-On a hosted PostgreSQL (Neon, Supabase, RDS...), create the same kind of role; the default admin role often has BYPASSRLS. Add ?sslmode=require (or verify-full) to a remote DATABASE_URL.
-
-To move your old SQLite history (backend/data/zhuyin.db) into PostgreSQL, sign up in the app and finish the onboarding, find your user id (`clerk users list`), then:
-
-    cd backend && .venv\Scripts\python tools\import_sqlite.py --user user_...
-
-It copies everything in one transaction, with new row ids and every link between rows kept. The imported plans replace the first plan of the onboarding; the onboarding answers stay, and the old profile fills the facts left empty. It also copies backend/data/speaker.json (your pitch reference).
-
-## Sign-in
-
-Clerk app: bopomofo.app (app_3KWA4ktlOfTZ3w6bU2m7u62MJkC), linked with `clerk link`. `clerk env pull --file frontend/.env.local` writes the development keys; rename CLERK_PUBLISHABLE_KEY to NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY if the CLI did not detect Next.js. For production, run `clerk deploy`, use the production keys (`clerk env pull --instance prod`), and set CLERK_AUTHORIZED_PARTIES. frontend/src/proxy.ts sends signed-out visitors to /sign-in.
-
-## Production
-
-The frontend runs on Vercel (project bopomofo, team the-tech-nation), connected to this repository with frontend/ as the root directory: every push to main deploys it. The API runs on the VPS behind Caddy at https://api.bopomofo.app, with its settings in /etc/bopomofo/api.env. It has two systemd slots, bopomofo-api@8765 and bopomofo-api@8766; one serves, and /etc/caddy/bopomofo-api-upstream (imported in the api.bopomofo.app block of the Caddyfile) names its port.
-
-New commits on main also deploy the API, without downtime. Every minute, bopomofo-deploy.timer runs `bopomofo-deploy poll`, which fetches the repository with a read-only deploy key. When backend/ or frontend/public/data/ (the syllables the coach reads) changed, it copies both into /opt/bopomofo/releases, installs backend/requirements.txt in a Python environment (reused while the file stays the same), and runs the tests on bopomofo_test, without the speech tests and the live OpenRouter test. Then it starts the new release in the idle slot while the other keeps serving, and waits until the speech model is ready and a request without a token gets 401. Caddy reloads with the new port (requests in progress finish on the old one), https://api.bopomofo.app must answer, and the old slot stops after finishing its requests (at most 60 s). If any step fails, the new slot stops and the old one keeps serving; the commit gets a failed "deploy/api" status on GitHub. A rollback runs the previous release the same way. Coach work running in the background of the old slot (sentence generation) is lost at the switch. Migrations run when the new release starts, while the old one still serves, and a rollback does not undo them, so keep them compatible with the previous code.
-
-    sudo bopomofo-deploy status                  # running commit, previous release, last commit seen
-    sudo bopomofo-deploy deploy origin/main      # deploy now (also a branch or a SHA)
-    sudo bopomofo-deploy rollback                # back to the previous release
-    journalctl -u bopomofo-deploy -f             # deploy log
-
-To set this up on a new VPS, run `sudo deploy/vps/install.sh` and follow what it prints; it also points the api.bopomofo.app block of the Caddyfile at the upstream file. The speech and voice models stay in /opt/bopomofo/shared/models, outside the releases.
-
-## Speech model
-
-backend/models/ must contain wav2vec2-cmn-phonetic.onnx, wav2vec2-cmn-phonetic.onnx.data (3.6 GB), and vocab.json. vocab.json is in the repository. To create the two ONNX files (downloads about 4 GB from Hugging Face, takes some minutes):
-
-    cd backend
-    uv venv .venv-export --python 3.12
-    uv pip install --python .venv-export/bin/python -r tools/requirements-export.txt
-    .venv-export/bin/python tools/export_model.py
-    .venv-export/bin/python tools/quantize_model.py
-
-On Windows, use `.venv-export\Scripts\python.exe` in place of `.venv-export/bin/python` (the pinned CPU PyTorch wheel exists for Windows ARM64, Windows x64, and ARM64 Linux). The quantize step is optional: it writes `wav2vec2-cmn-phonetic.int8.onnx` plus its weights file. The API uses FP32 when present, for better accuracy on quiet microphones, and int8 only when FP32 is absent; `ASR_MODEL_FILE` chooses explicitly. On the ARM VPS, int8 was about 3× faster and 75% smaller, but failed the quiet-microphone threshold (10 misses vs 5 allowed), while FP32 passed. You can delete .venv-export after the export.
-
-## Speech and voice runtime
-
-The speech model and the voices run on ONNX Runtime on the CPU on both machines; only the tuning differs. backend/app/runtime.py holds the two profiles, and the backend prints the active one when it starts ("Speech runtime local: …").
-
-| SPEECH_RUNTIME | Where | Speech model | Voices |
-|---|---|---|---|
-| local | this laptop (Windows ARM64, Snapdragon X2 Elite); start.cmd sets it | FP32 on every core | 8 threads |
-| vps | the ARM production server; deploy/vps/bopomofo-api.service sets it | FP32 on at most 4 threads | at most 4 threads |
-
-Without SPEECH_RUNTIME, Linux uses vps and every other system uses local. ASR_NUM_THREADS, TTS_NUM_THREADS, and ASR_MODEL_FILE change one value of the profile. The NPU (QNN) was not reliable for the full speech model on this laptop, so both profiles use the CPU.
-
-## Tests
-
-    cd backend && .venv\Scripts\python -m pytest -q tests      # speech, text, tracking, per-user data, sign-in, coach (no network), live OpenRouter
-    cd frontend && bun test src/lib                               # stroke engine, pinyin answers
-
-The database tests empty the tables of TEST_DATABASE_URL first. They never use DATABASE_URL.
-
-## Limits
-
-- The speech model is the best open model I found for syllable-level Mandarin, but it is not perfect: check uncertain results by ear.
-- Tone accuracy was measured on TTS voices, not on human learners.
-- The writing checker compares stroke centerlines; it does not judge hooks and flicks at stroke ends (the MOE notes for these are shown as text).
+Read [licensing and asset status](docs/licensing.md) before redistributing the project. Public release also needs a review of tracked files and Git history for private material. This cleanup does not claim to complete those release checks.
