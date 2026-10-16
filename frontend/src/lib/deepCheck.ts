@@ -7,8 +7,13 @@ export const DEEP_POLLS = 8;
 const sleep = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
 
 /** Ask for the deep check until it is ready. Stops early, with null, as soon as still() is false (the card changed). */
-export async function pollDeepCheck(get: () => Promise<DeepCheck | null>, still: () => boolean,
-  wait: (ms: number) => Promise<void> = sleep, polls = DEEP_POLLS, ms = DEEP_POLL_MS): Promise<DeepCheck | null> {
+export async function pollDeepCheck(
+  get: () => Promise<DeepCheck | null>,
+  still: () => boolean,
+  wait: (ms: number) => Promise<void> = sleep,
+  polls = DEEP_POLLS,
+  ms = DEEP_POLL_MS,
+): Promise<DeepCheck | null> {
   for (let i = 0; i < polls; i++) {
     await wait(ms);
     if (!still()) return null;

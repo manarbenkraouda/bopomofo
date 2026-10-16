@@ -16,7 +16,13 @@ export const metadata: Metadata = {
 
 // viewportFit "cover": the app draws under the phone's notch and home bar; the shell keeps clear of them with safe-area padding.
 // interactiveWidget "resizes-content": on Android the page shrinks above the keyboard, so nothing hides behind it.
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#141218", interactiveWidget: "resizes-content" };
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#141218",
+  interactiveWidget: "resizes-content",
+};
 
 // Set the saved theme before the first paint, so the page does not flash.
 const THEME = "try{document.documentElement.dataset.theme=localStorage.getItem('zhuyin.theme')||'dark'}catch(e){}";

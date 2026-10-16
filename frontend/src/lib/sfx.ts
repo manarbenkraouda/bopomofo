@@ -14,10 +14,18 @@ const subs = new Set<(ms: number) => void>();
 /** Called with the length of each effect that plays, so a microphone can ignore it. */
 export function onSfx(fn: (ms: number) => void) {
   subs.add(fn);
-  return () => { subs.delete(fn); };
+  return () => {
+    subs.delete(fn);
+  };
 }
 
-function note(c: AudioContext, freq: number, at: number, dur: number, opts: { type?: OscillatorType; gain?: number; slideTo?: number; lowpass?: number } = {}) {
+function note(
+  c: AudioContext,
+  freq: number,
+  at: number,
+  dur: number,
+  opts: { type?: OscillatorType; gain?: number; slideTo?: number; lowpass?: number } = {},
+) {
   const t = c.currentTime + at;
   const osc = c.createOscillator();
   const g = c.createGain();
@@ -76,4 +84,3 @@ function play(kind: Sfx): number {
   note(ctx, 1320, 0, 0.05, { type: "sine", gain: 0.05 });
   return 60;
 }
-

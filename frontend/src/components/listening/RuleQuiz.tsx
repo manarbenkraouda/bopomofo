@@ -27,7 +27,8 @@ const KEEP: Partial<Record<RuleId, string>> = {
 /** The explanation of one phrase: what is written, what is said, and why. */
 export function ruleLine(p: RulePhrase, rules: Rules): string {
   const r = rules[p.rule];
-  if (p.changes) return `${p.char} is written ${p.zhuyin} (tone ${p.written}), but here you say ${p.said_zhuyin} (tone ${p.said}). ${r.name}: ${r.short}`;
+  if (p.changes)
+    return `${p.char} is written ${p.zhuyin} (tone ${p.written}), but here you say ${p.said_zhuyin} (tone ${p.said}). ${r.name}: ${r.short}`;
   if (KEEP[p.rule]) return KEEP[p.rule]!;
   return `${p.char} keeps its written tone 3 here: the next syllable is not tone 3. ${r.name}: ${r.short}`;
 }
@@ -52,9 +53,18 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
   const { review, ready } = useReview("listening", "rule");
 
   useEffect(() => {
-    api.rules().then((r) => { setRules(r.rules); setPhrases(r.phrases); }).catch((e) => setError((e as Error).message));
+    api
+      .rules()
+      .then((r) => {
+        setRules(r.rules);
+        setPhrases(r.phrases);
+      })
+      .catch((e) => setError((e as Error).message));
   }, []);
-  const matching = useMemo(() => phrases.filter((p) => !focus.rules.length || focus.rules.includes(p.rule)), [phrases, focus]);
+  const matching = useMemo(
+    () => phrases.filter((p) => !focus.rules.length || focus.rules.includes(p.rule)),
+    [phrases, focus],
+  );
   const pool = matching.length ? matching : phrases;
 
   const next = useCallback(() => {
@@ -69,31 +79,82 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
     if (learn) playAudio(ttsUrl(p.text));
   }, [pool, review, learn]);
 
-  useEffect(() => { if (pool.length && ready) next(); }, [pool, ready]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => () => { if (advance.current) clearTimeout(advance.current); }, []);
+  useEffect(() => {
+    if (pool.length && ready) next();
+  }, [pool, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(
+    () => () => {
+      if (advance.current) clearTimeout(advance.current);
+    },
+    [],
+  );
 
-  const choose = useCallback((tone: number) => {
-    if (!q || picked !== null) return;
-    setPicked(tone);
-    const ok = tone === q.said;
-    // literal: picked the written tone where the rule changes it. over: changed 不 or 一 where the tone stays.
-    const error = ok ? null : q.changes && tone === q.written ? "literal" : !q.changes && q.rule !== "3-3" ? "over" : "other";
-    review().answer(q.text, ok, !learn);
-    setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
-    api.event({ area: "listening", mode: "rule", item: q.text, ok, first_try: ok && !learn, ms: since(shownAt.current), replays: replays.current, help: learn,
-      units: [{ kind: "sandhi", expected: q.rule, actual: tone, ok, ctx: q.char, lex: q.written, help: learn,
-        extra: { said: q.said, error, zhuyin: q.zhuyin } }],
-      details: { picked: tone, focus: focus.active ? focus.label : undefined, learn: learn || undefined } });
-    playSfx(ok ? "right" : "wrong");
-    playAudio(ttsUrl(q.text));
-    // Right: move on by itself. Wrong: wait, so the learner can read the rule.
-    if (ok) advance.current = setTimeout(next, learn ? 1400 : 1800);
-  }, [q, picked, review, learn, focus, next]);
+  const choose = useCallback(
+    (tone: number) => {
+      if (!q || picked !== null) return;
+      setPicked(tone);
+      const ok = tone === q.said;
+      // literal: picked the written tone where the rule changes it. over: changed 不 or 一 where the tone stays.
+      const error = ok
+        ? null
+        : q.changes && tone === q.written
+          ? "literal"
+          : !q.changes && q.rule !== "3-3"
+            ? "over"
+            : "other";
+      review().answer(q.text, ok, !learn);
+      setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
+      api.event({
+        area: "listening",
+        mode: "rule",
+        item: q.text,
+        ok,
+        first_try: ok && !learn,
+        ms: since(shownAt.current),
+        replays: replays.current,
+        help: learn,
+        units: [
+          {
+            kind: "sandhi",
+            expected: q.rule,
+            actual: tone,
+            ok,
+            ctx: q.char,
+            lex: q.written,
+            help: learn,
+            extra: { said: q.said, error, zhuyin: q.zhuyin },
+          },
+        ],
+        details: { picked: tone, focus: focus.active ? focus.label : undefined, learn: learn || undefined },
+      });
+      playSfx(ok ? "right" : "wrong");
+      playAudio(ttsUrl(q.text));
+      // Right: move on by itself. Wrong: wait, so the learner can read the rule.
+      if (ok) advance.current = setTimeout(next, learn ? 1400 : 1800);
+    },
+    [q, picked, review, learn, focus, next],
+  );
 
   useHotkeys("rules", [
-    ...ANSWER_KEYS.map((keys, i) => ({ keys, label: "Tone " + (i + 1), run: () => choose(i + 1), when: !!q && picked === null, bar: false })),
+    ...ANSWER_KEYS.map((keys, i) => ({
+      keys,
+      label: "Tone " + (i + 1),
+      run: () => choose(i + 1),
+      when: !!q && picked === null,
+      bar: false,
+    })),
     { keys: [], label: "Answer", show: ["1-4", "/", "A S D F"], when: !!q && picked === null },
-    { keys: ["Space"], label: "Hear it", run: () => { if (q) { if (picked === null) replays.current += 1; playAudio(ttsUrl(q.text)); } }, when: !!q && (learn || picked !== null) },
+    {
+      keys: ["Space"],
+      label: "Hear it",
+      run: () => {
+        if (q) {
+          if (picked === null) replays.current += 1;
+          playAudio(ttsUrl(q.text));
+        }
+      },
+      when: !!q && (learn || picked !== null),
+    },
     { keys: ["Enter", "KeyN"], label: "Next", run: next, when: picked !== null },
     ...hotkeys,
   ]);
@@ -108,19 +169,45 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
       <div className="chips flex gap-2 items-center flex-wrap">
         {chips}
         <FocusChip focus={focus} empty={focus.active && !matching.length} />
-        <div className="ml-auto text-sm text-muted"><b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}% of {score.n}</div>
+        <div className="ml-auto text-sm text-muted">
+          <b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}% of{" "}
+          {score.n}
+        </div>
       </div>
       {error && <div className="card p-3 text-sm text-bad">{error}</div>}
       {q && rules && rule && (
-        <div className={"card stage border-2 p-5 md:p-8 flex flex-1 flex-col items-center justify-center gap-5 md:gap-6 transition-colors duration-300 " + (picked === null ? "border-line" : right ? "border-ok bg-ok/5" : "border-bad/60 bg-bad/5")}>
-          <StatusPill status={picked === null ? (learn ? "listening" : "writing") : right ? "right" : "wrong"}
-            label={picked === null ? (learn ? "Learn the rule, then pick the tone you say" : "Which tone do you say?") : right ? "Correct!" : "Not quite"} />
+        <div
+          className={
+            "card stage border-2 p-5 md:p-8 flex flex-1 flex-col items-center justify-center gap-5 md:gap-6 transition-colors duration-300 " +
+            (picked === null ? "border-line" : right ? "border-ok bg-ok/5" : "border-bad/60 bg-bad/5")
+          }
+        >
+          <StatusPill
+            status={picked === null ? (learn ? "listening" : "writing") : right ? "right" : "wrong"}
+            label={
+              picked === null
+                ? learn
+                  ? "Learn the rule, then pick the tone you say"
+                  : "Which tone do you say?"
+                : right
+                  ? "Correct!"
+                  : "Not quite"
+            }
+          />
           {(learn || picked !== null) && (
-            <div className={"max-w-2xl w-full rounded-xl border px-4 py-3 text-sm md:text-base cjk " + (picked !== null && !right ? "border-bad/40 bg-bad/5" : "border-accent/40 bg-accent/5")}>
+            <div
+              className={
+                "max-w-2xl w-full rounded-xl border px-4 py-3 text-sm md:text-base cjk " +
+                (picked !== null && !right ? "border-bad/40 bg-bad/5" : "border-accent/40 bg-accent/5")
+              }
+            >
               {picked !== null && !right && (
                 <div className="font-semibold mb-1">
-                  {q.changes && picked === q.written ? `You picked the written tone (${q.zhuyin}). The rule changes it here.`
-                    : !q.changes ? `You changed the tone, but here it stays ${q.zhuyin}.` : `You picked tone ${picked}.`}
+                  {q.changes && picked === q.written
+                    ? `You picked the written tone (${q.zhuyin}). The rule changes it here.`
+                    : !q.changes
+                      ? `You changed the tone, but here it stays ${q.zhuyin}.`
+                      : `You picked tone ${picked}.`}
                 </div>
               )}
               <div>{ruleLine(q, rules)}</div>
@@ -131,17 +218,38 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
             <ZhuyinText items={q.items} annot="zhuyin" size={64} marks={marks} />
             <div className="text-muted">{q.english}</div>
           </div>
-          <div className="text-muted text-center cjk">How do you say <b className="text-ink text-lg">{q.char}</b> in {q.text}?</div>
+          <div className="text-muted text-center cjk">
+            How do you say <b className="text-ink text-lg">{q.char}</b> in {q.text}?
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 w-full max-w-3xl">
             {[1, 2, 3, 4].map((t, i) => {
-              const isAns = t === q.said, show = picked !== null || learn;
-              const isRight = show && isAns, wrong = picked === t && !isAns;
+              const isAns = t === q.said,
+                show = picked !== null || learn;
+              const isRight = show && isAns,
+                wrong = picked === t && !isAns;
               const fx = picked === t ? fxClass(isAns ? "right" : "wrong") : "";
               return (
-                <button key={t} onClick={() => choose(t)} className={"tile relative rounded-2xl border-2 px-4 pb-4 pt-6 md:pt-8 text-center transition " + fx + " " +
-                  (isRight ? "border-ok bg-ok/10" : wrong ? "border-bad bg-bad/10" : picked !== null ? "border-line bg-card opacity-60" : "border-line bg-card hover:border-accent hover:-translate-y-0.5")}>
+                <button
+                  key={t}
+                  onClick={() => choose(t)}
+                  className={
+                    "tile relative rounded-2xl border-2 px-4 pb-4 pt-6 md:pt-8 text-center transition " +
+                    fx +
+                    " " +
+                    (isRight
+                      ? "border-ok bg-ok/10"
+                      : wrong
+                        ? "border-bad bg-bad/10"
+                        : picked !== null
+                          ? "border-line bg-card opacity-60"
+                          : "border-line bg-card hover:border-accent hover:-translate-y-0.5")
+                  }
+                >
                   {isAns && picked === t && <Burst count={12} distance={90} />}
-                  <span className="absolute left-3 top-3 flex gap-1"><Kbd>{i + 1}</Kbd><Kbd>{ANSWER_LETTERS[i]}</Kbd></span>
+                  <span className="absolute left-3 top-3 flex gap-1">
+                    <Kbd>{i + 1}</Kbd>
+                    <Kbd>{ANSWER_LETTERS[i]}</Kbd>
+                  </span>
                   <div className="cjk text-3xl md:text-4xl">{withTone(q.zhuyin, t) || toneMark(t)}</div>
                   <div className="text-xs text-muted mt-1">{TONE_NAME[t]}</div>
                   {t === q.written && <div className="text-[11px] text-muted mt-0.5">written</div>}
@@ -151,13 +259,30 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
           </div>
           {picked !== null && (
             <div className="flex flex-col items-center gap-2 max-md:hidden">
-              <button className="btn" onClick={next}>Next <Kbd>Enter</Kbd></button>
+              <button className="btn" onClick={next}>
+                Next <Kbd>Enter</Kbd>
+              </button>
             </div>
           )}
           {picked !== null && (
-            <ActionBar mobileOnly tone={right ? "ok" : "bad"} title={right ? "Correct!" : "Not quite"}
-              detail={<span className="cjk">{q.char}: say <span className="text-accent">{q.said_zhuyin}</span></span>}>
-              <button className={"btn ab-primary " + (right ? "!bg-ok !border-ok !text-white" : "!bg-bad !border-bad !text-white")} onClick={next}>Continue</button>
+            <ActionBar
+              mobileOnly
+              tone={right ? "ok" : "bad"}
+              title={right ? "Correct!" : "Not quite"}
+              detail={
+                <span className="cjk">
+                  {q.char}: say <span className="text-accent">{q.said_zhuyin}</span>
+                </span>
+              }
+            >
+              <button
+                className={
+                  "btn ab-primary " + (right ? "!bg-ok !border-ok !text-white" : "!bg-bad !border-bad !text-white")
+                }
+                onClick={next}
+              >
+                Continue
+              </button>
             </ActionBar>
           )}
         </div>
@@ -171,11 +296,16 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
 export function RulesGuide({ rules, open = false }: { rules: Rules; open?: boolean }) {
   return (
     <details className="card p-4 text-sm" open={open}>
-      <summary className="cursor-pointer text-muted">The tone rules: the Bopomofo shows the written tone, not always the tone you say</summary>
+      <summary className="cursor-pointer text-muted">
+        The tone rules: the Bopomofo shows the written tone, not always the tone you say
+      </summary>
       <ul className="mt-3 flex flex-col gap-2 cjk">
-        {(Object.keys(rules) as RuleId[]).map((id) => <li key={id}><b>{rules[id].name}.</b> {rules[id].explain}</li>)}
+        {(Object.keys(rules) as RuleId[]).map((id) => (
+          <li key={id}>
+            <b>{rules[id].name}.</b> {rules[id].explain}
+          </li>
+        ))}
       </ul>
     </details>
   );
 }
-

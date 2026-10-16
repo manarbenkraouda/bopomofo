@@ -12,21 +12,41 @@ export function ZhuyinColumn({ zhuyin }: { zhuyin: string }) {
   return (
     <span className="zy-col" aria-label={zhuyin}>
       {neutral && <span className="n">˙</span>}
-      {syms.map((s, i) => <span key={i} className="s">{s}</span>)}
+      {syms.map((s, i) => (
+        <span key={i} className="s">
+          {s}
+        </span>
+      ))}
       {tone && <span className="t">{tone}</span>}
     </span>
   );
 }
 
-export function ZhuyinText({ items, annot = "zhuyin", size = 40, marks, onSyllable, className = "" }: {
-  items: TextItem[]; annot?: Annot; size?: number; marks?: (string | undefined)[];
-  onSyllable?: (index: number) => void; className?: string;
+export function ZhuyinText({
+  items,
+  annot = "zhuyin",
+  size = 40,
+  marks,
+  onSyllable,
+  className = "",
+}: {
+  items: TextItem[];
+  annot?: Annot;
+  size?: number;
+  marks?: (string | undefined)[];
+  onSyllable?: (index: number) => void;
+  className?: string;
 }) {
   let k = -1;
   return (
     <span className={"inline-flex flex-wrap items-center leading-none " + className} style={{ fontSize: size }}>
       {items.map((it, i) => {
-        if (it.type === "text") return <span key={i} className="zy-char text-muted" style={{ margin: "0 .05em" }}>{it.text}</span>;
+        if (it.type === "text")
+          return (
+            <span key={i} className="zy-char text-muted" style={{ margin: "0 .05em" }}>
+              {it.text}
+            </span>
+          );
         k++;
         const idx = k;
         const color = marks?.[idx];
@@ -41,7 +61,13 @@ export function ZhuyinText({ items, annot = "zhuyin", size = 40, marks, onSyllab
           );
         }
         return (
-          <span key={i} className={"zy-word" + clickable} style={style} onClick={() => onSyllable?.(idx)} title={it.pinyin}>
+          <span
+            key={i}
+            className={"zy-word" + clickable}
+            style={style}
+            onClick={() => onSyllable?.(idx)}
+            title={it.pinyin}
+          >
             <span className="zy-char">{it.char}</span>
             {annot === "zhuyin" && <ZhuyinColumn zhuyin={it.zhuyin} />}
           </span>

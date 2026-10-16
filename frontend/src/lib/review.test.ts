@@ -13,9 +13,19 @@ const seeded = (seed: number) => () => {
 };
 const ids = (n: number) => Array.from({ length: n }, (_, i) => "s" + i);
 /** Run n cards; answer each with good(id). Returns the ids shown. */
-function run(s: Scheduler, pool: string[], n: number, good: (id: string, i: number) => boolean = () => true, others: string[] = []) {
+function run(
+  s: Scheduler,
+  pool: string[],
+  n: number,
+  good: (id: string, i: number) => boolean = () => true,
+  others: string[] = [],
+) {
   const out: string[] = [];
-  for (let i = 0; i < n; i++) { const id = s.next(pool, others)!; out.push(id); s.answer(id, good(id, i)); }
+  for (let i = 0; i < n; i++) {
+    const id = s.next(pool, others)!;
+    out.push(id);
+    s.answer(id, good(id, i));
+  }
   return out;
 }
 
@@ -54,9 +64,18 @@ test("reviews due from earlier days come before new items, most overdue first", 
   const s = new Scheduler({ order: "pool", now: () => now, random: calm });
   const t = (d: number) => (now - d * DAY) / 1000;
   s.load({
-    s5: [[t(10), 1], [t(9), 1]],   // level 2 (1 day), 9 days ago: very late
-    s6: [[t(3), 1], [t(2), 1]],    // level 2, 2 days ago: late
-    s7: [[t(0.5), 1], [t(0.2), 1]], // level 2, 5 hours ago: not due
+    s5: [
+      [t(10), 1],
+      [t(9), 1],
+    ], // level 2 (1 day), 9 days ago: very late
+    s6: [
+      [t(3), 1],
+      [t(2), 1],
+    ], // level 2, 2 days ago: late
+    s7: [
+      [t(0.5), 1],
+      [t(0.2), 1],
+    ], // level 2, 5 hours ago: not due
   });
   expect(s.next(ids(10))).toBe("s5");
   s.answer("s5", true);
@@ -81,7 +100,13 @@ test("levels: up when right at the due time, same when right too early, back to 
   expect(grow(m, true, m.last + 60_000).level).toBe(2);
   expect(grow(m, true, m.last + DAY).level).toBe(3);
   expect(grow(m, false, m.last + DAY).level).toBe(0);
-  expect(replay([[0, 1], [3600, 1], [3600 + 86400, 1]])!.level).toBe(3);
+  expect(
+    replay([
+      [0, 1],
+      [3600, 1],
+      [3600 + 86400, 1],
+    ])!.level,
+  ).toBe(3);
 });
 
 test("learn mode repetitions move the session on but do not change the long-term level", () => {
@@ -109,13 +134,13 @@ test("a skipped card comes back later with no change to its memory", () => {
   expect(later).toContain(id);
 });
 
-
 test("two items always missed do not take every card: other items come between them", () => {
   const s = new Scheduler({ order: "pool", random: seeded(1) });
   const pool = ids(20);
   const shown = run(s, pool, 120, (id) => id !== "s0" && id !== "s1");
   const late = shown.slice(20);
-  for (let i = LOOP_WINDOW; i <= late.length; i++) expect(new Set(late.slice(i - LOOP_WINDOW, i)).size).toBeGreaterThanOrEqual(LOOP_MIN - 1);
+  for (let i = LOOP_WINDOW; i <= late.length; i++)
+    expect(new Set(late.slice(i - LOOP_WINDOW, i)).size).toBeGreaterThanOrEqual(LOOP_MIN - 1);
   // The weak items still come more often than the others.
   const hard = late.filter((x) => x === "s0" || x === "s1").length / late.length;
   expect(hard).toBeGreaterThan(0.2);
@@ -132,7 +157,10 @@ test("a focus of 2 items gets most cards, with other items mixed in and never mo
   expect(share).toBeGreaterThan(0.55);
   expect(share).toBeLessThan(0.8);
   let row = 0;
-  for (const f of inFocus) { row = f ? row + 1 : 0; expect(row).toBeLessThanOrEqual(FOCUS_RUN); }
+  for (const f of inFocus) {
+    row = f ? row + 1 : 0;
+    expect(row).toBeLessThanOrEqual(FOCUS_RUN);
+  }
   expect(new Set(shown.filter((x) => !focus.includes(x))).size).toBeGreaterThan(8);
 });
 

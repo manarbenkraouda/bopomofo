@@ -13,7 +13,15 @@ export const rise = (delay: number) => ({
   transition: { duration: 0.7, delay, ease: EASE },
 });
 
-const SUFFIX: Record<string, string> = { "%": "%", min: " min", days: " days", answers: "", times: "×", symbols: "", points: " pts" };
+const SUFFIX: Record<string, string> = {
+  "%": "%",
+  min: " min",
+  days: " days",
+  answers: "",
+  times: "×",
+  symbols: "",
+  points: " pts",
+};
 export const suffix = (f: Fact) => SUFFIX[f.unit] ?? "";
 
 /** A number that counts up from zero. */
@@ -29,8 +37,13 @@ export function CountUp({ value, delay = 0, duration = 1.3 }: { value: number; d
 
 /** The value of a fact with its unit, counting up. */
 export function FactValue({ f, delay }: { f: Fact; delay: number }) {
-  return <><CountUp value={f.unit === "%" ? Math.round(f.value) : f.value} delay={delay} />{suffix(f)}</>;
+  return (
+    <>
+      <CountUp value={f.unit === "%" ? Math.round(f.value) : f.value} delay={delay} />
+      {suffix(f)}
+    </>
+  );
 }
 
-export const tone = (pct: number | null | undefined) => (pct == null ? "#ffffff" : pct >= 85 ? "#5ee0a0" : pct >= 65 ? "#ffc857" : "#ff7a6b");
-
+export const tone = (pct: number | null | undefined) =>
+  pct == null ? "#ffffff" : pct >= 85 ? "#5ee0a0" : pct >= 65 ? "#ffc857" : "#ff7a6b";

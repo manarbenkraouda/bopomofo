@@ -40,12 +40,19 @@ export const EXERCISE_DESC: Record<string, string> = {
 export function exerciseOf(href: string): string | null {
   const [path, query = ""] = href.split("?");
   const q = new URLSearchParams(query);
-  if (path === "/listening") return ({ zhuyin: "listening/zhuyin", rule: "listening/rule" } as Record<string, string>)[q.get("quiz") ?? ""] ?? "listening/tone";
+  if (path === "/listening")
+    return (
+      ({ zhuyin: "listening/zhuyin", rule: "listening/rule" } as Record<string, string>)[q.get("quiz") ?? ""] ??
+      "listening/tone"
+    );
   if (path === "/speaking") {
     const s = q.get("source") ?? "";
     return "speaking/" + (["syllable", "custom", "rule"].includes(s) ? s : q.get("text") ? "custom" : "sentence");
   }
-  if (path === "/writing") { const m = q.get("mode") ?? ""; return "writing/" + (m === "symbol" || m === "word" ? m : "syllable"); }
+  if (path === "/writing") {
+    const m = q.get("mode") ?? "";
+    return "writing/" + (m === "symbol" || m === "word" ? m : "syllable");
+  }
   const key = path.replace(/^\/+|\/+$/g, "");
   return ROUTE_EXERCISES["/" + key] ? key : null;
 }
@@ -54,7 +61,10 @@ export function exerciseOf(href: string): string | null {
 export function itemLabel(item: string): string {
   if (item === "tone:5") return "neutral tone";
   if (item.startsWith("tone:")) return "tone " + item.slice(5);
-  if (item.startsWith("rule:")) return ({ "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" } as Record<string, string>)[item.slice(5)] ?? item.slice(5);
+  if (item.startsWith("rule:"))
+    return (
+      ({ "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" } as Record<string, string>)[item.slice(5)] ?? item.slice(5)
+    );
   return item;
 }
 
@@ -83,13 +93,21 @@ export function LevelsProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let stop = false;
-    api.levels().then((r) => {
-      if (stop) return;
-      setLv(r); setFailed(false);
-      // Unseen messages (for example an unlock from the placement, or from another device) go to the app shell like the messages of an answer.
-      if (r.notices?.length) window.dispatchEvent(new CustomEvent("zs:levels", { detail: r.notices }));
-    }).catch(() => { if (!stop) setFailed(true); });
-    return () => { stop = true; };
+    api
+      .levels()
+      .then((r) => {
+        if (stop) return;
+        setLv(r);
+        setFailed(false);
+        // Unseen messages (for example an unlock from the placement, or from another device) go to the app shell like the messages of an answer.
+        if (r.notices?.length) window.dispatchEvent(new CustomEvent("zs:levels", { detail: r.notices }));
+      })
+      .catch(() => {
+        if (!stop) setFailed(true);
+      });
+    return () => {
+      stop = true;
+    };
   }, [path, n]);
 
   const value = useMemo<Ctx>(() => {
@@ -97,8 +115,14 @@ export function LevelsProvider({ children }: { children: React.ReactNode }) {
     const open = (ex: string) => (lv ? set.has(ex) : failed);
     const openOf = (href: string) => (ROUTE_EXERCISES[href.split("?")[0]] ?? []).filter(open);
     return {
-      lv, known: !!lv || failed, open, openOf,
-      routeOpen: (href: string) => { const ex = ROUTE_EXERCISES[href.split("?")[0]]; return !ex || ex.some(open); },
+      lv,
+      known: !!lv || failed,
+      open,
+      openOf,
+      routeOpen: (href: string) => {
+        const ex = ROUTE_EXERCISES[href.split("?")[0]];
+        return !ex || ex.some(open);
+      },
       levelOf: (ex: string) => lv?.levels.find((l) => l.opens.some((o) => o.key === ex)) ?? null,
       refresh,
     };
@@ -107,8 +131,15 @@ export function LevelsProvider({ children }: { children: React.ReactNode }) {
   return <LevelsContext.Provider value={value}>{children}</LevelsContext.Provider>;
 }
 
-const NONE: Ctx = { lv: null, known: true, open: () => true, routeOpen: () => true, levelOf: () => null, openOf: (h) => ROUTE_EXERCISES[h] ?? [], refresh: () => {} };
+const NONE: Ctx = {
+  lv: null,
+  known: true,
+  open: () => true,
+  routeOpen: () => true,
+  levelOf: () => null,
+  openOf: (h) => ROUTE_EXERCISES[h] ?? [],
+  refresh: () => {},
+};
 
 /** The level path. Outside the provider (tests, the onboarding), every exercise counts as open. */
 export const useLevels = (): Ctx => useContext(LevelsContext) ?? NONE;
-

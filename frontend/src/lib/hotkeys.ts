@@ -32,11 +32,16 @@ let seq = 0;
 let installed = false;
 /** Keys held down now, with their release handlers. */
 const held = new Map<string, () => void>();
-const emit = () => { version++; subs.forEach((f) => f()); };
+const emit = () => {
+  version++;
+  subs.forEach((f) => f());
+};
 
 export const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement &&
-  (t.isContentEditable || t.tagName === "TEXTAREA" || t.tagName === "SELECT" ||
+  (t.isContentEditable ||
+    t.tagName === "TEXTAREA" ||
+    t.tagName === "SELECT" ||
     (t instanceof HTMLInputElement && !["checkbox", "radio", "range", "button", "submit", "file"].includes(t.type)));
 
 export const comboOf = (e: KeyboardEvent) =>
@@ -47,11 +52,18 @@ const ordered = () => [...layers].sort((a, b) => b.order - a.order || b.id - a.i
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || e.defaultPrevented) return;
-  if (e.repeat && held.has(e.code)) { e.preventDefault(); return; }
+  if (e.repeat && held.has(e.code)) {
+    e.preventDefault();
+    return;
+  }
   const combo = comboOf(e);
   const typing = isTyping(e.target);
   for (const layer of ordered()) {
-    const hit = layer.get().find((k) => k.run && k.when !== false && k.keys.includes(combo) && (!typing || k.input) && (!e.repeat || k.repeat));
+    const hit = layer
+      .get()
+      .find(
+        (k) => k.run && k.when !== false && k.keys.includes(combo) && (!typing || k.input) && (!e.repeat || k.repeat),
+      );
     if (hit) {
       e.preventDefault();
       if (hit.up) held.set(e.code, hit.up);
@@ -84,16 +96,23 @@ function install() {
   window.addEventListener("blur", releaseAll);
 }
 
-const signature = (keys: Hotkey[]) => keys.map((k) => k.keys.join(",") + ":" + k.label + ":" + (k.when !== false) + ":" + (k.bar !== false)).join("|");
+const signature = (keys: Hotkey[]) =>
+  keys.map((k) => k.keys.join(",") + ":" + k.label + ":" + (k.when !== false) + ":" + (k.bar !== false)).join("|");
 
 /**
  * Register keys while the component is mounted. Pass a fresh array on every render; handlers always see the latest state.
  * order: 0 = global keys, 1 = screen keys (default), 10+ = overlays. A modal layer blocks all layers below it.
  */
-export function useHotkeys(name: string, keys: Hotkey[], opts: { modal?: boolean; order?: number; active?: boolean } = {}) {
+export function useHotkeys(
+  name: string,
+  keys: Hotkey[],
+  opts: { modal?: boolean; order?: number; active?: boolean } = {},
+) {
   const ref = useRef(keys);
   const { modal = false, order = 1, active = true } = opts;
-  useLayoutEffect(() => { ref.current = keys; });
+  useLayoutEffect(() => {
+    ref.current = keys;
+  });
   const sig = signature(keys);
   useEffect(() => {
     if (!active) return;
@@ -101,23 +120,53 @@ export function useHotkeys(name: string, keys: Hotkey[], opts: { modal?: boolean
     layers.push(layer);
     install();
     emit();
-    return () => { layers.splice(layers.indexOf(layer), 1); emit(); };
+    return () => {
+      layers.splice(layers.indexOf(layer), 1);
+      emit();
+    };
   }, [active, name, modal, order]);
-  useEffect(() => { emit(); }, [sig]);
+  useEffect(() => {
+    emit();
+  }, [sig]);
 }
 
 export type LayerView = { name: string; modal: boolean; order: number; keys: Hotkey[] };
 
 /** The registered layers, from the top. Re-renders when keys change. */
 export function useLayers(): LayerView[] {
-  useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, () => version, () => 0);
+  useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => {
+        subs.delete(f);
+      };
+    },
+    () => version,
+    () => 0,
+  );
   return ordered().map((l) => ({ name: l.name, modal: l.modal, order: l.order, keys: l.get() }));
 }
 
 const NAMES: Record<string, string> = {
-  Space: "Space", Enter: "Enter", Escape: "Esc", Backspace: "⌫", Delete: "Del", Tab: "Tab",
-  ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
-  BracketLeft: "[", BracketRight: "]", Slash: "/", Comma: ",", Period: ".", Semicolon: ";", Quote: "'", Minus: "-", Equal: "=",
+  Space: "Space",
+  Enter: "Enter",
+  Escape: "Esc",
+  Backspace: "⌫",
+  Delete: "Del",
+  Tab: "Tab",
+  ArrowUp: "↑",
+  ArrowDown: "↓",
+  ArrowLeft: "←",
+  ArrowRight: "→",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Slash: "/",
+  Comma: ",",
+  Period: ".",
+  Semicolon: ";",
+  Quote: "'",
+  Minus: "-",
+  Equal: "=",
 };
 
 /** Key caps for one combo, e.g. "Ctrl+KeyK" gives ["Ctrl", "K"]. */

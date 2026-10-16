@@ -3,7 +3,8 @@
 // Each clip keeps exactly PAD_S of audio before the first loud frame and after the last sound.
 import { encodeWav, resample } from "./recorder";
 
-const WORKLET = "class L extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('listen',L)";
+const WORKLET =
+  "class L extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('listen',L)";
 const FRAME_S = 0.02; // level is measured on 20 ms frames
 const PAD_S = 0.3; // audio kept before the start and after the end of the sound
 const START_S = 0.06; // loud frames in a row needed to start
@@ -41,7 +42,9 @@ export class Listener {
 
   async start() {
     // No browser noise suppression: it cuts short, quiet sounds such as a lone ㄙ or ㄈ.
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1 },
+    });
     this.ctx = new AudioContext();
     this.rate = this.ctx.sampleRate;
     this.frameLen = Math.round(this.rate * FRAME_S);
@@ -112,7 +115,10 @@ export class Listener {
     } else {
       this.speech.push(f);
       this.peak = Math.max(this.peak, rms);
-      if (rms > on * 0.5) { this.last = this.speech.length - 1; this.quiet = 0; } else this.quiet += 1;
+      if (rms > on * 0.5) {
+        this.last = this.speech.length - 1;
+        this.quiet = 0;
+      } else this.quiet += 1;
       if (this.quiet * FRAME_S >= END_S || this.speech.length * FRAME_S >= MAX_S) this.finish();
     }
     this.onLevel(Math.min(1, rms * 10), this.speaking);
@@ -123,12 +129,17 @@ export class Listener {
     const voiced = (this.last - this.first + 1) * FRAME_S;
     const peak = this.peak;
     this.reset();
-    if (voiced < MIN_S) { this.onDiscard("short"); return; }
+    if (voiced < MIN_S) {
+      this.onDiscard("short");
+      return;
+    }
     const all = new Float32Array(frames.reduce((a, c) => a + c.length, 0));
     let o = 0;
-    for (const c of frames) { all.set(c, o); o += c.length; }
+    for (const c of frames) {
+      all.set(c, o);
+      o += c.length;
+    }
     const pcm = resample(all, this.rate, 16000);
     this.onUtterance({ wav: encodeWav(pcm, 16000), seconds: pcm.length / 16000, voiced, peak });
   }
 }
-

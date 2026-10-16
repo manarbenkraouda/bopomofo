@@ -6,7 +6,15 @@ export function Kbd({ children, className = "" }: { children: React.ReactNode; c
 export function Caps({ caps, className = "" }: { caps: string[]; className?: string }) {
   return (
     <span className={"inline-flex items-center gap-0.5 " + className}>
-      {caps.map((c, i) => (c === "/" ? <span key={i} className="px-0.5 text-muted">/</span> : <Kbd key={i}>{c}</Kbd>))}
+      {caps.map((c, i) =>
+        c === "/" ? (
+          <span key={i} className="px-0.5 text-muted">
+            /
+          </span>
+        ) : (
+          <Kbd key={i}>{c}</Kbd>
+        ),
+      )}
     </span>
   );
 }

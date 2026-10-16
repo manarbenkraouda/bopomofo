@@ -10,10 +10,31 @@ import type { RouteInfo } from "@/lib/routes";
 export const BOBO = { name: "Bobo", hanzi: "波波", zhuyin: "ㄅㄛ ㄅㄛ" } as const;
 
 /** Bobo's face and V collar in a round light disc: the avatar of the coach. */
-export function BoboFace({ size = 40, className = "", pulse = false }: { size?: number; className?: string; pulse?: boolean }) {
+export function BoboFace({
+  size = 40,
+  className = "",
+  pulse = false,
+}: {
+  size?: number;
+  className?: string;
+  pulse?: boolean;
+}) {
   return (
-    <span className={"bobo-disc relative inline-block shrink-0 overflow-hidden rounded-full " + (pulse ? "bobo-bob " : "") + className} style={{ width: size, height: size }}>
-      <Image src="/mascot/bobo-face.webp" alt={BOBO.name} width={320} height={320} className="h-full w-full object-cover" />
+    <span
+      className={
+        "bobo-disc relative inline-block shrink-0 overflow-hidden rounded-full " +
+        (pulse ? "bobo-bob " : "") +
+        className
+      }
+      style={{ width: size, height: size }}
+    >
+      <Image
+        src="/mascot/bobo-face.webp"
+        alt={BOBO.name}
+        width={320}
+        height={320}
+        className="h-full w-full object-cover"
+      />
     </span>
   );
 }
@@ -22,7 +43,14 @@ export function BoboFace({ size = 40, className = "", pulse = false }: { size?: 
 export function BoboPackshot({ className = "", priority = false }: { className?: string; priority?: boolean }) {
   return (
     <span className={"bobo-glow relative inline-block " + className}>
-      <Image src="/mascot/bobo.webp" alt={BOBO.name + ", the Formosan black bear coach"} width={720} height={755} priority={priority} className="relative h-auto w-full drop-shadow-xl" />
+      <Image
+        src="/mascot/bobo.webp"
+        alt={BOBO.name + ", the Formosan black bear coach"}
+        width={720}
+        height={755}
+        priority={priority}
+        className="relative h-auto w-full drop-shadow-xl"
+      />
     </span>
   );
 }
@@ -33,7 +61,15 @@ export function VMark({ className = "" }: { className?: string }) {
 }
 
 /** A line Bobo says, with its face. */
-export function BoboSays({ children, size = 28, className = "" }: { children: ReactNode; size?: number; className?: string }) {
+export function BoboSays({
+  children,
+  size = 28,
+  className = "",
+}: {
+  children: ReactNode;
+  size?: number;
+  className?: string;
+}) {
   return (
     <div className={"flex items-start gap-2.5 " + className}>
       <BoboFace size={size} />
@@ -48,7 +84,24 @@ export function routeIcon(r: RouteInfo, size: number): ReactNode {
 }
 
 /** Bobo in a scene. Every pose keeps the white V collar visible. */
-export type Pose = "welcome" | "thinking" | "celebrate" | "listening" | "speaking" | "reading" | "writing" | "sleeping" | "encourage" | "investigate" | "bubbletea" | "tones" | "symbol" | "sound" | "mixup" | "stats" | "plan";
+export type Pose =
+  | "welcome"
+  | "thinking"
+  | "celebrate"
+  | "listening"
+  | "speaking"
+  | "reading"
+  | "writing"
+  | "sleeping"
+  | "encourage"
+  | "investigate"
+  | "bubbletea"
+  | "tones"
+  | "symbol"
+  | "sound"
+  | "mixup"
+  | "stats"
+  | "plan";
 
 const POSE_ALT: Record<Pose, string> = {
   welcome: "Bobo waves hello with a red lantern",
@@ -70,18 +123,50 @@ const POSE_ALT: Record<Pose, string> = {
   plan: "Bobo guides the learner along a path",
 };
 
-export function BoboPose({ pose, className = "", priority = false, bob = false }: { pose: Pose; className?: string; priority?: boolean; bob?: boolean }) {
+export function BoboPose({
+  pose,
+  className = "",
+  priority = false,
+  bob = false,
+}: {
+  pose: Pose;
+  className?: string;
+  priority?: boolean;
+  bob?: boolean;
+}) {
   return (
     <span className={"relative inline-block shrink-0 " + (bob ? "bobo-bob " : "") + className}>
-      <Image src={pose.startsWith("tones") || ["symbol", "sound", "mixup", "stats", "plan"].includes(pose) ? "/mascot/bobo-story-" + pose + ".webp" : "/mascot/bobo-" + pose + ".webp"}
-        alt={POSE_ALT[pose]} width={560} height={587} priority={priority} className="h-auto w-full drop-shadow-lg" />
+      <Image
+        src={
+          pose.startsWith("tones") || ["symbol", "sound", "mixup", "stats", "plan"].includes(pose)
+            ? "/mascot/bobo-story-" + pose + ".webp"
+            : "/mascot/bobo-" + pose + ".webp"
+        }
+        alt={POSE_ALT[pose]}
+        width={560}
+        height={587}
+        priority={priority}
+        className="h-auto w-full drop-shadow-lg"
+      />
     </span>
   );
 }
 
 /** The pose that goes with each screen. */
 const ROUTE_POSE: Record<string, Pose> = {
-  "/": "welcome", "/levels": "plan", "/coach": "thinking", "/stats": "investigate", "/reading": "reading", "/listening": "listening", "/dictation": "writing",
-  "/speaking": "speaking", "/writing": "writing", "/recognize": "thinking", "/symbols": "reading", "/sentences": "speaking", "/profile": "welcome", "/settings": "bubbletea",
+  "/": "welcome",
+  "/levels": "plan",
+  "/coach": "thinking",
+  "/stats": "investigate",
+  "/reading": "reading",
+  "/listening": "listening",
+  "/dictation": "writing",
+  "/speaking": "speaking",
+  "/writing": "writing",
+  "/recognize": "thinking",
+  "/symbols": "reading",
+  "/sentences": "speaking",
+  "/profile": "welcome",
+  "/settings": "bubbletea",
 };
 export const poseFor = (r: RouteInfo): Pose => ROUTE_POSE[r.href] ?? "welcome";

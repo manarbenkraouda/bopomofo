@@ -29,9 +29,18 @@ export const BLOCKS: { [T in BlockType]: ComponentType<BlockProps<T>> } = {
 };
 
 /** One block from the spec. Each block starts 0.3 s after the one before it. */
-export function Block({ b, i, ctx, onAction }: { b: BlockSpec; i: number; ctx: StoryContext; onAction: (a: "start" | "close") => void }) {
+export function Block({
+  b,
+  i,
+  ctx,
+  onAction,
+}: {
+  b: BlockSpec;
+  i: number;
+  ctx: StoryContext;
+  onAction: (a: "start" | "close") => void;
+}) {
   const C = BLOCKS[b.type] as ComponentType<BlockProps<BlockType>> | undefined;
   if (!C) return null;
   return <C props={b.props as never} ctx={ctx} delay={0.25 + i * 0.32} onAction={onAction} />;
 }
-

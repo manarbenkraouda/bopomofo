@@ -2,8 +2,22 @@
 import { useId } from "react";
 import type { StrokeData } from "@/lib/zhuyin";
 
-export function StrokeAnim({ sym, data, size = 160, playKey = 0, speed = 1, className = "", numbers = true }: {
-  sym: string; data: StrokeData; size?: number; playKey?: number; speed?: number; className?: string; numbers?: boolean;
+export function StrokeAnim({
+  sym,
+  data,
+  size = 160,
+  playKey = 0,
+  speed = 1,
+  className = "",
+  numbers = true,
+}: {
+  sym: string;
+  data: StrokeData;
+  size?: number;
+  playKey?: number;
+  speed?: number;
+  className?: string;
+  numbers?: boolean;
 }) {
   const uid = useId().replace(/:/g, "");
   const strokes = data[sym];
@@ -18,21 +32,50 @@ export function StrokeAnim({ sym, data, size = 160, playKey = 0, speed = 1, clas
     return acc;
   }, []);
   return (
-    <svg key={playKey} viewBox="0 0 2150 2150" width={size} height={size} className={"pad-grid rounded-xl border border-line " + className}>
+    <svg
+      key={playKey}
+      viewBox="0 0 2150 2150"
+      width={size}
+      height={size}
+      className={"pad-grid rounded-xl border border-line " + className}
+    >
       {strokes.map((s, i) => {
         const pts = s.track.length === 1 ? [s.track[0], s.track[0]] : s.track;
         const { len, dur, d } = timing[i];
         const id = uid + "c" + i;
         return (
           <g key={i}>
-            <clipPath id={id}><path d={s.path} /></clipPath>
+            <clipPath id={id}>
+              <path d={s.path} />
+            </clipPath>
             <path d={s.path} fill="#efe8dc" />
-            <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke="#b5452f" strokeWidth={300} strokeLinecap="round" strokeLinejoin="round" clipPath={"url(#" + id + ")"}
-              style={{ strokeDasharray: len, strokeDashoffset: len, animation: "draw " + dur + "s linear " + d + "s forwards" }} />
-            {numbers && <text x={s.track[0][0] - 110} y={s.track[0][1] - 40} fontSize={140} fontWeight={700} fill="#b5452f" opacity={0}>
-              <animate attributeName="opacity" from="0" to="1" begin={d + "s"} dur="0.01s" fill="freeze" />
-              {i + 1}
-            </text>}
+            <polyline
+              points={pts.map((p) => p.join(",")).join(" ")}
+              fill="none"
+              stroke="#b5452f"
+              strokeWidth={300}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              clipPath={"url(#" + id + ")"}
+              style={{
+                strokeDasharray: len,
+                strokeDashoffset: len,
+                animation: "draw " + dur + "s linear " + d + "s forwards",
+              }}
+            />
+            {numbers && (
+              <text
+                x={s.track[0][0] - 110}
+                y={s.track[0][1] - 40}
+                fontSize={140}
+                fontWeight={700}
+                fill="#b5452f"
+                opacity={0}
+              >
+                <animate attributeName="opacity" from="0" to="1" begin={d + "s"} dur="0.01s" fill="freeze" />
+                {i + 1}
+              </text>
+            )}
           </g>
         );
       })}

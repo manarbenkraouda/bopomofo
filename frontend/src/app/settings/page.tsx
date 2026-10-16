@@ -9,7 +9,9 @@ export default function Page() {
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
       <ProfileLink />
-      <div id="ai-energy" className="scroll-mt-4"><AiEnergyCard /></div>
+      <div id="ai-energy" className="scroll-mt-4">
+        <AiEnergyCard />
+      </div>
       <Preferences />
       <VoicePicker />
     </div>

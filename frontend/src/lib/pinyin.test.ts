@@ -28,4 +28,3 @@ describe("symbolOfPinyin", () => {
     for (const t of ["", "zz", "ba", "ing", "hello"]) expect(symbolOfPinyin(t)).toBeNull();
   });
 });
-

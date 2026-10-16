@@ -10,7 +10,15 @@ import { useHotkeys } from "./hotkeys";
 import { splitZhuyin } from "./zhuyin";
 import type { RuleId } from "./api";
 
-export type Focus = { tones: number[]; syms: string[]; items: string[]; ids: number[]; rules: RuleId[]; active: boolean; label: string };
+export type Focus = {
+  tones: number[];
+  syms: string[];
+  items: string[];
+  ids: number[];
+  rules: RuleId[];
+  active: boolean;
+  label: string;
+};
 const RULE_IDS: RuleId[] = ["3-3", "bu", "yi"];
 const RULE_LABEL: Record<RuleId, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
 
@@ -22,15 +30,41 @@ export function useFocus(): Focus {
   const id = q.get("ids") ?? "";
   const ru = q.get("rules") ?? "";
   return useMemo(() => {
-    const tones = t.split(",").map(Number).filter((n) => n >= 1 && n <= 5);
-    const syms = s.split(",").map((x) => x.trim()).filter((x) => x && x !== "∅");
-    const items = it.split(",").map((x) => x.trim()).filter(Boolean);
-    const ids = id.split(",").map(Number).filter((n) => n > 0);
+    const tones = t
+      .split(",")
+      .map(Number)
+      .filter((n) => n >= 1 && n <= 5);
+    const syms = s
+      .split(",")
+      .map((x) => x.trim())
+      .filter((x) => x && x !== "∅");
+    const items = it
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+    const ids = id
+      .split(",")
+      .map(Number)
+      .filter((n) => n > 0);
     const rules = RULE_IDS.filter((r) => ru.split(",").includes(r));
-    const label = [tones.map((n) => (n === 5 ? "neutral tone" : "tone " + n)).join(" / "), syms.join(" "),
-      items.length ? items.length + " coach syllables" : "", ids.length ? ids.length + " coach sentences" : "",
-      rules.map((r) => RULE_LABEL[r]).join(" / ")].filter(Boolean).join(" · ");
-    return { tones, syms, items, ids, rules, active: tones.length + syms.length + items.length + ids.length + rules.length > 0, label };
+    const label = [
+      tones.map((n) => (n === 5 ? "neutral tone" : "tone " + n)).join(" / "),
+      syms.join(" "),
+      items.length ? items.length + " coach syllables" : "",
+      ids.length ? ids.length + " coach sentences" : "",
+      rules.map((r) => RULE_LABEL[r]).join(" / "),
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      tones,
+      syms,
+      items,
+      ids,
+      rules,
+      active: tones.length + syms.length + items.length + ids.length + rules.length > 0,
+      label,
+    };
   }, [t, s, it, id, ru]);
 }
 
@@ -61,9 +95,14 @@ export function FocusChip({ focus, empty }: { focus: Focus; empty?: boolean }) {
   useHotkeys("focus", [{ keys: ["KeyX"], label: "Clear focus", run: () => router.replace(href), when: focus.active }]);
   if (!focus.active) return null;
   return (
-    <Link href={href} replace className="chip cjk flex items-center gap-1.5 !border-accent text-accent" title={empty ? "Nothing matches this focus, so all items are shown" : "Clear the focus (X)"}>
-      <span aria-hidden>◎</span> {empty ? "No match: " : "Focus: "}{focus.label} <span className="text-muted">✕</span>
+    <Link
+      href={href}
+      replace
+      className="chip cjk flex items-center gap-1.5 !border-accent text-accent"
+      title={empty ? "Nothing matches this focus, so all items are shown" : "Clear the focus (X)"}
+    >
+      <span aria-hidden>◎</span> {empty ? "No match: " : "Focus: "}
+      {focus.label} <span className="text-muted">✕</span>
     </Link>
   );
 }
-

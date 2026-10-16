@@ -61,7 +61,8 @@ export function grow(m: Mem | undefined, good: boolean, ts: number): Mem {
   return { level, last: ts, n: cur.n + 1 };
 }
 
-export const replay = (past: Past): Mem | undefined => past.reduce<Mem | undefined>((m, [ts, good]) => grow(m, !!good, ts * 1000), undefined);
+export const replay = (past: Past): Mem | undefined =>
+  past.reduce<Mem | undefined>((m, [ts, good]) => grow(m, !!good, ts * 1000), undefined);
 
 /** How late the review is: 1 = due now, 2 = twice the planned interval. Level 0 items are always due. */
 export const overdue = (m: Mem, now: number) => (m.level === 0 ? Infinity : (now - m.last) / intervalMs(m.level));
@@ -141,8 +142,13 @@ export class Scheduler {
     const chance = focus ? FOCUS_VARIETY : kind === "again" || kind === "extra" ? VARIETY : 0;
     const roll = chance > 0 && this.opts.random() < chance;
     if (!loop && !long && !roll) return undefined;
-    const working = (id: string) => { const s = this.seen.get(id); return !!s && !s.done; };
-    const from = (focus ? rest : ids).filter((id) => id !== this.last && !seenRecently.has(id) && (focus || !working(id)));
+    const working = (id: string) => {
+      const s = this.seen.get(id);
+      return !!s && !s.done;
+    };
+    const from = (focus ? rest : ids).filter(
+      (id) => id !== this.last && !seenRecently.has(id) && (focus || !working(id)),
+    );
     // With a focus, any other item of the mode. Without, prefer items already met: the variety is a quick check,
     // not a new lesson out of order. A loop takes any item.
     const met = from.filter((id) => this.mem.has(id) || this.seen.has(id));
@@ -155,24 +161,37 @@ export class Scheduler {
     const now = this.opts.now();
     const notLast = ids.length > 1 ? ids.filter((id) => id !== this.last) : ids;
     const pick = (id: string, kind: CardKind): [string, CardKind] => [id, kind];
-    const isWorking = (id: string) => { const s = this.seen.get(id); return !!s && !s.done; };
+    const isWorking = (id: string) => {
+      const s = this.seen.get(id);
+      return !!s && !s.done;
+    };
     const working = notLast.filter(isWorking);
-    const byDue = (a: string, b: string) => this.seen.get(a)!.due - this.seen.get(b)!.due || this.seen.get(a)!.streak - this.seen.get(b)!.streak;
+    const byDue = (a: string, b: string) =>
+      this.seen.get(a)!.due - this.seen.get(b)!.due || this.seen.get(a)!.streak - this.seen.get(b)!.streak;
 
     // 1. A working item whose gap is over.
     const again = working.filter((id) => this.seen.get(id)!.due <= this.card).sort(byDue);
     if (again.length) return pick(again[0], "again");
 
     // 2. A review due from earlier days (most overdue first).
-    const reviews = notLast.filter((id) => { const m = this.mem.get(id); return !this.seen.has(id) && !!m && m.level > 0 && overdue(m, now) >= 1; })
+    const reviews = notLast
+      .filter((id) => {
+        const m = this.mem.get(id);
+        return !this.seen.has(id) && !!m && m.level > 0 && overdue(m, now) >= 1;
+      })
       .sort((a, b) => overdue(this.mem.get(b)!, now) - overdue(this.mem.get(a)!, now));
     if (reviews.length) return pick(reviews[0], "review");
 
     // 3. A new item when the working set has room: items missed before first (level 0), then never seen ones.
     if (ids.filter(isWorking).length < Math.min(this.opts.size, ids.length)) {
       const index = new Map(ids.map((id, i) => [id, i]));
-      const fresh = notLast.filter((id) => !this.seen.has(id) && (this.mem.get(id)?.level ?? 0) === 0)
-        .sort((a, b) => Number(this.mem.has(b)) - Number(this.mem.has(a)) || this.rankOf(a, index.get(a)!) - this.rankOf(b, index.get(b)!));
+      const fresh = notLast
+        .filter((id) => !this.seen.has(id) && (this.mem.get(id)?.level ?? 0) === 0)
+        .sort(
+          (a, b) =>
+            Number(this.mem.has(b)) - Number(this.mem.has(a)) ||
+            this.rankOf(a, index.get(a)!) - this.rankOf(b, index.get(b)!),
+        );
       if (fresh.length) return pick(fresh[0], "new");
     }
 
@@ -181,7 +200,9 @@ export class Scheduler {
 
     // 5. Extra practice: the item seen least in this session, then the one closest to its review.
     const late = (id: string) => (this.mem.has(id) ? overdue(this.mem.get(id)!, now) : Infinity);
-    const extra = [...notLast].sort((a, b) => (this.seen.get(a)?.n ?? 0) - (this.seen.get(b)?.n ?? 0) || late(b) - late(a));
+    const extra = [...notLast].sort(
+      (a, b) => (this.seen.get(a)?.n ?? 0) - (this.seen.get(b)?.n ?? 0) || late(b) - late(a),
+    );
     return pick(extra[0], "extra");
   }
 
@@ -192,7 +213,13 @@ export class Scheduler {
    */
   answer(id: string, good: boolean, test = true) {
     // A due review or a variety card answered right at once needs no more repetitions in this session.
-    const s = this.seen.get(id) ?? { due: 0, streak: 0, n: 0, done: false, review: this.last === id && (this.lastKind === "review" || this.lastKind === "variety") };
+    const s = this.seen.get(id) ?? {
+      due: 0,
+      streak: 0,
+      n: 0,
+      done: false,
+      review: this.last === id && (this.lastKind === "review" || this.lastKind === "variety"),
+    };
     s.n += 1;
     if (good) {
       s.streak += 1;
@@ -231,8 +258,16 @@ export function useReview(area: string, mode = "", opts: SchedulerOptions = {}) 
     let live = true;
     if (!all.current.has(key)) all.current.set(key, new Scheduler(opts));
     const s = all.current.get(key)!;
-    api.memory(area, mode).then((r) => s.load(r.items)).catch(() => {}).finally(() => { if (live) setLoaded((l) => ({ ...l, [key]: true })); });
-    return () => { live = false; };
+    api
+      .memory(area, mode)
+      .then((r) => s.load(r.items))
+      .catch(() => {})
+      .finally(() => {
+        if (live) setLoaded((l) => ({ ...l, [key]: true }));
+      });
+    return () => {
+      live = false;
+    };
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const review = useCallback(() => {
     if (!all.current.has(key)) all.current.set(key, new Scheduler(opts));

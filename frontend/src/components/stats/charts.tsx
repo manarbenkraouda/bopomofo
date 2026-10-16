@@ -2,24 +2,56 @@
 // Small chart parts for the stats screen. Plain HTML and CSS, in the theme colors.
 import type { Stats } from "@/lib/api";
 
-export const AREA_COLOR: Record<string, string> = { reading: "#e5643f", recognize: "#d4588f", listening: "#4f9cf0", dictation: "#a77bf3", writing: "#e3a62b", speaking: "#3cbc80" };
-export const AREA_LABEL: Record<string, string> = { reading: "Reading", recognize: "Recognize", listening: "Listening", dictation: "Dictation", writing: "Writing", speaking: "Speaking" };
+export const AREA_COLOR: Record<string, string> = {
+  reading: "#e5643f",
+  recognize: "#d4588f",
+  listening: "#4f9cf0",
+  dictation: "#a77bf3",
+  writing: "#e3a62b",
+  speaking: "#3cbc80",
+};
+export const AREA_LABEL: Record<string, string> = {
+  reading: "Reading",
+  recognize: "Recognize",
+  listening: "Listening",
+  dictation: "Dictation",
+  writing: "Writing",
+  speaking: "Speaking",
+};
 export const AREA_ORDER = ["reading", "recognize", "listening", "dictation", "writing", "speaking"];
 
 /** Accuracy color: green from 85 %, amber from 65 %, red below. */
-export const accTone = (p: number | null | undefined) => (p == null ? "var(--muted)" : p >= 85 ? "var(--ok)" : p >= 65 ? "var(--rough)" : "var(--bad)");
-export const tint = (color: string, pct: number) => "color-mix(in srgb, " + color + " " + Math.round(pct) + "%, transparent)";
+export const accTone = (p: number | null | undefined) =>
+  p == null ? "var(--muted)" : p >= 85 ? "var(--ok)" : p >= 65 ? "var(--rough)" : "var(--bad)";
+export const tint = (color: string, pct: number) =>
+  "color-mix(in srgb, " + color + " " + Math.round(pct) + "%, transparent)";
 export const pct = (ok: number, n: number) => (n ? Math.round((100 * ok) / n) : null);
-export const shortDay = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en", { month: "short", day: "numeric" });
+export const shortDay = (d: string) =>
+  new Date(d + "T12:00:00").toLocaleDateString("en", { month: "short", day: "numeric" });
 export const secs = (ms: number | null | undefined) => (ms == null ? "–" : (ms / 1000).toFixed(1) + " s");
 
 /**
  * Confusion table. Rows: what was expected. Columns: what you produced. Each cell shows the share of the row,
  * green on the diagonal (right), red elsewhere, darker for a larger share.
  */
-export function Matrix({ rows, cols, get, rowName, colName, corner, onRow, selected }: {
-  rows: string[]; cols: string[]; get: (r: string, c: string) => number; rowName: (r: string) => React.ReactNode; colName: (c: string) => React.ReactNode;
-  corner?: string; onRow?: (r: string) => void; selected?: string;
+export function Matrix({
+  rows,
+  cols,
+  get,
+  rowName,
+  colName,
+  corner,
+  onRow,
+  selected,
+}: {
+  rows: string[];
+  cols: string[];
+  get: (r: string, c: string) => number;
+  rowName: (r: string) => React.ReactNode;
+  colName: (c: string) => React.ReactNode;
+  corner?: string;
+  onRow?: (r: string) => void;
+  selected?: string;
 }) {
   const totals = rows.map((r) => cols.reduce((a, c) => a + get(r, c), 0));
   return (
@@ -27,21 +59,43 @@ export function Matrix({ rows, cols, get, rowName, colName, corner, onRow, selec
       <thead>
         <tr>
           <th className="text-left text-[11px] font-normal text-muted">{corner}</th>
-          {cols.map((c) => <th key={c} className="cjk pb-1 text-xs font-medium text-muted">{colName(c)}</th>)}
+          {cols.map((c) => (
+            <th key={c} className="cjk pb-1 text-xs font-medium text-muted">
+              {colName(c)}
+            </th>
+          ))}
           <th className="pb-1 text-[11px] font-normal text-muted">n</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((r, i) => (
           <tr key={r} onClick={onRow ? () => onRow(r) : undefined} className={onRow ? "cursor-pointer" : ""}>
-            <th className={"cjk whitespace-nowrap rounded-md pr-2 text-left text-xs font-semibold " + (selected === r ? "text-accent" : "")}>{rowName(r)}</th>
+            <th
+              className={
+                "cjk whitespace-nowrap rounded-md pr-2 text-left text-xs font-semibold " +
+                (selected === r ? "text-accent" : "")
+              }
+            >
+              {rowName(r)}
+            </th>
             {cols.map((c) => {
               const n = get(r, c);
               const p = totals[i] ? n / totals[i] : 0;
               return (
-                <td key={c} title={n + " of " + totals[i]} className="h-10 min-w-10 rounded-md leading-tight"
-                  style={{ background: n ? tint(r === c ? "var(--ok)" : "var(--bad)", 14 + p * 66) : "var(--raise)" }}>
-                  {n ? <><span className="font-semibold">{Math.round(p * 100)}%</span><span className="block text-[10px] text-muted">{n}</span></> : ""}
+                <td
+                  key={c}
+                  title={n + " of " + totals[i]}
+                  className="h-10 min-w-10 rounded-md leading-tight"
+                  style={{ background: n ? tint(r === c ? "var(--ok)" : "var(--bad)", 14 + p * 66) : "var(--raise)" }}
+                >
+                  {n ? (
+                    <>
+                      <span className="font-semibold">{Math.round(p * 100)}%</span>
+                      <span className="block text-[10px] text-muted">{n}</span>
+                    </>
+                  ) : (
+                    ""
+                  )}
                 </td>
               );
             })}
@@ -54,16 +108,31 @@ export function Matrix({ rows, cols, get, rowName, colName, corner, onRow, selec
 }
 
 /** Accuracy table: rows x columns, each cell the share right with its count. */
-export function AccGrid({ rows, cols, get, rowName, colName, corner }: {
-  rows: string[]; cols: string[]; get: (r: string, c: string) => { n: number; ok: number } | undefined;
-  rowName: (r: string) => React.ReactNode; colName: (c: string) => React.ReactNode; corner?: string;
+export function AccGrid({
+  rows,
+  cols,
+  get,
+  rowName,
+  colName,
+  corner,
+}: {
+  rows: string[];
+  cols: string[];
+  get: (r: string, c: string) => { n: number; ok: number } | undefined;
+  rowName: (r: string) => React.ReactNode;
+  colName: (c: string) => React.ReactNode;
+  corner?: string;
 }) {
   return (
     <table className="w-full border-separate border-spacing-[3px] text-center text-sm tabular-nums">
       <thead>
         <tr>
           <th className="text-left text-[11px] font-normal text-muted">{corner}</th>
-          {cols.map((c) => <th key={c} className="pb-1 text-xs font-medium text-muted">{colName(c)}</th>)}
+          {cols.map((c) => (
+            <th key={c} className="pb-1 text-xs font-medium text-muted">
+              {colName(c)}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -74,8 +143,20 @@ export function AccGrid({ rows, cols, get, rowName, colName, corner }: {
               const v = get(r, c);
               const p = v ? pct(v.ok, v.n) : null;
               return (
-                <td key={c} title={v ? v.ok + " right of " + v.n : "no data"} className="h-10 min-w-10 rounded-md leading-tight" style={{ background: v ? tint(accTone(p), 18 + Math.min(1, v.n / 20) * 30) : "var(--raise)" }}>
-                  {v ? <><span className="font-semibold">{p}%</span><span className="block text-[10px] text-muted">{v.n}</span></> : ""}
+                <td
+                  key={c}
+                  title={v ? v.ok + " right of " + v.n : "no data"}
+                  className="h-10 min-w-10 rounded-md leading-tight"
+                  style={{ background: v ? tint(accTone(p), 18 + Math.min(1, v.n / 20) * 30) : "var(--raise)" }}
+                >
+                  {v ? (
+                    <>
+                      <span className="font-semibold">{p}%</span>
+                      <span className="block text-[10px] text-muted">{v.n}</span>
+                    </>
+                  ) : (
+                    ""
+                  )}
                 </td>
               );
             })}
@@ -94,18 +175,46 @@ export function DailyChart({ daily }: { daily: Stats["daily"] }) {
     <div>
       <div className="relative flex h-44 items-end gap-[2px] border-b border-line">
         {daily.map((d) => (
-          <div key={d.day} className="group relative flex h-full flex-1 flex-col-reverse" title={shortDay(d.day) + ": " + d.cards + " answers, " + (d.acc ?? "–") + "% right, " + d.minutes + " min"}>
-            {AREA_ORDER.map((a) => d.areas[a] ? <div key={a} style={{ height: (100 * d.areas[a][0]) / max + "%", background: AREA_COLOR[a] }} className="w-full first:rounded-b-[2px] last:rounded-t-[3px] opacity-85 group-hover:opacity-100" /> : null)}
-            {d.acc != null && <div className="absolute left-1/2 h-2 w-2 -translate-x-1/2 translate-y-1/2 rounded-full border border-card" style={{ bottom: d.acc + "%", background: "var(--ink)" }} />}
+          <div
+            key={d.day}
+            className="group relative flex h-full flex-1 flex-col-reverse"
+            title={shortDay(d.day) + ": " + d.cards + " answers, " + (d.acc ?? "–") + "% right, " + d.minutes + " min"}
+          >
+            {AREA_ORDER.map((a) =>
+              d.areas[a] ? (
+                <div
+                  key={a}
+                  style={{ height: (100 * d.areas[a][0]) / max + "%", background: AREA_COLOR[a] }}
+                  className="w-full first:rounded-b-[2px] last:rounded-t-[3px] opacity-85 group-hover:opacity-100"
+                />
+              ) : null,
+            )}
+            {d.acc != null && (
+              <div
+                className="absolute left-1/2 h-2 w-2 -translate-x-1/2 translate-y-1/2 rounded-full border border-card"
+                style={{ bottom: d.acc + "%", background: "var(--ink)" }}
+              />
+            )}
           </div>
         ))}
       </div>
       <div className="mt-1 flex gap-[2px] text-[10px] text-muted">
-        {daily.map((d, i) => <div key={d.day} className="flex-1 overflow-visible whitespace-nowrap">{i % step === 0 ? shortDay(d.day) : ""}</div>)}
+        {daily.map((d, i) => (
+          <div key={d.day} className="flex-1 overflow-visible whitespace-nowrap">
+            {i % step === 0 ? shortDay(d.day) : ""}
+          </div>
+        ))}
       </div>
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted">
-        {AREA_ORDER.map((a) => <span key={a} className="flex items-center gap-1"><i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: AREA_COLOR[a] }} />{AREA_LABEL[a]}</span>)}
-        <span className="flex items-center gap-1"><i className="inline-block h-2 w-2 rounded-full bg-ink" />% right (height)</span>
+        {AREA_ORDER.map((a) => (
+          <span key={a} className="flex items-center gap-1">
+            <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: AREA_COLOR[a] }} />
+            {AREA_LABEL[a]}
+          </span>
+        ))}
+        <span className="flex items-center gap-1">
+          <i className="inline-block h-2 w-2 rounded-full bg-ink" />% right (height)
+        </span>
       </div>
     </div>
   );
@@ -123,7 +232,8 @@ export function Calendar({ days, goal }: { days: Stats["calendar"]; goal: number
     for (let i = 0; i < 7; i++) {
       const d = new Date(start);
       d.setDate(start.getDate() + w * 7 + i);
-      const k = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+      const k =
+        d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
       col.push({ day: k, m: by.get(k) ?? 0, future: d > today });
     }
     weeks.push(col);
@@ -133,8 +243,20 @@ export function Calendar({ days, goal }: { days: Stats["calendar"]; goal: number
       {weeks.map((col, i) => (
         <div key={i} className="flex flex-col gap-[3px]">
           {col.map((c) => (
-            <div key={c.day} title={shortDay(c.day) + ": " + Math.round(c.m) + " min"} className="h-3.5 w-3.5 rounded-[3px]"
-              style={{ background: c.future ? "transparent" : !c.m ? "var(--raise)" : c.m >= goal ? "var(--ok)" : tint("var(--accent)", 25 + Math.min(1, c.m / goal) * 60) }} />
+            <div
+              key={c.day}
+              title={shortDay(c.day) + ": " + Math.round(c.m) + " min"}
+              className="h-3.5 w-3.5 rounded-[3px]"
+              style={{
+                background: c.future
+                  ? "transparent"
+                  : !c.m
+                    ? "var(--raise)"
+                    : c.m >= goal
+                      ? "var(--ok)"
+                      : tint("var(--accent)", 25 + Math.min(1, c.m / goal) * 60),
+              }}
+            />
           ))}
         </div>
       ))}
@@ -152,10 +274,26 @@ export function Hours({ hours }: { hours: Stats["hours"] }) {
         {Array.from({ length: 24 }, (_, h) => {
           const v = by.get(h);
           const p = v ? pct(v.ok, v.n) : null;
-          return <div key={h} className="flex-1 rounded-t-[3px]" title={h + ":00 " + (v ? v.n + " answers, " + p + "% right" : "")} style={{ height: v ? Math.max(4, (100 * v.n) / max) + "%" : "2px", background: v ? accTone(p) : "var(--line)" }} />;
+          return (
+            <div
+              key={h}
+              className="flex-1 rounded-t-[3px]"
+              title={h + ":00 " + (v ? v.n + " answers, " + p + "% right" : "")}
+              style={{
+                height: v ? Math.max(4, (100 * v.n) / max) + "%" : "2px",
+                background: v ? accTone(p) : "var(--line)",
+              }}
+            />
+          );
         })}
       </div>
-      <div className="mt-1 flex justify-between text-[10px] text-muted"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+      <div className="mt-1 flex justify-between text-[10px] text-muted">
+        <span>0h</span>
+        <span>6h</span>
+        <span>12h</span>
+        <span>18h</span>
+        <span>23h</span>
+      </div>
     </div>
   );
 }
@@ -169,14 +307,29 @@ export function Meter({ value, color }: { value: number | null; color?: string }
   );
 }
 
-
 /** A row of options where one is selected. Used to show one table at a time instead of all of them. */
-export function Segmented<T extends string | number>({ options, value, onChange }: { options: { id: T; label: React.ReactNode }[]; value: T; onChange: (v: T) => void }) {
+export function Segmented<T extends string | number>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: T; label: React.ReactNode }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
   return (
     <div className="inline-flex max-w-full flex-wrap gap-1 rounded-xl bg-raise p-1" role="tablist">
       {options.map((o) => (
-        <button key={String(o.id)} role="tab" aria-selected={o.id === value} onClick={() => onChange(o.id)}
-          className={"rounded-lg px-3 py-1.5 text-sm transition " + (o.id === value ? "bg-card font-semibold text-ink shadow-sm" : "text-muted hover:text-ink")}>
+        <button
+          key={String(o.id)}
+          role="tab"
+          aria-selected={o.id === value}
+          onClick={() => onChange(o.id)}
+          className={
+            "rounded-lg px-3 py-1.5 text-sm transition " +
+            (o.id === value ? "bg-card font-semibold text-ink shadow-sm" : "text-muted hover:text-ink")
+          }
+        >
           {o.label}
         </button>
       ))}
@@ -185,7 +338,17 @@ export function Segmented<T extends string | number>({ options, value, onChange 
 }
 
 /** A card that opens on click. Details stay out of the way until asked for. */
-export function Disclosure({ title, hint, children, open }: { title: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode; open?: boolean }) {
+export function Disclosure({
+  title,
+  hint,
+  children,
+  open,
+}: {
+  title: React.ReactNode;
+  hint?: React.ReactNode;
+  children: React.ReactNode;
+  open?: boolean;
+}) {
   return (
     <details className="card group" open={open}>
       <summary className="flex cursor-pointer list-none items-center gap-3 p-4 md:px-5 [&::-webkit-details-marker]:hidden">
@@ -193,11 +356,22 @@ export function Disclosure({ title, hint, children, open }: { title: React.React
           <span className="font-semibold">{title}</span>
           {hint && <span className="block text-xs text-muted">{hint}</span>}
         </span>
-        <svg viewBox="0 0 20 20" className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden><path d="M5 7.5l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        <svg
+          viewBox="0 0 20 20"
+          className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180"
+          aria-hidden
+        >
+          <path
+            d="M5 7.5l5 5 5-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       </summary>
       <div className="border-t border-line p-4 md:p-5">{children}</div>
     </details>
   );
 }
-
-

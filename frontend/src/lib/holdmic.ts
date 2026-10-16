@@ -3,7 +3,8 @@
 // One microphone is shared by every component (lib/useHoldMic.ts), because a placement card remounts for each item.
 import { encodeWav, resample } from "./recorder";
 
-const WORKLET = "class H extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('hold',H)";
+const WORKLET =
+  "class H extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('hold',H)";
 const PRE_S = 0.5; // audio kept from before the press
 const POST_S = 0.35; // audio kept after the release
 const MIN_HOLD_S = 0.1; // shorter presses are taps
@@ -36,7 +37,9 @@ export class HoldMic {
   async start() {
     // No echo cancellation and no noise suppression: both can cut the short burst of ㄅ, ㄆ, ㄉ, ㄊ after a silence.
     // The app stops its own audio at the press, so there is no echo to cancel.
-    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 } });
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1 },
+    });
     this.ctx = new AudioContext();
     this.rate = this.ctx.sampleRate;
     const url = URL.createObjectURL(new Blob([WORKLET], { type: "application/javascript" }));
@@ -48,8 +51,12 @@ export class HoldMic {
   }
 
   /** The audio context starts suspended when the page had no click yet. A press is a click, so it can resume it. */
-  get running() { return this.ctx?.state === "running"; }
-  resume() { return this.ctx?.resume() ?? Promise.resolve(); }
+  get running() {
+    return this.ctx?.state === "running";
+  }
+  resume() {
+    return this.ctx?.resume() ?? Promise.resolve();
+  }
 
   async stop() {
     this.node?.disconnect();
@@ -107,7 +114,11 @@ export class HoldMic {
     const rms = Math.sqrt(s / c.length);
     const t = performance.now();
     this.levelMax = Math.max(this.levelMax, rms);
-    if (t - this.levelAt >= LEVEL_MS) { this.onLevel(this.levelMax); this.levelMax = 0; this.levelAt = t; }
+    if (t - this.levelAt >= LEVEL_MS) {
+      this.onLevel(this.levelMax);
+      this.levelMax = 0;
+      this.levelAt = t;
+    }
     if (this.clip) {
       this.clip.push(c);
       this.peak = Math.max(this.peak, rms);
@@ -117,7 +128,11 @@ export class HoldMic {
       }
       return;
     }
-    if (this.muted || t < this.quietUntil) { this.ring = []; this.ringLen = 0; return; }
+    if (this.muted || t < this.quietUntil) {
+      this.ring = [];
+      this.ringLen = 0;
+      return;
+    }
     this.ring.push(c);
     this.ringLen += c.length;
     const keep = PRE_S * this.rate;
@@ -133,7 +148,10 @@ export class HoldMic {
     if (peak < QUIET) return "quiet";
     const all = new Float32Array(frames.reduce((a, f) => a + f.length, 0));
     let o = 0;
-    for (const f of frames) { all.set(f, o); o += f.length; }
+    for (const f of frames) {
+      all.set(f, o);
+      o += f.length;
+    }
     const pcm = resample(all, this.rate, 16000);
     return { wav: encodeWav(pcm, 16000), seconds: pcm.length / 16000, held, peak };
   }

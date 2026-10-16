@@ -4,14 +4,24 @@
 import { useSyncExternalStore } from "react";
 import { setPref } from "./prefs";
 
-export type Today = { date: string; cards: number; ok: number; combo: number; best: number; seconds: number; goalHit: boolean; areas: Record<string, number> };
+export type Today = {
+  date: string;
+  cards: number;
+  ok: number;
+  combo: number;
+  best: number;
+  seconds: number;
+  goalHit: boolean;
+  areas: Record<string, number>;
+};
 
 const KEY = "zhuyin.today";
 const GOAL_KEY = "zhuyin.goal";
 const IDLE_MS = 60_000; // no key, click, or answer for this long: the clock stops
 const EMPTY: Today = { date: "", cards: 0, ok: 0, combo: 0, best: 0, seconds: 0, goalHit: false, areas: {} };
 
-const dayOf = (d = new Date()) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+const dayOf = (d = new Date()) =>
+  d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 const subs = new Set<() => void>();
 let cache: Today | null = null;
 let lastActive = 0;
@@ -21,14 +31,18 @@ function read(): Today {
   const day = dayOf();
   if (cache && cache.date === day) return cache;
   let t: Today | null = null;
-  try { t = JSON.parse(localStorage.getItem(KEY) ?? "null"); } catch {}
+  try {
+    t = JSON.parse(localStorage.getItem(KEY) ?? "null");
+  } catch {}
   cache = t && t.date === day ? { ...EMPTY, ...t } : { ...EMPTY, date: day };
   return cache;
 }
 
 function write(t: Today) {
   cache = t;
-  try { localStorage.setItem(KEY, JSON.stringify(t)); } catch {}
+  try {
+    localStorage.setItem(KEY, JSON.stringify(t));
+  } catch {}
   subs.forEach((f) => f());
 }
 
@@ -40,14 +54,23 @@ export const setGoalMinutes = (m: number) => {
   write({ ...t, goalHit: t.seconds >= m * 60 });
 };
 
-export const markActive = () => { lastActive = Date.now(); };
+export const markActive = () => {
+  lastActive = Date.now();
+};
 
 /** Called for every graded answer (from api.attempt). */
 export function recordAttempt(area: string, ok: boolean) {
   markActive();
   const t = read();
   const combo = ok ? t.combo + 1 : 0;
-  write({ ...t, cards: t.cards + 1, ok: t.ok + (ok ? 1 : 0), combo, best: Math.max(t.best, combo), areas: { ...t.areas, [area]: (t.areas[area] ?? 0) + 1 } });
+  write({
+    ...t,
+    cards: t.cards + 1,
+    ok: t.ok + (ok ? 1 : 0),
+    combo,
+    best: Math.max(t.best, combo),
+    areas: { ...t.areas, [area]: (t.areas[area] ?? 0) + 1 },
+  });
 }
 
 /** Add active time. Returns true once, when this tick reaches the daily goal. */
@@ -61,5 +84,14 @@ export function tick(seconds: number): boolean {
 }
 
 export function useToday(): Today {
-  return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, read, () => EMPTY);
+  return useSyncExternalStore(
+    (f) => {
+      subs.add(f);
+      return () => {
+        subs.delete(f);
+      };
+    },
+    read,
+    () => EMPTY,
+  );
 }

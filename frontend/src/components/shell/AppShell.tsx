@@ -37,24 +37,37 @@ export function Frame({ children }: { children: React.ReactNode }) {
             <span className="text-xl font-semibold">bopomofo</span>
           </div>
           <BoboPose pose="welcome" className="w-32 md:w-40 lg:w-72" priority />
-          <p className="max-w-xs text-sm text-muted max-lg:hidden"><b className="text-ink">歡迎!</b> I&apos;m Bobo, a Formosan black bear. Sign in and I&apos;ll coach you through Bopomofo, one tone at a time.</p>
+          <p className="max-w-xs text-sm text-muted max-lg:hidden">
+            <b className="text-ink">歡迎!</b> I&apos;m Bobo, a Formosan black bear. Sign in and I&apos;ll coach you
+            through Bopomofo, one tone at a time.
+          </p>
         </div>
         {children}
       </main>
     );
   }
-  return <AiQuotaProvider><LevelsProvider><OnboardingGate /><AppShell>{children}</AppShell></LevelsProvider></AiQuotaProvider>;
+  return (
+    <AiQuotaProvider>
+      <LevelsProvider>
+        <OnboardingGate />
+        <AppShell>{children}</AppShell>
+      </LevelsProvider>
+    </AiQuotaProvider>
+  );
 }
 
 /** Sends a learner who has not finished the onboarding (or a due placement test) to it, and keeps the daily goal the same on every device. */
 function OnboardingGate() {
   const router = useRouter();
   useEffect(() => {
-    api.me().then((m) => {
-      if (!m.onboarded) router.replace("/onboarding");
-      else if (m.placement === "due") router.replace("/placement");
-      else if (m.goal_min && m.goal_min !== goalMinutes()) setGoalMinutes(m.goal_min);
-    }).catch(() => {});
+    api
+      .me()
+      .then((m) => {
+        if (!m.onboarded) router.replace("/onboarding");
+        else if (m.placement === "due") router.replace("/placement");
+        else if (m.goal_min && m.goal_min !== goalMinutes()) setGoalMinutes(m.goal_min);
+      })
+      .catch(() => {});
   }, [router]);
   return null;
 }
@@ -76,7 +89,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const profile = useProfile();
   const profileGaps = profile ? missingFacts(profile).length : 0;
   const todayRef = useRef(today);
-  useEffect(() => { todayRef.current = today; }, [today]);
+  useEffect(() => {
+    todayRef.current = today;
+  }, [today]);
   const { lv, routeOpen, refresh } = useLevels();
   const routes = ROUTES.filter((r) => routeOpen(r.href));
   const locked = !!lv && !routeOpen(route.href);
@@ -90,30 +105,57 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let stop = false;
     let t: ReturnType<typeof setTimeout> | undefined;
-    const poll = () => api.health()
-      .then((h) => { if (stop) return; setHealth(h); t = setTimeout(poll, h.speech_model === "loading" ? 2000 : 30000); })
-      .catch(() => { if (stop) return; setHealth("down"); t = setTimeout(poll, 5000); });
+    const poll = () =>
+      api
+        .health()
+        .then((h) => {
+          if (stop) return;
+          setHealth(h);
+          t = setTimeout(poll, h.speech_model === "loading" ? 2000 : 30000);
+        })
+        .catch(() => {
+          if (stop) return;
+          setHealth("down");
+          t = setTimeout(poll, 5000);
+        });
     poll();
-    return () => { stop = true; clearTimeout(t); };
+    return () => {
+      stop = true;
+      clearTimeout(t);
+    };
   }, []);
 
   // The day streak comes from the backend history. Refresh it after the first answer of the day.
   const practicedToday = today.cards > 0;
-  useEffect(() => { api.summary().then((s) => setDayStreak(s.day_streak)).catch(() => {}); }, [practicedToday]);
+  useEffect(() => {
+    api
+      .summary()
+      .then((s) => setDayStreak(s.day_streak))
+      .catch(() => {});
+  }, [practicedToday]);
 
   useEffect(() => {
     // After a mouse click, do not leave focus on the button: Space and Enter belong to the practice keys.
     const act = () => markActive();
-    const drop = () => setTimeout(() => {
-      const a = document.activeElement;
-      if (a instanceof HTMLButtonElement || a instanceof HTMLAnchorElement || (a instanceof HTMLInputElement && (a.type === "checkbox" || a.type === "radio"))) a.blur();
-    }, 0);
+    const drop = () =>
+      setTimeout(() => {
+        const a = document.activeElement;
+        if (
+          a instanceof HTMLButtonElement ||
+          a instanceof HTMLAnchorElement ||
+          (a instanceof HTMLInputElement && (a.type === "checkbox" || a.type === "radio"))
+        )
+          a.blur();
+      }, 0);
     const fs = () => setFull(!!document.fullscreenElement);
     let toastTimer: ReturnType<typeof setTimeout> | undefined;
     let ticks = 0;
     const iv = setInterval(() => {
       // Every 30 s, save today's active time, so the stats keep a minutes history.
-      if (++ticks % 6 === 0) { const t = todayRef.current; if (t.seconds) api.saveDay(t.date, t.seconds, goalMinutes()); }
+      if (++ticks % 6 === 0) {
+        const t = todayRef.current;
+        if (t.seconds) api.saveDay(t.date, t.seconds, goalMinutes());
+      }
       if (!tick(5)) return;
       setToast("✓ Daily goal reached! " + goalMinutes() + " minutes today.");
       playSfx("right");
@@ -128,7 +170,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       for (const n of list) shownNotices.current.add(n.id);
       refresh();
       const unlocks = list.filter((n) => n.kind === "unlock");
-      if (unlocks.length) { setUnlock(unlocks[unlocks.length - 1]); playSfx("right"); }
+      if (unlocks.length) {
+        setUnlock(unlocks[unlocks.length - 1]);
+        playSfx("right");
+      }
       const other = list.filter((n) => n.kind !== "unlock");
       if (other.length) {
         const last = other[other.length - 1];
@@ -155,24 +200,52 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   const close = () => setOverlay(null);
-  const go = (href: string) => { setOverlay(null); router.push(href); };
-  const toggleFull = () => { if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else document.documentElement.requestFullscreen().catch(() => {}); };
+  const go = (href: string) => {
+    setOverlay(null);
+    router.push(href);
+  };
+  const toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else document.documentElement.requestFullscreen().catch(() => {});
+  };
   const toggleSfx = () => setSfxEnabled(!sfxOn);
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
-  useHotkeys("global", [
-    { keys: ["KeyG"], label: "Go to", run: () => setOverlay("goto") },
-    { keys: ["Ctrl+KeyK"], label: "Commands", run: () => setOverlay("palette"), input: true },
-    { keys: ["Shift+Slash"], label: "Shortcuts", run: () => setOverlay("help") },
-    { keys: ["KeyM"], label: sfxOn ? "Mute sounds" : "Turn sounds on", run: toggleSfx },
-    { keys: ["Alt+Enter"], label: full ? "Leave full screen" : "Full screen", run: toggleFull },
-    { keys: ["Escape"], label: "Leave the text field", run: () => (document.activeElement as HTMLElement | null)?.blur?.(), input: true },
-  ], { order: 0 });
+  useHotkeys(
+    "global",
+    [
+      { keys: ["KeyG"], label: "Go to", run: () => setOverlay("goto") },
+      { keys: ["Ctrl+KeyK"], label: "Commands", run: () => setOverlay("palette"), input: true },
+      { keys: ["Shift+Slash"], label: "Shortcuts", run: () => setOverlay("help") },
+      { keys: ["KeyM"], label: sfxOn ? "Mute sounds" : "Turn sounds on", run: toggleSfx },
+      { keys: ["Alt+Enter"], label: full ? "Leave full screen" : "Full screen", run: toggleFull },
+      {
+        keys: ["Escape"],
+        label: "Leave the text field",
+        run: () => (document.activeElement as HTMLElement | null)?.blur?.(),
+        input: true,
+      },
+    ],
+    { order: 0 },
+  );
 
   const pageKeys = layers.filter((l) => l.order === 1).flatMap((l) => l.keys);
   const commands: Command[] = [
-    ...pageKeys.filter((k) => k.run && k.when !== false && k.keys.length).map((k) => ({ group: route.label, label: k.label, caps: capsOf(k), run: () => k.run!(new KeyboardEvent("keydown")) })),
-    ...routes.map((r) => ({ group: "Go to", label: r.label, hint: r.desc, caps: ["G", keyCaps(r.key)[0]], run: () => router.push(r.href) })),
+    ...pageKeys
+      .filter((k) => k.run && k.when !== false && k.keys.length)
+      .map((k) => ({
+        group: route.label,
+        label: k.label,
+        caps: capsOf(k),
+        run: () => k.run!(new KeyboardEvent("keydown")),
+      })),
+    ...routes.map((r) => ({
+      group: "Go to",
+      label: r.label,
+      hint: r.desc,
+      caps: ["G", keyCaps(r.key)[0]],
+      run: () => router.push(r.href),
+    })),
     { group: "App", label: sfxOn ? "Mute sounds" : "Turn sounds on", caps: ["M"], run: toggleSfx },
     { group: "App", label: full ? "Leave full screen" : "Full screen", caps: ["Alt", "Enter"], run: toggleFull },
     { group: "App", label: theme === "dark" ? "Light theme" : "Dark theme", run: toggleTheme },
@@ -184,12 +257,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="shell">
       <Rail path={path} profileGaps={profileGaps} routes={routes} locked={ROUTES.length - routes.length} />
-      <TopBar route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} full={full}
-        onSfx={toggleSfx} onFull={toggleFull} onHelp={() => setOverlay("help")} onPalette={() => setOverlay("palette")} />
-      <MobileTop route={route} status={status} dayStreak={dayStreak} today={today} sfxOn={sfxOn} onSfx={toggleSfx} lesson={lesson} />
+      <TopBar
+        route={route}
+        status={status}
+        dayStreak={dayStreak}
+        today={today}
+        sfxOn={sfxOn}
+        full={full}
+        onSfx={toggleSfx}
+        onFull={toggleFull}
+        onHelp={() => setOverlay("help")}
+        onPalette={() => setOverlay("palette")}
+      />
+      <MobileTop
+        route={route}
+        status={status}
+        dayStreak={dayStreak}
+        today={today}
+        sfxOn={sfxOn}
+        onSfx={toggleSfx}
+        lesson={lesson}
+      />
       <main className="min-h-0 overflow-x-hidden overflow-y-auto">
         <div className="flex min-h-full flex-col px-4 py-3 pb-[calc(var(--ab-space,0px)+0.75rem)] md:px-6 md:py-5 lg:px-10">
-          {lesson && !locked && <Suspense fallback={null}><StepBanner /></Suspense>}
+          {lesson && !locked && (
+            <Suspense fallback={null}>
+              <StepBanner />
+            </Suspense>
+          )}
           {!lesson && path !== "/settings" && <AiEnergyWait />}
           {locked ? <LockedScreen route={route} /> : children}
         </div>
@@ -199,25 +294,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {overlay === "goto" && <GotoOverlay routes={routes} onGo={go} onClose={close} />}
       {overlay === "palette" && <Palette commands={commands} onClose={close} />}
       {overlay === "help" && <HelpOverlay route={route} routes={routes} onClose={close} />}
-      {unlock && !overlay && <UnlockOverlay notice={unlock} onGo={(href) => { setUnlock(null); router.push(href); }} onClose={() => setUnlock(null)} />}
-      {toast && <div className="fixed left-1/2 top-16 z-50 max-w-[90vw] -translate-x-1/2 rounded-full bg-ok px-5 py-2 text-center font-semibold text-white shadow-lg zq-pop" role="status">{toast}</div>}
+      {unlock && !overlay && (
+        <UnlockOverlay
+          notice={unlock}
+          onGo={(href) => {
+            setUnlock(null);
+            router.push(href);
+          }}
+          onClose={() => setUnlock(null)}
+        />
+      )}
+      {toast && (
+        <div
+          className="fixed left-1/2 top-16 z-50 max-w-[90vw] -translate-x-1/2 rounded-full bg-ok px-5 py-2 text-center font-semibold text-white shadow-lg zq-pop"
+          role="status"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
 
 /** The blinking dot under a tab while the profile is not complete. */
 function NudgeDot({ gaps }: { gaps: number }) {
-  return <><i className="nudge-dot" aria-hidden="true" /><span className="sr-only">: {gaps} profile facts missing</span></>;
+  return (
+    <>
+      <i className="nudge-dot" aria-hidden="true" />
+      <span className="sr-only">: {gaps} profile facts missing</span>
+    </>
+  );
 }
 
 /** The side rail: only the screens that are open at the learner's level, and one link to the path for the rest. */
-function Rail({ path, profileGaps, routes, locked }: { path: string; profileGaps: number; routes: RouteInfo[]; locked: number }) {
+function Rail({
+  path,
+  profileGaps,
+  routes,
+  locked,
+}: {
+  path: string;
+  profileGaps: number;
+  routes: RouteInfo[];
+  locked: number;
+}) {
   const item = (r: RouteInfo) => {
     const active = r.href === "/" ? path === "/" : path.startsWith(r.href);
     const nudge = r.href === "/profile" && profileGaps > 0;
     return (
-      <Link key={r.href} href={r.href} data-active={active} className="rail-item"
-        title={nudge ? "Complete your profile: " + profileGaps + " facts missing (G then P)" : r.label + " (G then " + keyCaps(r.key).join("") + ")"}>
+      <Link
+        key={r.href}
+        href={r.href}
+        data-active={active}
+        className="rail-item"
+        title={
+          nudge
+            ? "Complete your profile: " + profileGaps + " facts missing (G then P)"
+            : r.label + " (G then " + keyCaps(r.key).join("") + ")"
+        }
+      >
         <span className="cjk text-[21px] leading-none">{routeIcon(r, 26)}</span>
         <span className="text-[10px] leading-none">{r.label}</span>
         {nudge && <NudgeDot gaps={profileGaps} />}
@@ -226,12 +361,25 @@ function Rail({ path, profileGaps, routes, locked }: { path: string; profileGaps
   };
   return (
     <nav className="row-span-3 hidden flex-col items-center gap-1 overflow-y-auto border-r border-line bg-card py-3 md:flex">
-      <Link href="/" title="Home (G then H)" className={"cjk mb-2 grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl text-white shadow transition " + (path === "/" ? "bg-accent ring-4 ring-accent-soft" : "bg-accent/85 hover:bg-accent")}>注</Link>
+      <Link
+        href="/"
+        title="Home (G then H)"
+        className={
+          "cjk mb-2 grid h-11 w-11 shrink-0 place-items-center rounded-2xl text-xl text-white shadow transition " +
+          (path === "/" ? "bg-accent ring-4 ring-accent-soft" : "bg-accent/85 hover:bg-accent")
+        }
+      >
+        注
+      </Link>
       {routes.filter((r) => r.area === "progress").map(item)}
       <div className="my-1.5 h-px w-8 shrink-0 bg-line" />
       {routes.filter((r) => r.area === "practice" || r.area === "study").map(item)}
       {locked > 0 && (
-        <Link href="/levels" className="rail-item opacity-60 hover:opacity-100" title={locked + " more screens open at higher levels (G then V)"}>
+        <Link
+          href="/levels"
+          className="rail-item opacity-60 hover:opacity-100"
+          title={locked + " more screens open at higher levels (G then V)"}
+        >
           <span className="text-[17px] leading-none">🔒</span>
           <span className="text-[10px] leading-none">+{locked}</span>
         </Link>
@@ -244,15 +392,48 @@ function Rail({ path, profileGaps, routes, locked }: { path: string; profileGaps
 
 type Status = { cls: string; label: string; tip: string; ok: boolean };
 const statusOf = (health: Health | null | "down"): Status =>
-  health === null ? { cls: "bg-muted", label: "Connecting…", tip: "", ok: true }
-    : health === "down" ? { cls: "bg-bad", label: "Offline", tip: "Can't connect right now. Please try again in a moment.", ok: false }
-    : health.speech_model === "ready" ? { cls: "bg-ok", label: "Ready", tip: "Everything is ready.", ok: true }
-    : health.speech_model === "loading" ? { cls: "bg-rough animate-pulse", label: "Getting ready…", tip: "The speech check is getting ready (a few seconds).", ok: false }
-    : { cls: "bg-bad", label: "Speech check off", tip: "The speech check is not available right now. The other exercises still work.", ok: false };
+  health === null
+    ? { cls: "bg-muted", label: "Connecting…", tip: "", ok: true }
+    : health === "down"
+      ? { cls: "bg-bad", label: "Offline", tip: "Can't connect right now. Please try again in a moment.", ok: false }
+      : health.speech_model === "ready"
+        ? { cls: "bg-ok", label: "Ready", tip: "Everything is ready.", ok: true }
+        : health.speech_model === "loading"
+          ? {
+              cls: "bg-rough animate-pulse",
+              label: "Getting ready…",
+              tip: "The speech check is getting ready (a few seconds).",
+              ok: false,
+            }
+          : {
+              cls: "bg-bad",
+              label: "Speech check off",
+              tip: "The speech check is not available right now. The other exercises still work.",
+              ok: false,
+            };
 
-function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, onHelp, onPalette }: {
-  route: RouteInfo; status: Status; dayStreak: number | null; today: Today; sfxOn: boolean; full: boolean;
-  onSfx: () => void; onFull: () => void; onHelp: () => void; onPalette: () => void;
+function TopBar({
+  route,
+  status,
+  dayStreak,
+  today,
+  sfxOn,
+  full,
+  onSfx,
+  onFull,
+  onHelp,
+  onPalette,
+}: {
+  route: RouteInfo;
+  status: Status;
+  dayStreak: number | null;
+  today: Today;
+  sfxOn: boolean;
+  full: boolean;
+  onSfx: () => void;
+  onFull: () => void;
+  onHelp: () => void;
+  onPalette: () => void;
 }) {
   const goal = goalMinutes();
   const minutes = Math.floor(today.seconds / 60);
@@ -261,7 +442,9 @@ function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, o
   return (
     <header className="hidden min-w-0 items-center gap-4 border-b border-line bg-card px-5 md:flex">
       <div className="flex min-w-0 items-center gap-3">
-        <span className="cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-lg text-accent">{routeIcon(route, 36)}</span>
+        <span className="cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-accent-soft text-lg text-accent">
+          {routeIcon(route, 36)}
+        </span>
         <div className="min-w-0">
           <div className="font-semibold leading-tight">{route.label}</div>
           <div className="truncate text-xs text-muted">{route.desc}</div>
@@ -269,24 +452,62 @@ function TopBar({ route, status, dayStreak, today, sfxOn, full, onSfx, onFull, o
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2 text-sm">
         <AiEnergyBadge />
-        <span className="hud" title={status.tip}><i className={"inline-block h-2 w-2 rounded-full " + status.cls} />{status.label}</span>
-        <span className="hud hud-optional" title="Days in a row with practice">🔥 <b className="tabular-nums">{dayStreak ?? "–"}</b> <span className="text-muted">days</span></span>
-        <span className="hud" title={"Active practice today. Daily goal: " + goal + " minutes (change it in Settings)."}>
-          <span className="relative h-1.5 w-20 overflow-hidden rounded-full bg-line"><span className={"absolute inset-y-0 left-0 rounded-full transition-all " + (today.goalHit ? "bg-ok" : "bg-accent")} style={{ width: pct + "%" }} /></span>
-          <b className="tabular-nums">{minutes}</b><span className="text-muted">/{goal} min</span>{today.goalHit && <span className="text-ok">✓</span>}
+        <span className="hud" title={status.tip}>
+          <i className={"inline-block h-2 w-2 rounded-full " + status.cls} />
+          {status.label}
+        </span>
+        <span className="hud hud-optional" title="Days in a row with practice">
+          🔥 <b className="tabular-nums">{dayStreak ?? "–"}</b> <span className="text-muted">days</span>
+        </span>
+        <span
+          className="hud"
+          title={"Active practice today. Daily goal: " + goal + " minutes (change it in Settings)."}
+        >
+          <span className="relative h-1.5 w-20 overflow-hidden rounded-full bg-line">
+            <span
+              className={
+                "absolute inset-y-0 left-0 rounded-full transition-all " + (today.goalHit ? "bg-ok" : "bg-accent")
+              }
+              style={{ width: pct + "%" }}
+            />
+          </span>
+          <b className="tabular-nums">{minutes}</b>
+          <span className="text-muted">/{goal} min</span>
+          {today.goalHit && <span className="text-ok">✓</span>}
         </span>
         <span className="hud hud-optional" title="Answers today, and how many were right">
-          <b className="tabular-nums">{today.cards}</b> <span className="text-muted">{today.cards === 1 ? "card" : "cards"}</span>{acc !== null && <><span className="text-muted">·</span><b className="tabular-nums">{acc}%</b></>}
+          <b className="tabular-nums">{today.cards}</b>{" "}
+          <span className="text-muted">{today.cards === 1 ? "card" : "cards"}</span>
+          {acc !== null && (
+            <>
+              <span className="text-muted">·</span>
+              <b className="tabular-nums">{acc}%</b>
+            </>
+          )}
         </span>
-        <span key={today.combo} className={"hud " + (today.combo >= 2 ? "zq-pop border-accent/60 text-accent" : "")} title={"Right answers in a row, on all screens. Best today: " + today.best}>
+        <span
+          key={today.combo}
+          className={"hud " + (today.combo >= 2 ? "zq-pop border-accent/60 text-accent" : "")}
+          title={"Right answers in a row, on all screens. Best today: " + today.best}
+        >
           ⚡ <b className="tabular-nums">×{today.combo}</b>
         </span>
         <div className="ml-1 flex items-center gap-1">
-          <button className="icon-btn" onClick={onPalette} title="Commands (Ctrl+K)">⌘</button>
-          <button className="icon-btn" onClick={onSfx} title="Sounds (M)">{sfxOn ? "🔊" : "🔇"}</button>
-          <button className="icon-btn" onClick={onFull} title="Full screen (Alt+Enter)">{full ? "🗗" : "⛶"}</button>
-          <button className="icon-btn font-semibold" onClick={onHelp} title="Shortcuts (?)">?</button>
-          <span className="ml-1 grid h-9 w-9 place-items-center"><UserButton /></span>
+          <button className="icon-btn" onClick={onPalette} title="Commands (Ctrl+K)">
+            ⌘
+          </button>
+          <button className="icon-btn" onClick={onSfx} title="Sounds (M)">
+            {sfxOn ? "🔊" : "🔇"}
+          </button>
+          <button className="icon-btn" onClick={onFull} title="Full screen (Alt+Enter)">
+            {full ? "🗗" : "⛶"}
+          </button>
+          <button className="icon-btn font-semibold" onClick={onHelp} title="Shortcuts (?)">
+            ?
+          </button>
+          <span className="ml-1 grid h-9 w-9 place-items-center">
+            <UserButton />
+          </span>
         </div>
       </div>
     </header>
@@ -302,13 +523,25 @@ function ControlsBar() {
   return (
     <footer className="hidden min-w-0 items-center gap-4 border-t border-line bg-card px-4 text-xs text-muted md:flex">
       <div className="flex min-w-0 flex-1 items-center gap-x-4 overflow-hidden whitespace-nowrap [mask-image:linear-gradient(to_right,black_92%,transparent)]">
-        {shown.map((k, i) => <span key={i} className="flex items-center gap-1.5"><Caps caps={capsOf(k)} /><span>{k.label}</span></span>)}
+        {shown.map((k, i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            <Caps caps={capsOf(k)} />
+            <span>{k.label}</span>
+          </span>
+        ))}
       </div>
       {!modal && (
         <div className="hidden shrink-0 items-center gap-4 whitespace-nowrap md:flex">
-          <span className="flex items-center gap-1.5"><Kbd>G</Kbd>Go to</span>
-          <span className="flex items-center gap-1.5"><Caps caps={["Ctrl", "K"]} />Commands</span>
-          <span className="flex items-center gap-1.5"><Kbd>?</Kbd>Shortcuts</span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>G</Kbd>Go to
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Caps caps={["Ctrl", "K"]} />
+            Commands
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Kbd>?</Kbd>Shortcuts
+          </span>
         </div>
       )}
     </footer>
@@ -319,42 +552,105 @@ function ControlsBar() {
  * Phone top bar. In a practice mode it works like a lesson screen: ✕ back to Home, the daily-goal progress bar, and the combo.
  * On the other screens: the title, the day streak, and the combo.
  */
-function MobileTop({ route, status, dayStreak, today, sfxOn, onSfx, lesson }: {
-  route: RouteInfo; status: Status; dayStreak: number | null; today: Today; sfxOn: boolean; onSfx: () => void; lesson: boolean;
+function MobileTop({
+  route,
+  status,
+  dayStreak,
+  today,
+  sfxOn,
+  onSfx,
+  lesson,
+}: {
+  route: RouteInfo;
+  status: Status;
+  dayStreak: number | null;
+  today: Today;
+  sfxOn: boolean;
+  onSfx: () => void;
+  lesson: boolean;
 }) {
   const goal = goalMinutes();
   const minutes = Math.floor(today.seconds / 60);
   const pct = Math.min(100, (100 * today.seconds) / (goal * 60));
-  const combo = <span key={today.combo} className={"flex items-center gap-0.5 text-sm font-bold tabular-nums " + (today.combo >= 2 ? "text-accent zq-pop" : "text-muted")} title="Right answers in a row">⚡{today.combo}</span>;
+  const combo = (
+    <span
+      key={today.combo}
+      className={
+        "flex items-center gap-0.5 text-sm font-bold tabular-nums " +
+        (today.combo >= 2 ? "text-accent zq-pop" : "text-muted")
+      }
+      title="Right answers in a row"
+    >
+      ⚡{today.combo}
+    </span>
+  );
   return (
     <header className="border-b border-line bg-card pt-[env(safe-area-inset-top)] md:hidden">
       {lesson ? (
         <div className="flex h-14 items-center gap-3 px-3">
-          <Link href="/" aria-label="Back to Home" className="icon-btn !h-10 !w-10 text-xl">✕</Link>
-          <span className="cjk text-lg text-accent" aria-label={route.label}>{routeIcon(route, 28)}</span>
-          <div className="relative h-3.5 flex-1 overflow-hidden rounded-full bg-line" title={"Daily goal: " + minutes + " of " + goal + " minutes"}>
-            <div className={"absolute inset-y-0 left-0 rounded-full transition-all duration-500 " + (today.goalHit ? "bg-ok" : "bg-accent")} style={{ width: Math.max(4, pct) + "%" }} />
-            <div className="absolute inset-x-2 top-[3px] h-1 rounded-full bg-white/25" style={{ width: "calc(" + Math.max(4, pct) + "% - 1rem)" }} />
+          <Link href="/" aria-label="Back to Home" className="icon-btn !h-10 !w-10 text-xl">
+            ✕
+          </Link>
+          <span className="cjk text-lg text-accent" aria-label={route.label}>
+            {routeIcon(route, 28)}
+          </span>
+          <div
+            className="relative h-3.5 flex-1 overflow-hidden rounded-full bg-line"
+            title={"Daily goal: " + minutes + " of " + goal + " minutes"}
+          >
+            <div
+              className={
+                "absolute inset-y-0 left-0 rounded-full transition-all duration-500 " +
+                (today.goalHit ? "bg-ok" : "bg-accent")
+              }
+              style={{ width: Math.max(4, pct) + "%" }}
+            />
+            <div
+              className="absolute inset-x-2 top-[3px] h-1 rounded-full bg-white/25"
+              style={{ width: "calc(" + Math.max(4, pct) + "% - 1rem)" }}
+            />
           </div>
-          <span className="text-xs font-semibold tabular-nums text-muted">{minutes}/{goal}m</span>
+          <span className="text-xs font-semibold tabular-nums text-muted">
+            {minutes}/{goal}m
+          </span>
           {combo}
-          <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>{sfxOn ? "🔊" : "🔇"}</button>
+          <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>
+            {sfxOn ? "🔊" : "🔇"}
+          </button>
         </div>
       ) : (
         <div className="flex h-14 items-center gap-2.5 px-4">
-          <span className={"cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg " + (route.area === "home" ? "bg-accent text-white" : "bg-accent-soft text-accent")}>{route.area === "home" ? "注" : routeIcon(route, 36)}</span>
-          <div className="min-w-0 flex-1 truncate font-semibold">{route.area === "home" ? "bopomofo" : route.label}</div>
-          <span className="hud !h-8 !px-2.5" title="Days in a row with practice">🔥<b className="tabular-nums">{dayStreak ?? "–"}</b></span>
+          <span
+            className={
+              "cjk grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg " +
+              (route.area === "home" ? "bg-accent text-white" : "bg-accent-soft text-accent")
+            }
+          >
+            {route.area === "home" ? "注" : routeIcon(route, 36)}
+          </span>
+          <div className="min-w-0 flex-1 truncate font-semibold">
+            {route.area === "home" ? "bopomofo" : route.label}
+          </div>
+          <span className="hud !h-8 !px-2.5" title="Days in a row with practice">
+            🔥<b className="tabular-nums">{dayStreak ?? "–"}</b>
+          </span>
           <span className="hud !h-8 !px-2.5">{combo}</span>
-          <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>{sfxOn ? "🔊" : "🔇"}</button>
-          <span className="grid h-9 w-9 place-items-center"><UserButton /></span>
+          <button className="icon-btn !h-9 !w-9" onClick={onSfx} aria-label={sfxOn ? "Mute sounds" : "Turn sounds on"}>
+            {sfxOn ? "🔊" : "🔇"}
+          </button>
+          <span className="grid h-9 w-9 place-items-center">
+            <UserButton />
+          </span>
         </div>
       )}
-      <div className="flex justify-end border-t border-line px-4 py-1.5"><AiEnergyBadge /></div>
+      <div className="flex justify-end border-t border-line px-4 py-1.5">
+        <AiEnergyBadge />
+      </div>
       {!status.ok && (
         <div className="flex items-center gap-2 border-t border-line px-4 py-1.5 text-xs">
           <i className={"inline-block h-2 w-2 rounded-full " + status.cls} />
-          <b>{status.label}</b><span className="truncate text-muted">{status.tip}</span>
+          <b>{status.label}</b>
+          <span className="truncate text-muted">{status.tip}</span>
         </div>
       )}
     </header>

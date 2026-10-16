@@ -10,26 +10,55 @@ export type Row =
 const SHORTHAND = new Set(["ㄓ", "ㄖ"]);
 
 // Grade one syllable. boxes: 3 symbol boxes (index 0..2) + optional tone box (index 3).
-export function gradeSyllable(zhuyin: string, boxes: Pt[][][], T: Templates, SYMBOLS: string[], withTone: boolean): { rows: Row[]; ok: boolean; nearly: boolean } {
+export function gradeSyllable(
+  zhuyin: string,
+  boxes: Pt[][][],
+  T: Templates,
+  SYMBOLS: string[],
+  withTone: boolean,
+): { rows: Row[]; ok: boolean; nearly: boolean } {
   const { symbols, tone } = splitZhuyin(zhuyin);
   const rows: Row[] = [];
-  const written = [0, 1, 2].filter((i) => boxes[i]?.length).map((i) => ({ box: i, guess: recognize(boxes[i], T, SYMBOLS)[0]?.ch }));
+  const written = [0, 1, 2]
+    .filter((i) => boxes[i]?.length)
+    .map((i) => ({ box: i, guess: recognize(boxes[i], T, SYMBOLS)[0]?.ch }));
   // Edit-distance alignment between written boxes and expected symbols.
-  const n = written.length, m = symbols.length;
-  const d = Array.from({ length: n + 1 }, (_, i) => Array.from({ length: m + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)));
+  const n = written.length,
+    m = symbols.length;
+  const d = Array.from({ length: n + 1 }, (_, i) =>
+    Array.from({ length: m + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
   const sub = (i: number, j: number) => (written[i].guess === symbols[j] ? 0 : 0.9);
-  for (let i = 1; i <= n; i++) for (let j = 1; j <= m; j++) d[i][j] = Math.min(d[i - 1][j - 1] + sub(i - 1, j - 1), d[i - 1][j] + 1, d[i][j - 1] + 1);
+  for (let i = 1; i <= n; i++)
+    for (let j = 1; j <= m; j++)
+      d[i][j] = Math.min(d[i - 1][j - 1] + sub(i - 1, j - 1), d[i - 1][j] + 1, d[i][j - 1] + 1);
   const pairs: { w: (typeof written)[number] | null; e: string | null }[] = [];
-  let i = n, j = m;
+  let i = n,
+    j = m;
   while (i > 0 || j > 0) {
-    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + sub(i - 1, j - 1)) { pairs.unshift({ w: written[i - 1], e: symbols[j - 1] }); i--; j--; }
-    else if (i > 0 && d[i][j] === d[i - 1][j] + 1) { pairs.unshift({ w: written[i - 1], e: null }); i--; }
-    else { pairs.unshift({ w: null, e: symbols[j - 1] }); j--; }
+    if (i > 0 && j > 0 && d[i][j] === d[i - 1][j - 1] + sub(i - 1, j - 1)) {
+      pairs.unshift({ w: written[i - 1], e: symbols[j - 1] });
+      i--;
+      j--;
+    } else if (i > 0 && d[i][j] === d[i - 1][j] + 1) {
+      pairs.unshift({ w: written[i - 1], e: null });
+      i--;
+    } else {
+      pairs.unshift({ w: null, e: symbols[j - 1] });
+      j--;
+    }
   }
   for (const { w, e } of pairs) {
     if (w && e) {
       const r = correctSymbol(boxes[w.box], e, T, SYMBOLS);
-      if (SHORTHAND.has(e) && !r.ok && !r.extras.length && r.strokes.some((s) => s.status === "joined") && r.strokes.every((s) => ["ok", "rough", "joined"].includes(s.status))) r.nearly = true;
+      if (
+        SHORTHAND.has(e) &&
+        !r.ok &&
+        !r.extras.length &&
+        r.strokes.some((s) => s.status === "joined") &&
+        r.strokes.every((s) => ["ok", "rough", "joined"].includes(s.status))
+      )
+        r.nearly = true;
       rows.push({ kind: "symbol", expected: e, box: w.box, r });
     } else if (e) rows.push({ kind: "missing", expected: e });
     else if (w) rows.push({ kind: "extra", box: w.box, guess: w.guess });

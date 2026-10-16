@@ -14,7 +14,10 @@ export function usePref(key: string, fallback: string): string {
     (f) => {
       window.addEventListener(EVENT, f);
       window.addEventListener("storage", f);
-      return () => { window.removeEventListener(EVENT, f); window.removeEventListener("storage", f); };
+      return () => {
+        window.removeEventListener(EVENT, f);
+        window.removeEventListener("storage", f);
+      };
     },
     () => localStorage.getItem(key) ?? fallback,
     () => fallback,

@@ -27,12 +27,26 @@ export type BlockType = BlockSpec["type"];
 export type StoryCard = { id: string; mood: Mood; seconds: number; blocks: BlockSpec[] };
 
 export type StoryContext = {
-  alphabet: { known: string; learning: string; new: string; reps: Record<string, number>; reps_needed: number; next: string[] };
+  alphabet: {
+    known: string;
+    learning: string;
+    new: string;
+    reps: Record<string, number>;
+    reps_needed: number;
+    next: string[];
+  };
   calendar: { day: string; minutes: number }[];
   steps: { type: string; title: string; target: number; minutes: number | null; learn: boolean }[];
 };
 
-export type Story = { v: 1; source: "llm" | "rules"; cards: StoryCard[]; context: StoryContext; plan_id: number; headline: string | null };
+export type Story = {
+  v: 1;
+  source: "llm" | "rules";
+  cards: StoryCard[];
+  context: StoryContext;
+  plan_id: number;
+  headline: string | null;
+};
 
 /** What every block component gets: its props, the story data, when to start (seconds), and the button handler. */
 export type BlockProps<T extends BlockType> = {
@@ -41,4 +55,3 @@ export type BlockProps<T extends BlockType> = {
   delay: number;
   onAction: (a: "start" | "close") => void;
 };
-

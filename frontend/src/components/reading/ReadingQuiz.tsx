@@ -52,7 +52,13 @@ export function ReadingQuiz() {
   const listener = useRef<Listener | null>(null);
   const curRef = useRef<MoeRow | null>(null);
   const busy = useRef(false);
-  const card = useRef({ revealed: false, tries: 0, shown: 0, ms: undefined as number | undefined, units: [] as Unit[] });
+  const card = useRef({
+    revealed: false,
+    tries: 0,
+    shown: 0,
+    ms: undefined as number | undefined,
+    units: [] as Unit[],
+  });
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const answerPlaying = useRef(false);
   const unmuteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -72,7 +78,9 @@ export function ReadingQuiz() {
     if (!ms || !l) return;
     l.muted = true;
     if (unmuteTimer.current) clearTimeout(unmuteTimer.current);
-    unmuteTimer.current = setTimeout(() => { if (listener.current && !answerPlaying.current) listener.current.muted = false; }, ms + 150);
+    unmuteTimer.current = setTimeout(() => {
+      if (listener.current && !answerPlaying.current) listener.current.muted = false;
+    }, ms + 150);
   }, []);
 
   // The microphone waits while the learner types the Pinyin.
@@ -88,9 +96,19 @@ export function ReadingQuiz() {
   useEffect(() => {
     loadData().then((d) => setRows(d.table));
     let stop = false;
-    const poll = () => api.health().then((h) => { if (stop) return; setHealth(h); if (h.speech_model === "loading") setTimeout(poll, 2000); }).catch(() => !stop && setHealth("down"));
+    const poll = () =>
+      api
+        .health()
+        .then((h) => {
+          if (stop) return;
+          setHealth(h);
+          if (h.speech_model === "loading") setTimeout(poll, 2000);
+        })
+        .catch(() => !stop && setHealth("down"));
     poll();
-    return () => { stop = true; };
+    return () => {
+      stop = true;
+    };
   }, []);
 
   // The focus from the stats screen (?syms=ㄗ,ㄘ) narrows the cards. With no match, the chosen set stays.
@@ -103,7 +121,10 @@ export function ReadingQuiz() {
     if (!p.length) return;
     // With a focus, some cards come from the rest of the set, so a few weak symbols do not loop (lib/review.ts).
     const others = focused.length && !learn ? inSet(rows, set) : [];
-    const id = review().next(p.map((r) => r.sym), others.map((r) => r.sym));
+    const id = review().next(
+      p.map((r) => r.sym),
+      others.map((r) => r.sym),
+    );
     const row = p.find((r) => r.sym === id) ?? others.find((r) => r.sym === id) ?? p[0];
     curRef.current = row;
     card.current = { revealed: learn, tries: 0, shown: now(), ms: undefined, units: [] };
@@ -120,62 +141,102 @@ export function ReadingQuiz() {
     if (learn) playAudio(symbolAudio(row));
   }, [pool, learn, review, setCheck, focused.length, rows, set]);
 
-  useEffect(() => { if (rows.length && ready) next(); }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (rows.length && ready) next();
+  }, [rows.length, set, focusSyms, learn, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** typedFix: the learner typed the right Pinyin after misses, so the misses were the microphone's. */
-  const finishCard = useCallback((ok: boolean, typedFix = false) => {
-    const row = curRef.current;
-    if (!row) return;
-    const c = card.current;
-    const firstTry = ok && !c.revealed && (c.tries === 0 || typedFix);
-    // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
-    review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
-    setStats((s) => ({ cards: s.cards + 1, firstTry: s.firstTry + (firstTry ? 1 : 0), streak: firstTry ? s.streak + 1 : 0, right: s.right + (ok ? 1 : 0) }));
-    const units: Unit[] = c.units.length ? c.units : [{ kind: "symbol", expected: row.sym, actual: null, ok: false, help: c.revealed }];
-    api.event({ area: "reading", item: row.sym, ok: firstTry, first_try: firstTry, ms: c.ms, tries: typedFix ? c.tries : c.tries + (ok ? 1 : 0), help: c.revealed, units,
-      details: { skipped: !ok, set, focus: focus.active ? focus.label : undefined, learn: learn || undefined, typed_fix: typedFix || undefined } });
-  }, [set, focus, learn, review]);
-
-  const onUtterance = useCallback(async (u: { wav: Blob }) => {
-    const row = curRef.current;
-    if (!row || busy.current || checkRef.current === "open") return;
-    busy.current = true;
-    setHint("");
-    setStatus("checking");
-    fx("tick");
-    try {
-      const r = await api.checkSymbol(u.wav, row.sym);
-      if (curRef.current !== row) return;
-      // Every try is saved: what the model heard (or the closest name when it was not sure), and if the answer was shown before.
+  const finishCard = useCallback(
+    (ok: boolean, typedFix = false) => {
+      const row = curRef.current;
+      if (!row) return;
       const c = card.current;
-      c.ms ??= since(c.shown);
-      c.units.push({ kind: "symbol", expected: row.sym, actual: r.heard ?? r.closest, ok: r.ok, try_n: c.units.length, help: c.revealed,
-        uncertain: !r.heard, extra: { fit: Math.round(r.fit * 100) / 100, lenient: r.lenient || undefined, top: r.ranking.slice(0, 3) } });
-      setLast(r);
-      setError("");
-      setFxKey((k) => k + 1);
-      if (r.ok) {
-        setStatus("right");
-        fx("right");
-        finishCard(true);
-        advanceTimer.current = setTimeout(next, r.lenient ? 2600 : 1000);
-        return;
+      const firstTry = ok && !c.revealed && (c.tries === 0 || typedFix);
+      // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
+      review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
+      setStats((s) => ({
+        cards: s.cards + 1,
+        firstTry: s.firstTry + (firstTry ? 1 : 0),
+        streak: firstTry ? s.streak + 1 : 0,
+        right: s.right + (ok ? 1 : 0),
+      }));
+      const units: Unit[] = c.units.length
+        ? c.units
+        : [{ kind: "symbol", expected: row.sym, actual: null, ok: false, help: c.revealed }];
+      api.event({
+        area: "reading",
+        item: row.sym,
+        ok: firstTry,
+        first_try: firstTry,
+        ms: c.ms,
+        tries: typedFix ? c.tries : c.tries + (ok ? 1 : 0),
+        help: c.revealed,
+        units,
+        details: {
+          skipped: !ok,
+          set,
+          focus: focus.active ? focus.label : undefined,
+          learn: learn || undefined,
+          typed_fix: typedFix || undefined,
+        },
+      });
+    },
+    [set, focus, learn, review],
+  );
+
+  const onUtterance = useCallback(
+    async (u: { wav: Blob }) => {
+      const row = curRef.current;
+      if (!row || busy.current || checkRef.current === "open") return;
+      busy.current = true;
+      setHint("");
+      setStatus("checking");
+      fx("tick");
+      try {
+        const r = await api.checkSymbol(u.wav, row.sym);
+        if (curRef.current !== row) return;
+        // Every try is saved: what the model heard (or the closest name when it was not sure), and if the answer was shown before.
+        const c = card.current;
+        c.ms ??= since(c.shown);
+        c.units.push({
+          kind: "symbol",
+          expected: row.sym,
+          actual: r.heard ?? r.closest,
+          ok: r.ok,
+          try_n: c.units.length,
+          help: c.revealed,
+          uncertain: !r.heard,
+          extra: { fit: Math.round(r.fit * 100) / 100, lenient: r.lenient || undefined, top: r.ranking.slice(0, 3) },
+        });
+        setLast(r);
+        setError("");
+        setFxKey((k) => k + 1);
+        if (r.ok) {
+          setStatus("right");
+          fx("right");
+          finishCard(true);
+          advanceTimer.current = setTimeout(next, r.lenient ? 2600 : 1000);
+          return;
+        }
+        card.current.tries += 1;
+        setTries(card.current.tries);
+        setStatus("wrong");
+        fx("wrong");
+        // After 3 misses without the answer shown, ask once what the learner said: the model can mix up close sounds.
+        if (c.tries >= CHECK_AFTER && !c.revealed && checkRef.current === "none") setCheck("open");
+      } catch (e) {
+        setError((e as Error).message);
+        setStatus("listening");
       }
-      card.current.tries += 1;
-      setTries(card.current.tries);
-      setStatus("wrong");
-      fx("wrong");
-      // After 3 misses without the answer shown, ask once what the learner said: the model can mix up close sounds.
-      if (c.tries >= CHECK_AFTER && !c.revealed && checkRef.current === "none") setCheck("open");
-    } catch (e) {
-      setError((e as Error).message);
-      setStatus("listening");
-    }
-    busy.current = false;
-  }, [finishCard, next, fx, setCheck]);
+      busy.current = false;
+    },
+    [finishCard, next, fx, setCheck],
+  );
 
   const onUtteranceRef = useRef(onUtterance);
-  useEffect(() => { onUtteranceRef.current = onUtterance; }, [onUtterance]);
+  useEffect(() => {
+    onUtteranceRef.current = onUtterance;
+  }, [onUtterance]);
 
   const start = async () => {
     if (starting.current || listener.current) return;
@@ -186,14 +247,21 @@ export function ReadingQuiz() {
       l.onUtterance = (u) => onUtteranceRef.current(u);
       l.onDiscard = (why) => {
         if (busy.current) return;
-        setHint(why === "short" ? "Too short to check. Hold the sound a little longer." : "Too quiet to pick up. Speak louder or move closer to the microphone.");
+        setHint(
+          why === "short"
+            ? "Too short to check. Hold the sound a little longer."
+            : "Too quiet to pick up. Speak louder or move closer to the microphone.",
+        );
       };
       l.onLevel = (v, speaking) => {
         setLevel(v);
         setStatus((s) => (speaking && !busy.current ? "hearing" : !speaking && s === "hearing" ? "listening" : s));
       };
       await l.start();
-      if (!shown.current) { await l.stop(); return; }
+      if (!shown.current) {
+        await l.stop();
+        return;
+      }
       listener.current = l;
       setRunning(true);
       setStatus("listening");
@@ -227,12 +295,21 @@ export function ReadingQuiz() {
   }, []);
 
   // Do not grade the app's own voice: mute the microphone while an answer recording plays.
-  useEffect(() => onPlaying((src) => {
-    answerPlaying.current = !!src;
-    if (!listener.current) return;
-    if (src) { listener.current.muted = true; return; }
-    setTimeout(() => { if (listener.current) listener.current.muted = false; }, 300);
-  }), []);
+  useEffect(
+    () =>
+      onPlaying((src) => {
+        answerPlaying.current = !!src;
+        if (!listener.current) return;
+        if (src) {
+          listener.current.muted = true;
+          return;
+        }
+        setTimeout(() => {
+          if (listener.current) listener.current.muted = false;
+        }, 300);
+      }),
+    [],
+  );
 
   const reveal = useCallback(() => {
     if (!curRef.current) return;
@@ -241,7 +318,10 @@ export function ReadingQuiz() {
     playAudio(symbolAudio(curRef.current));
   }, []);
 
-  const skip = () => { finishCard(false); next(); };
+  const skip = () => {
+    finishCard(false);
+    next();
+  };
 
   /** The learner typed the sound they said. Same symbol: the misses count as right. Another symbol: a real mix-up, and the answer shows. */
   const checkTyped = async (typed: string): Promise<string | null> => {
@@ -253,7 +333,17 @@ export function ReadingQuiz() {
     const confirm = "r" + Date.now();
     if (sym === row.sym) {
       busy.current = true;
-      c.units = c.units.map((u) => (u.ok ? u : { ...u, ok: true, actual: u.expected, source: "typed", extra: { ...u.extra, heard: u.actual, typed, confirm } }));
+      c.units = c.units.map((u) =>
+        u.ok
+          ? u
+          : {
+              ...u,
+              ok: true,
+              actual: u.expected,
+              source: "typed",
+              extra: { ...u.extra, heard: u.actual, typed, confirm },
+            },
+      );
       setCheck("done");
       setTypedNote("Thanks! The microphone heard it wrong, so these tries count as right.");
       setStatus("right");
@@ -263,7 +353,15 @@ export function ReadingQuiz() {
       advanceTimer.current = setTimeout(next, 2200);
       return null;
     }
-    c.units.push({ kind: "symbol", expected: row.sym, actual: sym, ok: false, try_n: c.units.length, source: "typed", extra: { typed, confirm } });
+    c.units.push({
+      kind: "symbol",
+      expected: row.sym,
+      actual: sym,
+      ok: false,
+      try_n: c.units.length,
+      source: "typed",
+      extra: { typed, confirm },
+    });
     setCheck("done");
     setTypedNote("You typed " + typed + ", which is " + sym + ". This symbol is " + answerText(row.sym) + ".");
     reveal();
@@ -277,14 +375,19 @@ export function ReadingQuiz() {
     active: holdMode && modelReady,
     maxS: 4,
     onClip: (c) => onUtteranceRef.current(c),
-    onDiscard: (why) => { if (!busy.current) setHint(holdHint(why, "R", phone)); },
+    onDiscard: (why) => {
+      if (!busy.current) setHint(holdHint(why, "R", phone));
+    },
   });
   const setMicMode = (m: MicMode) => setPref(MIC_KEY, m);
 
   // Hands-free mode: start the microphone by itself when the page opens and the model is ready, if the browser allows it
   // (the user already clicked or typed in the app). Runs again each time the page is shown. Hold mode stops it.
   useEffect(() => {
-    if (holdMode) { if (listener.current) stop(); return; }
+    if (holdMode) {
+      if (listener.current) stop();
+      return;
+    }
     if (!modelReady) return;
     const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
     if (ua?.hasBeenActive && !listener.current) start();
@@ -294,8 +397,22 @@ export function ReadingQuiz() {
   const canHold = modelReady && status !== "checking" && check !== "open";
   useHotkeys("reading", [
     holdMode
-      ? { keys: ["KeyR"], label: "Hold to speak", run: () => void hold.press(), up: () => void hold.release(), when: canHold || hold.holding }
-      : { keys: ["KeyR", "Enter"], label: running ? "Pause mic" : "Start mic", run: () => { if (running) stop(); else start(); }, when: running || modelReady },
+      ? {
+          keys: ["KeyR"],
+          label: "Hold to speak",
+          run: () => void hold.press(),
+          up: () => void hold.release(),
+          when: canHold || hold.holding,
+        }
+      : {
+          keys: ["KeyR", "Enter"],
+          label: running ? "Pause mic" : "Start mic",
+          run: () => {
+            if (running) stop();
+            else start();
+          },
+          when: running || modelReady,
+        },
     { keys: ["Space"], label: revealed ? "Hear it again" : "Hear the answer", run: reveal, when: !!cur },
     { keys: ["KeyN"], label: "Skip", run: skip, when: canSkip },
     { keys: ["Escape"], label: "Pause mic", run: stop, when: running && !holdMode, bar: false },
@@ -304,46 +421,122 @@ export function ReadingQuiz() {
 
   const name = cur ? NAME[cur.sym] : null;
   // In hold mode, "hearing" means the button is held, and "listening" means the microphone waits for a press.
-  const shownStatus: Status = !holdMode ? status
-    : hold.holding ? "hearing"
-    : status === "right" || status === "wrong" || status === "checking" ? status
-    : modelReady ? "listening" : "idle";
+  const shownStatus: Status = !holdMode
+    ? status
+    : hold.holding
+      ? "hearing"
+      : status === "right" || status === "wrong" || status === "checking"
+        ? status
+        : modelReady
+          ? "listening"
+          : "idle";
   const shownLevel = holdMode ? hold.level : level;
-  const border = shownStatus === "right" ? "border-ok bg-ok/5" : shownStatus === "wrong" ? "border-bad/60 bg-bad/5" : shownStatus === "checking" ? "border-rough/70" : shownStatus === "hearing" ? "border-accent/50" : "border-line";
+  const border =
+    shownStatus === "right"
+      ? "border-ok bg-ok/5"
+      : shownStatus === "wrong"
+        ? "border-bad/60 bg-bad/5"
+        : shownStatus === "checking"
+          ? "border-rough/70"
+          : shownStatus === "hearing"
+            ? "border-accent/50"
+            : "border-line";
   const symColor = status === "right" ? "text-ok" : status === "wrong" ? "text-bad" : "";
   const holdLabel = phone ? "Hold the button and say it" : "Hold R and say it";
   const pillLabel = holdMode
-    ? (shownStatus === "hearing" ? "Speak, then let go" : shownStatus === "wrong" ? "Not quite, try again"
-      : shownStatus === "listening" ? (learn ? "Listen, then hold and repeat" : holdLabel) : undefined)
-    : (!running && status === "idle" ? "Start the mic to begin" : status === "wrong" ? "Not quite, try again"
-      : learn && (status === "listening" || status === "hearing") ? "Listen, then repeat" : undefined);
+    ? shownStatus === "hearing"
+      ? "Speak, then let go"
+      : shownStatus === "wrong"
+        ? "Not quite, try again"
+        : shownStatus === "listening"
+          ? learn
+            ? "Listen, then hold and repeat"
+            : holdLabel
+          : undefined
+    : !running && status === "idle"
+      ? "Start the mic to begin"
+      : status === "wrong"
+        ? "Not quite, try again"
+        : learn && (status === "listening" || status === "hearing")
+          ? "Listen, then repeat"
+          : undefined;
 
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex flex-wrap gap-2 items-center">
         <FocusChip focus={focus} empty={focus.active && !focused.length} />
         {SETS.map((k) => (
-          <button key={k} className="chip cjk" data-active={!focused.length && set === k} onClick={() => setSet(k)}>{SET_LABEL[k]}</button>
+          <button key={k} className="chip cjk" data-active={!focused.length && set === k} onClick={() => setSet(k)}>
+            {SET_LABEL[k]}
+          </button>
         ))}
         <span className="mx-1 h-5 w-px bg-line max-md:hidden" aria-hidden />
-        <button className="chip" data-active={holdMode} onClick={() => setMicMode("hold")} title="Record only while you hold R or the button">Hold to speak</button>
-        <button className="chip" data-active={!holdMode} onClick={() => setMicMode("auto")} title="The microphone listens all the time and hears when you speak">Hands-free</button>
+        <button
+          className="chip"
+          data-active={holdMode}
+          onClick={() => setMicMode("hold")}
+          title="Record only while you hold R or the button"
+        >
+          Hold to speak
+        </button>
+        <button
+          className="chip"
+          data-active={!holdMode}
+          onClick={() => setMicMode("auto")}
+          title="The microphone listens all the time and hears when you speak"
+        >
+          Hands-free
+        </button>
         <div className="ml-auto text-sm text-muted">
-          {learn ? <><b className="text-ink">{stats.right}</b> right repetitions</>
-            : <><b className="text-ink">{stats.streak}</b> streak · {stats.cards ? Math.round((100 * stats.firstTry) / stats.cards) : 0}% first try of {stats.cards}</>}
+          {learn ? (
+            <>
+              <b className="text-ink">{stats.right}</b> right repetitions
+            </>
+          ) : (
+            <>
+              <b className="text-ink">{stats.streak}</b> streak ·{" "}
+              {stats.cards ? Math.round((100 * stats.firstTry) / stats.cards) : 0}% first try of {stats.cards}
+            </>
+          )}
         </div>
       </div>
 
-      {health === "down" && <div className="card p-3 text-sm text-bad">Can&apos;t connect right now. Please try again in a moment.</div>}
+      {health === "down" && (
+        <div className="card p-3 text-sm text-bad">Can&apos;t connect right now. Please try again in a moment.</div>
+      )}
       {health && health !== "down" && health.speech_model !== "ready" && (
-        <div className="card p-3 text-sm text-rough">{health.speech_model === "loading" ? "The speech check is getting ready (a few seconds)…" : "The speech check is not available right now. Please try again later."}</div>
+        <div className="card p-3 text-sm text-rough">
+          {health.speech_model === "loading"
+            ? "The speech check is getting ready (a few seconds)…"
+            : "The speech check is not available right now. Please try again later."}
+        </div>
       )}
 
       {cur && (
-        <div className={"card stage border-2 p-8 flex flex-1 flex-col items-center justify-center gap-5 transition-colors duration-300 " + border}>
-          <StatusPill status={holdMode || running || status === "right" || status === "wrong" || status === "checking" ? shownStatus : "idle"} label={pillLabel} />
+        <div
+          className={
+            "card stage border-2 p-8 flex flex-1 flex-col items-center justify-center gap-5 transition-colors duration-300 " +
+            border
+          }
+        >
+          <StatusPill
+            status={
+              holdMode || running || status === "right" || status === "wrong" || status === "checking"
+                ? shownStatus
+                : "idle"
+            }
+            label={pillLabel}
+          />
           <FxFrame status={shownStatus} level={shownLevel} attempt={fxKey}>
-            <div className={"cjk leading-none select-none text-[clamp(120px,27vh,280px)] px-6 transition-colors duration-300 " + symColor} aria-label={"Say this symbol: " + cur.sym}>{cur.sym}</div>
+            <div
+              className={
+                "cjk leading-none select-none text-[clamp(120px,27vh,280px)] px-6 transition-colors duration-300 " +
+                symColor
+              }
+              aria-label={"Say this symbol: " + cur.sym}
+            >
+              {cur.sym}
+            </div>
           </FxFrame>
 
           <div className="h-16 flex flex-col items-center justify-center text-center">
@@ -351,7 +544,9 @@ export function ReadingQuiz() {
               <>
                 <div className="text-ok text-lg font-semibold cjk">✓ {name}</div>
                 {last?.lenient && (
-                  <div className="text-sm text-rough max-w-md cjk">Passed! {cur.sym} and {last.heard} sound almost the same, so compare yourself with the recording.</div>
+                  <div className="text-sm text-rough max-w-md cjk">
+                    Passed! {cur.sym} and {last.heard} sound almost the same, so compare yourself with the recording.
+                  </div>
                 )}
               </>
             ) : revealed && name ? (
@@ -364,47 +559,106 @@ export function ReadingQuiz() {
           </div>
 
           <div className="h-6 text-sm text-center">
-            {typedNote ? <span className={"cjk " + (status === "right" ? "text-ok" : "text-muted")}>{typedNote}</span> : <>
-            {hint && status !== "right" && status !== "checking" && !(status === "wrong" && last) && <span className="text-rough">{hint}</span>}
-            {status === "wrong" && last && (
-              <span className="text-bad cjk">
-                {last.heard ? <>I heard {last.heard}. Try again.</> : <>That was not clear enough. The closest symbol was {last.closest}. Try again.</>}
-              </span>
+            {typedNote ? (
+              <span className={"cjk " + (status === "right" ? "text-ok" : "text-muted")}>{typedNote}</span>
+            ) : (
+              <>
+                {hint && status !== "right" && status !== "checking" && !(status === "wrong" && last) && (
+                  <span className="text-rough">{hint}</span>
+                )}
+                {status === "wrong" && last && (
+                  <span className="text-bad cjk">
+                    {last.heard ? (
+                      <>I heard {last.heard}. Try again.</>
+                    ) : (
+                      <>That was not clear enough. The closest symbol was {last.closest}. Try again.</>
+                    )}
+                  </span>
+                )}
+                {status === "wrong" && revealed && tries > 0 && (
+                  <span className="text-muted"> Now say it yourself to continue.</span>
+                )}
+              </>
             )}
-            {status === "wrong" && revealed && tries > 0 && <span className="text-muted"> Now say it yourself to continue.</span>}</>}
           </div>
 
-          {check === "open" && <PinyinCheck example="b, bo, or an" check={checkTyped} onClose={() => setCheck("closed")} />}
+          {check === "open" && (
+            <PinyinCheck example="b, bo, or an" check={checkTyped} onClose={() => setCheck("closed")} />
+          )}
 
           <ActionBar tone={status === "right" ? "ok" : status === "wrong" ? "bad" : null}>
             {holdMode ? (
               <>
                 {hold.holding && (
-                  <div className="w-28 h-1.5 rounded bg-line overflow-hidden max-md:!hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(hold.level * 100) + "%" }} /></div>
+                  <div className="w-28 h-1.5 rounded bg-line overflow-hidden max-md:!hidden">
+                    <div
+                      className="h-full bg-accent transition-all"
+                      style={{ width: Math.round(hold.level * 100) + "%" }}
+                    />
+                  </div>
                 )}
-                <button {...hold.bind} disabled={!canHold && !hold.holding} aria-label="Hold to speak"
-                  className={"btn ab-primary !rounded-full !px-6 !py-3 text-base " + (hold.holding ? "btn-accent recording" : "btn-primary")}>
-                  {hold.holding ? "● Recording… let go to check" : status === "checking" ? "Checking…" : hold.state === "opening" ? "Starting the mic…" : <>● Hold to speak <Kbd>R</Kbd></>}
+                <button
+                  {...hold.bind}
+                  disabled={!canHold && !hold.holding}
+                  aria-label="Hold to speak"
+                  className={
+                    "btn ab-primary !rounded-full !px-6 !py-3 text-base " +
+                    (hold.holding ? "btn-accent recording" : "btn-primary")
+                  }
+                >
+                  {hold.holding ? (
+                    "● Recording… let go to check"
+                  ) : status === "checking" ? (
+                    "Checking…"
+                  ) : hold.state === "opening" ? (
+                    "Starting the mic…"
+                  ) : (
+                    <>
+                      ● Hold to speak <Kbd>R</Kbd>
+                    </>
+                  )}
                 </button>
               </>
             ) : !running ? (
-              <button className="btn btn-primary ab-primary !rounded-full !px-6 !py-3 text-base" onClick={start} disabled={!modelReady}>● Start listening <Kbd>R</Kbd></button>
+              <button
+                className="btn btn-primary ab-primary !rounded-full !px-6 !py-3 text-base"
+                onClick={start}
+                disabled={!modelReady}
+              >
+                ● Start listening <Kbd>R</Kbd>
+              </button>
             ) : (
               <>
                 <div className="flex items-center gap-2 text-sm text-muted w-40 max-md:!hidden">
-                  <span className={"inline-block w-2.5 h-2.5 rounded-full " + (status === "checking" ? "bg-rough" : status === "hearing" ? "bg-accent recording" : "bg-ok")} />
+                  <span
+                    className={
+                      "inline-block w-2.5 h-2.5 rounded-full " +
+                      (status === "checking" ? "bg-rough" : status === "hearing" ? "bg-accent recording" : "bg-ok")
+                    }
+                  />
                   {status === "checking" ? "Checking…" : status === "hearing" ? "Hearing you…" : "Listening"}
-                  <div className="flex-1 h-1.5 rounded bg-line overflow-hidden"><div className="h-full bg-accent transition-all" style={{ width: Math.round(level * 100) + "%" }} /></div>
+                  <div className="flex-1 h-1.5 rounded bg-line overflow-hidden">
+                    <div className="h-full bg-accent transition-all" style={{ width: Math.round(level * 100) + "%" }} />
+                  </div>
                 </div>
-                <button className="btn ab-primary" onClick={stop}>{status === "checking" ? "Checking…" : status === "hearing" ? "Hearing you…" : "Listening"} · Pause <Kbd>R</Kbd></button>
+                <button className="btn ab-primary" onClick={stop}>
+                  {status === "checking" ? "Checking…" : status === "hearing" ? "Hearing you…" : "Listening"} · Pause{" "}
+                  <Kbd>R</Kbd>
+                </button>
               </>
             )}
-            <button className="btn" onClick={reveal}>{revealed ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd></button>
+            <button className="btn" onClick={reveal}>
+              {revealed ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd>
+            </button>
             {check === "closed" && !revealed && (
-              <button className="btn" onClick={() => setCheck("open")} title="The microphone can mix up close sounds">Type what you said</button>
+              <button className="btn" onClick={() => setCheck("open")} title="The microphone can mix up close sounds">
+                Type what you said
+              </button>
             )}
             {canSkip && (
-              <button className="btn text-muted" onClick={skip} title="Skip this symbol for now">Skip <Kbd>N</Kbd></button>
+              <button className="btn text-muted" onClick={skip} title="Skip this symbol for now">
+                Skip <Kbd>N</Kbd>
+              </button>
             )}
           </ActionBar>
           {(error || hold.error) && <div className="text-bad text-sm">{error || hold.error}</div>}
@@ -413,4 +667,3 @@ export function ReadingQuiz() {
     </div>
   );
 }
-
