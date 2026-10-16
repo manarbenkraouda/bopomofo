@@ -8,9 +8,9 @@ from datetime import timedelta
 from functools import lru_cache
 
 from .. import db, stats
-from ..zhuyin import analyze_text
+from ..zhuyin import TONE_NUM_TO_MARK, analyze_text
 from . import store, validate
-from .settings import BOPOMOFO, MARKS, SYLLABLES_FILE
+from .settings import BOPOMOFO, SYLLABLES_FILE
 
 
 @lru_cache(maxsize=2)
@@ -25,7 +25,7 @@ def syllables(neutral: bool = False) -> list[dict]:
         z = r["zhuyin"]
         if "˙" in z and not neutral:
             continue
-        tone = next((t for t, m in MARKS.items() if m and m in z), 1)
+        tone = next((t for t, m in TONE_NUM_TO_MARK.items() if m and m in z), 1)
         out.append({"z": z, "char": r["char"], "tone": tone, "base": "".join(c for c in z if c in BOPOMOFO)})
     return out
 

@@ -164,6 +164,7 @@ def _pct(ok: float, n: float) -> float | None:
 
 
 def _median(v: list) -> float | None:
+    """The upper middle of the values that are not 0 or None (the time charts use it; levels._median is a true median)."""
     v = sorted(x for x in v if x)
     return v[len(v) // 2] if v else None
 

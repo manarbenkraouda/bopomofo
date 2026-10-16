@@ -7,7 +7,10 @@ from dataclasses import asdict, dataclass, field
 
 from pypinyin import Style, pinyin
 
-INITIALS = set("ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙ")
+# The 37 Bopomofo symbols in teaching order: 21 initials, 13 finals, then the 3 medials.
+SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
+BOPOMOFO = set(SYMS)
+INITIALS = set(SYMS[:21])
 TONE_MARK_TO_NUM = {"ˊ": 2, "ˇ": 3, "ˋ": 4, "˙": 5}
 TONE_NUM_TO_MARK = {1: "", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "˙"}
 CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")

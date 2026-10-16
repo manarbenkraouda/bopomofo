@@ -6,10 +6,10 @@ so a test that changes them changes them for every module."""
 from __future__ import annotations
 
 from ..config import ROOT
+from ..levels import LEARN_REPS as LEARN_REPS
+from ..zhuyin import BOPOMOFO as BOPOMOFO
+from ..zhuyin import SYMS as SYMS
 
-SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
-BOPOMOFO = set(SYMS)
-MARKS = {1: "", 2: "ˊ", 3: "ˇ", 4: "ˋ", 5: "˙"}
 PLAN_MINUTES = 25
 STALE_UNITS = 400  # after this many new answers, the plan may no longer match the stats
 CHECK_EVERY = 10  # answers in a step between two checkpoint calls
@@ -70,8 +70,7 @@ ALPHABET_STEPS = {"read_symbols", "recognize_symbols", "write_symbols"}
 # Coach notes the learner sees: checkpoint notes and the learner line of a debrief. The rest ("debrief", "skip") is for the next plan.
 VISIBLE_NOTES = "(kind LIKE 'checkpoint:%' OR kind='debrief:learner')"
 # A new symbol is learned by repetition first: the app plays it and shows its name or strokes, and the learner repeats it.
-# Recall tests (name it from memory) start only after this many right repetitions of the symbol.
-LEARN_REPS = 10
+# Recall tests (name it from memory) start only after LEARN_REPS right repetitions of the symbol (imported from levels).
 MAX_LEARNING = 8  # no new symbols while this many symbols are seen but not known yet
 # The tone rules (3-3, 不, 一) come before sentences: the written Bopomofo shows the dictionary tone, not the tone said.
 # While a rule is not known (levels: ★★★ in the rule quiz or the rule phrases), every plan starts with rule steps and has no

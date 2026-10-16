@@ -27,12 +27,10 @@ import time
 from dataclasses import dataclass
 
 from . import db
-from .zhuyin import RULES
+from .zhuyin import BOPOMOFO, RULES, SYMS
 
-SYMS = "ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ"
 INITIALS, FINALS, MEDIALS = SYMS[:21], SYMS[21:34], SYMS[34:]
-BOPOMOFO = set(SYMS)
-LEARN_REPS = 10
+LEARN_REPS = 10  # right repetitions of a new item before the tests from memory start (the coach uses it too)
 MIN_DAYS = 2
 DROP_ACC = 80
 DROP_SLOW = 1.25
