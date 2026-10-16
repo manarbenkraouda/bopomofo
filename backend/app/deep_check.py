@@ -18,8 +18,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
+from concurrent.futures import ProcessPoolExecutor, TimeoutError as FutureTimeout
 from concurrent.futures.process import BrokenProcessPool
 from contextlib import suppress
 

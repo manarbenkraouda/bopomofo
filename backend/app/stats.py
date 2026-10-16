@@ -38,6 +38,7 @@ VERB = {
 
 
 def speaking_units(res: dict) -> list[dict]:
+    """Convert one scored recording into tone, sound, syllable, and tone-rule evidence."""
     sy = res.get("syllables") or []
     tones = [s["expected"]["surface_tone"] for s in sy]
     out: list[dict] = []
@@ -115,6 +116,7 @@ def speaking_units(res: dict) -> list[dict]:
 def log_speaking(
     text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0
 ) -> int:
+    """Save one recording and its evidence, including help, attempt, and coach step context."""
     mode = (
         mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
     )
@@ -348,6 +350,7 @@ def item_stats(units: list[dict], today: date) -> list[dict]:
 
 
 def compute(days: int | None = 30, area: str | None = None) -> dict:
+    """Build the learner's stats response for the selected period and optional practice area."""
     today = db.local_today()
     since = _since(days)
     af = " AND area=?" if area else ""
@@ -585,6 +588,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
 
 
 def recent(limit: int = 80, area: str | None = None) -> list[dict]:
+    """Read recent answers with their non-stroke evidence, newest first."""
     evs = _rows(
         "SELECT id, ts, area, mode, item, ok, score, ms, tries, help, replays FROM events"
         + (" WHERE area=?" if area else "")
@@ -628,6 +632,7 @@ def weak(items: list[dict], limit: int = 12, op: dict | None = None) -> list[dic
 
 
 def records() -> dict:
+    """Compute personal records from this learner's full answer and practice-time history."""
     evs = _rows("SELECT ts, day, area, ok, score, ms FROM events ORDER BY ts")
     saved = {r["day"]: r["seconds"] for r in _rows("SELECT day, seconds FROM days")}
     secs = _seconds_by_day(evs, saved)
@@ -893,6 +898,7 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
 
 
 def export_csv() -> str:
+    """Export this learner's full answer history as CSV text."""
     rows = _rows(
         "SELECT e.id AS event, to_char(to_timestamp(e.ts) AT TIME ZONE ?, 'YYYY-MM-DD HH24:MI:SS') AS time, e.area, e.mode, e.item, e.ok AS event_ok, e.first_try,"
         " e.score, e.ms, e.tries, e.help AS event_help, e.replays, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n,"

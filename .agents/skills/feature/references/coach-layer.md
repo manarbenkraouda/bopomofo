@@ -1,7 +1,7 @@
 # Coach layer
 
 Files: the backend/app/coach/ package, frontend/src/components/coach/Coach.tsx, frontend/src/components/shell/StepBanner.tsx,
-frontend/src/lib/api.ts (CoachStep, StepType), backend/tests/test_coach.py.
+frontend/src/lib/api/types/coach.ts (CoachStep, StepType), backend/tests/test_coach.py.
 
 Where each name lives in backend/app/coach/:
 
@@ -65,13 +65,13 @@ A feature reaches the coach in three ways. Do each one that applies.
 - rules_plan: map the weak items of the new kind to the step type, for when the model fails.
 - Milestones: clean_milestone accepts the units tone, initial, final, symbol, and score. Add the new kind there and in
   milestone_progress (exact or "contains" matching).
-- Frontend: StepType and CoachStep["params"] in api.ts; STEP_ICON, STEP_KIND, DOMAIN, and focusChips in Coach.tsx; the
+- Frontend: StepType and CoachStep["params"] in lib/api/types/coach.ts; STEP_ICON, STEP_KIND, DOMAIN, and focusChips in coach/stepMeta.ts; the
   Coach route text in lib/routes.ts if it lists the step types.
 
-## 2b. The story: headline and "How do we know?" (backend/app/story.py)
+## 2b. The story: headline and "How do we know?" (backend/app/story/)
 
 Every plan has a headline (max 2 sentences, no numbers) and an animated story of 5 to 9 cards. The model writes cards
-from a catalog of blocks and never types a number: it refers to facts by key, and story.py fills the values in.
+from a catalog of blocks and never types a number: it refers to facts by key, and story/validation.py fills the values in.
 
 - Facts: add the new feature's numbers to story_facts() (accuracy per item, the main confusions as mix.<area>.<kind>.<a>><b>,
   counts, and a series when a trend matters). Facts come from the saved digest only; if a number is not in coach.digest.digest(),

@@ -8,8 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from app import config, deep_check
-from app import deep_check_core as core
+from app import config, deep_check, deep_check_core as core
 from app.ctc import ctc, ctc_viterbi
 
 # A small vocabulary in the model's format: initials without a digit, finals with the tone digit, [PAD] as the blank.

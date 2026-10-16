@@ -45,6 +45,7 @@ def shutdown() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Start shared services and drain background work when the API stops."""
     startup()
     yield
     shutdown()

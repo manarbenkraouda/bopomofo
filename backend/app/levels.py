@@ -215,6 +215,7 @@ STEP_EXERCISE = {
 
 
 def step_exercise(step_type: str, params: dict | None = None) -> str:
+    """Map a coach step and its variant to the exercise needed to run it."""
     if step_type == "speak_sounds":
         return "speaking/sentence" if (params or {}).get("source") == "sentence" else "speaking/syllable"
     if step_type == "tone_rules":
@@ -280,10 +281,12 @@ def opened(keys: dict | None = None) -> dict:
 
 
 def is_open(exercise: str | None, op: dict | None = None) -> bool:
+    """Check an exercise against saved unlocks. Non-exercise pages are always allowed."""
     return not exercise or exercise in (op or opened())["exercises"]
 
 
 def allowed_types(op: dict | None = None) -> list[str]:
+    """Return coach step types that the learner's open exercises can support."""
     op = op or opened()
     types = [t for t, e in STEP_EXERCISE.items() if e in op["exercises"]]
     if "speaking/syllable" in op["exercises"] or "speaking/sentence" in op["exercises"]:
@@ -292,6 +295,7 @@ def allowed_types(op: dict | None = None) -> list[str]:
 
 
 def step_allowed(step_type: str, params: dict | None, op: dict | None = None) -> bool:
+    """Check both the coach step type and its variant against the learner's unlocks."""
     return is_open(step_exercise(step_type, params), op)
 
 
@@ -314,6 +318,7 @@ def milestone_exercises(c: dict) -> list[str]:
 
 
 def milestone_allowed(c: dict, op: dict | None = None) -> bool:
+    """Allow a milestone when it has no exercise filter or at least one measured exercise is open."""
     ex = milestone_exercises(c)
     op = op or opened()
     return not ex or any(e in op["exercises"] for e in ex)
@@ -323,6 +328,7 @@ def milestone_allowed(c: dict, op: dict | None = None) -> bool:
 
 
 def _median(v: list) -> float | None:
+    """Return the true median of the supplied times, or None for an empty list."""
     v = sorted(x for x in v if x is not None)
     if not v:
         return None
@@ -720,6 +726,7 @@ def check() -> dict:
 
 
 def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
+    """Build the level response from supplied stars, saved unlocks, and review notices."""
     op = opened(keys)
     lv = op["level"]
     levels = []
@@ -794,6 +801,7 @@ def status() -> dict:
 
 
 def notices(limit: int = 10) -> list[dict]:
+    """Read the newest unseen level messages for this learner."""
     if not db.current_user():
         return []
     with db.conn() as c:
@@ -806,6 +814,7 @@ def notices(limit: int = 10) -> list[dict]:
 
 
 def mark_seen(ids: list[int]) -> None:
+    """Mark only this learner's listed level notices as seen."""
     if not ids:
         return
     with db.conn() as c:

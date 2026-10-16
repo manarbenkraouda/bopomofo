@@ -7,8 +7,7 @@ from __future__ import annotations
 
 from ..config import ROOT
 from ..levels import LEARN_REPS as LEARN_REPS
-from ..zhuyin import BOPOMOFO as BOPOMOFO
-from ..zhuyin import SYMS as SYMS
+from ..zhuyin import BOPOMOFO as BOPOMOFO, SYMS as SYMS
 
 PLAN_MINUTES = 25
 STALE_UNITS = 400  # after this many new answers, the plan may no longer match the stats

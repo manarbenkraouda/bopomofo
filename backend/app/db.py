@@ -50,6 +50,7 @@ def set_user(user_id: str | None) -> contextvars.Token:
 
 
 def current_user() -> str | None:
+    """Return the Clerk user ID for this request, or None outside a user context."""
     return _user.get()
 
 
@@ -289,12 +290,14 @@ def init():
 
 
 def get_profile() -> dict:
+    """Read the current learner's profile; return an empty mapping before it is saved."""
     with conn() as c:
         r = c.execute("SELECT data FROM profile").fetchone()
     return json.loads(r["data"]) if r else {}
 
 
 def set_profile(data: dict) -> dict:
+    """Replace the current learner's profile and return the saved value."""
     with conn() as c:
         c.execute(
             "INSERT INTO profile(data) VALUES (?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data",
@@ -304,6 +307,7 @@ def set_profile(data: dict) -> dict:
 
 
 def get_meta(key: str) -> str | None:
+    """Read one private setting. Return None when there is no user or saved value."""
     if not _user.get():
         return None
     with conn() as c:
@@ -312,6 +316,7 @@ def get_meta(key: str) -> str | None:
 
 
 def set_meta(key: str, value: str | None):
+    """Save one private setting, or delete it when value is None."""
     with conn() as c:
         if value is None:
             c.execute("DELETE FROM meta WHERE key=?", (key,))
@@ -341,6 +346,7 @@ def valid_timezone(name: str | None) -> str | None:
 
 
 def get_settings() -> dict:
+    """Read the learner's settings; return an empty mapping for absent or invalid JSON."""
     try:
         v = get_meta("settings")
         return json.loads(v) if v else {}
@@ -349,6 +355,7 @@ def get_settings() -> dict:
 
 
 def save_settings(changes: dict) -> dict:
+    """Merge settings and clear this learner's cached time zone."""
     s = {**get_settings(), **changes}
     set_meta("settings", json.dumps(s, ensure_ascii=False))
     _tz_cache.pop(_user.get() or "", None)
@@ -373,14 +380,17 @@ def user_tz() -> ZoneInfo:
 
 
 def local_today() -> date:
+    """Return today's date in the current learner's time zone."""
     return datetime.now(user_tz()).date()
 
 
 def day_of(ts: float) -> str:
+    """Convert a Unix timestamp to the learner's local YYYY-MM-DD date."""
     return datetime.fromtimestamp(ts, user_tz()).strftime("%Y-%m-%d")
 
 
 def hour_of(ts: float) -> int:
+    """Return the hour, 0 to 23, in the learner's time zone."""
     return datetime.fromtimestamp(ts, user_tz()).hour
 
 
@@ -390,6 +400,7 @@ def day_start(d: date) -> float:
 
 
 def add_sentence(s: dict, topic: str, level: str) -> dict:
+    """Save a sentence for this learner and return its stored record."""
     with conn() as c:
         sid = c.execute(
             "INSERT INTO sentences(hanzi, english, words, topic, level, created) VALUES (?,?,?,?,?,?) RETURNING id",
@@ -413,17 +424,20 @@ def _row(r) -> dict:
 
 
 def get_sentence(sid: int) -> dict | None:
+    """Read one sentence visible to this learner, or return None."""
     with conn() as c:
         r = c.execute("SELECT * FROM sentences WHERE id=?", (sid,)).fetchone()
     return _row(r) if r else None
 
 
 def list_sentences(limit: int = 200) -> list[dict]:
+    """Read this learner's newest sentences first, up to limit."""
     with conn() as c:
         return [_row(r) for r in c.execute("SELECT * FROM sentences ORDER BY id DESC LIMIT ?", (limit,))]
 
 
 def delete_sentence(sid: int):
+    """Delete a sentence visible to this learner. Missing IDs have no effect."""
     with conn() as c:
         c.execute("DELETE FROM sentences WHERE id=?", (sid,))
 

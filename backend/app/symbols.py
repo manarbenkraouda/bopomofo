@@ -18,8 +18,7 @@ import soundfile as sf
 from . import db
 from .asr import recognizer
 from .config import DATA_DIR, SAVE_QUIZ_CLIPS
-from .ctc import ctc as _ctc
-from .ctc import vocab_groups
+from .ctc import ctc as _ctc, vocab_groups
 from .tts import level
 
 CLIPS = DATA_DIR / "quiz_clips"

@@ -8,8 +8,8 @@ Data flow: the mode builds units → api.event → POST /api/progress/event (Eve
 
 - Routes live in backend/app/api/, one module per area, and are listed in api.ROUTERS. A route that saves an answer
   returns notices.refresh_notices() (it refreshes the coach), as progress_event does.
-- A new unit kind goes into db.UNIT_KINDS and into the Unit["kind"] union in frontend/src/lib/api.ts.
-- A new area needs no schema change. Add it to the PracticeEvent["area"] union in api.ts.
+- A new unit kind goes into db.UNIT_KINDS and into the Unit["kind"] union in frontend/src/lib/api/types/stats.ts.
+- A new area needs no schema change. Add it to the PracticeEvent["area"] union in lib/api/types/stats.ts.
 - Add a table only for data that is not an answer (for example, a character list). Change a schema in db.init() with
   CREATE TABLE IF NOT EXISTS, or with ALTER TABLE after a PRAGMA table_info check (see steps.checked_n).
 - Answers judged on the backend (like speech) build their units in stats.py (see speaking_units and log_speaking) and
@@ -42,7 +42,7 @@ Each of these must handle the new area or kind:
 - _label(kind, expected): the display name.
 - compute(): overview, daily, areas (first try, help, ms, replays, score, modes), confusion, expected, items, tone_ctx,
   strokes, hours, sessions, recent, records, challenges, weak, calendar. Add a section when the feature has its own
-  structure (for example, accuracy per radical or per stroke count), and add it to the Stats type in api.ts.
+  structure (for example, accuracy per radical or per stroke count), and add it to the Stats type in lib/api/types/stats.ts.
 - weak(): the ranked weak spots with label and href.
 - records(): add records that make sense for the area.
 - challenges(): a daily challenge from the weakest items of the new kind (the item, a target, and the "why" with the
