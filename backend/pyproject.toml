@@ -1,0 +1,22 @@
+# Tool settings for the bopomofo API. The runtime packages are in requirements.txt (the VPS deploy installs that file).
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [".venv", ".venv-export"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "PIE", "RUF"]
+ignore = [
+    "E501",    # the formatter wraps the code; prompt texts sent to the model keep their exact lines
+    "RUF001",  # Bopomofo and CJK characters look like Latin ones on purpose (ㄧ, 一)
+    "RUF002",
+    "RUF003",
+    "B008",    # FastAPI declares form fields and files as default values: File(...), Form(...)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

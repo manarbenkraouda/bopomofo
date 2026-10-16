@@ -1,0 +1,14 @@
+# Store text files with LF line ends, so the repository is the same on Windows, macOS, and Linux.
+* text=auto eol=lf
+
+# Windows batch files need CRLF line ends.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.png binary
+*.webp binary
+*.ico binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.woff2 binary
