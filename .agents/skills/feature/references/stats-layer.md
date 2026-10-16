@@ -1,11 +1,13 @@
 # Stats layer
 
-Data flow: the mode builds units → api.event → POST /api/progress/event (main.EventIn, UnitIn) → db.add_event → the
+Data flow: the mode builds units → api.event → POST /api/progress/event (EventIn, UnitIn in backend/app/api/progress.py) → db.add_event → the
 "events" and "units" tables → stats.py → /api/stats (Stats screen), /api/stats/challenges (Home and Stats),
 /api/progress/summary (db.summary, Home tiles), /api/stats/export.csv. coach.digest() reads the same tables.
 
-## Storage and API (backend/app/db.py, main.py)
+## Storage and API (backend/app/db.py, backend/app/api/)
 
+- Routes live in backend/app/api/, one module per area, and are listed in api.ROUTERS. A route that saves an answer
+  returns notices.refresh_notices() (it refreshes the coach), as progress_event does.
 - A new unit kind goes into db.UNIT_KINDS and into the Unit["kind"] union in frontend/src/lib/api.ts.
 - A new area needs no schema change. Add it to the PracticeEvent["area"] union in api.ts.
 - Add a table only for data that is not an answer (for example, a character list). Change a schema in db.init() with

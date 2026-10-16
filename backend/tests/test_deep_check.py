@@ -225,7 +225,8 @@ def test_worker_process_runs_and_is_replaced(monkeypatch):
 def test_analyze_never_sends_or_saves_the_model_output(pg, monkeypatch):
     from fastapi import UploadFile
 
-    from app import coach, main, scoring
+    from app import coach, scoring
+    from app.api.speech import speech_analyze
     from app.asr import recognizer
     from app.zhuyin import analyze_text
 
@@ -261,7 +262,7 @@ def test_analyze_never_sends_or_saves_the_model_output(pg, monkeypatch):
     buf = io.BytesIO()
     sf.write(buf, (0.3 * np.sin(np.arange(16000) / 16000 * 2 * np.pi * 220)).astype(np.float32), 16000, format="WAV")
     buf.seek(0)
-    out = main.speech_analyze(
+    out = speech_analyze(
         audio=UploadFile(file=buf, filename="a.wav"), text="破", mode="syllable", step="", help="", try_n=""
     )
     assert "_lp" not in out and "_has_ref" not in out and out["deep_check"] == "queued"

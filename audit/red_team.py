@@ -45,7 +45,11 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 from clerk_backend_api.security.types import AuthenticateRequestOptions
+from fastapi import HTTPException
 from app import auth, coach, config, db, llm, main, stats, story, tts
+from app.asr import recognizer
+from app.audio import read_audio
+from app.api import ROUTERS
 
 results: list[dict] = []
 
@@ -107,15 +111,15 @@ def run():
         A = {"Authorization": "Bearer " + token()}
         B = {"Authorization": "Bearer " + token("audit_b")}
         no_auth_matrix = []
-        app_routes = [r for r in main.app.routes if getattr(r, "path", "").startswith("/api/")]
+        app_routes = [("/api" + r.path, r.methods) for router in ROUTERS for r in router.routes]
         with patch.object(auth, "_options", opts), patch.object(auth, "CLERK_SECRET_KEY", ""), \
              patch.object(auth, "CLERK_JWT_KEY", pem), patch.object(coach, "LIVE", False):
             client = TestClient(main.app, raise_server_exceptions=False)
-            for route in app_routes:
-                if route.path in auth.PUBLIC:
+            for route_path, methods in app_routes:
+                if route_path in auth.PUBLIC:
                     continue
-                path = route.path.replace("{sid}", "1").replace("{pid}", "1")
-                for method in sorted(route.methods):
+                path = route_path.replace("{sid}", "1").replace("{pid}", "1")
+                for method in sorted(methods):
                     kwargs = {"json": {}} if method in {"PUT", "POST"} else {}
                     if path in {"/api/speech/analyze", "/api/symbols/check"}:
                         kwargs = {"files": {"audio": ("audit.wav", b"invalid", "audio/wav")},
@@ -218,7 +222,7 @@ def run():
             with patch.object(db, "get_profile", side_effect=RuntimeError("AUDIT_INTERNAL_PRIVATE_MARKER")):
                 r = client.get("/api/profile", headers=A)
                 record("Internal exception detail not disclosed", "AUDIT_INTERNAL_PRIVATE_MARKER" not in r.text, response(r))
-            with patch.object(main.recognizer, "error", "AUDIT_PRIVATE_MODEL_PATH"):
+            with patch.object(recognizer, "error", "AUDIT_PRIVATE_MODEL_PATH"):
                 r = client.get("/api/health")
                 record("Public health response hides internal model errors", "AUDIT_PRIVATE_MODEL_PATH" not in r.text, response(r))
             for path in ["/docs", "/redoc", "/openapi.json"]:
@@ -259,8 +263,8 @@ def run():
 
             with patch.object(np, "interp", interp):
                 try:
-                    main.read_audio(wav.getvalue())
-                except main.HTTPException as e:
+                    read_audio(wav.getvalue())
+                except HTTPException as e:
                     record("Audio duration checked before resampling allocation", not interp_calls,
                            {"status": e.status_code, "resampled_before_reject": bool(interp_calls), "allocated_samples": interp_calls})
             for path, data in [("/api/speech/analyze", {"text": "x" * 100_000}),
@@ -293,7 +297,7 @@ def run():
                 inference.append(len(a))
                 return np.zeros((2, 2), np.float32)
 
-            with patch.object(main.recognizer, "session", object()), patch.object(main.recognizer, "log_probs", log_probs):
+            with patch.object(recognizer, "session", object()), patch.object(recognizer, "log_probs", log_probs):
                 r = client.post("/api/symbols/check", headers=A, data={"symbol": "invalid-symbol"},
                                 files={"audio": ("a.wav", samples.getvalue(), "audio/wav")})
             record("Invalid symbol rejected before speech inference", r.status_code in {400, 422} and not inference,
@@ -301,10 +305,10 @@ def run():
             nan_wav = io.BytesIO()
             sf.write(nan_wav, np.full(8000, np.nan, np.float32), 16000, format="WAV", subtype="FLOAT")
             try:
-                decoded = main.read_audio(nan_wav.getvalue())
+                decoded = read_audio(nan_wav.getvalue())
                 record("Non-finite audio samples rejected", bool(np.isfinite(decoded).all()),
                        {"accepted_nan_samples": int(np.isnan(decoded).sum())})
-            except main.HTTPException as e:
+            except HTTPException as e:
                 record("Non-finite audio samples rejected", e.status_code == 400, {"status": e.status_code})
 
             # Database TLS selection can be inspected without a remote connection.

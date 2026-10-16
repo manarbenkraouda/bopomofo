@@ -10,7 +10,8 @@ import pytest
 import soundfile as sf
 from fastapi import HTTPException
 
-from app import db, limits, llm, main, tts
+from app import db, limits, llm, tts
+from app.audio import read_audio
 from tests.users import A, B
 
 
@@ -55,7 +56,7 @@ def test_long_audio_is_rejected_before_decoding():
     data = buf.getvalue()
     tracemalloc.start()
     with pytest.raises(HTTPException) as e:
-        main.read_audio(data)
+        read_audio(data)
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     assert e.value.status_code == 400 and "too long" in e.value.detail

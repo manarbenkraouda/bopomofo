@@ -36,7 +36,7 @@ The limits are for each account. With open sign-up, one person can make many acc
 
 ### F01: Anonymous TTS
 
-Code: `tts_get` in [main.py](backend/app/main.py), `speak` and `_trim` in [tts.py](backend/app/tts.py), `PUBLIC` in [auth.py](backend/app/auth.py), `playAudio` in [audio.ts](frontend/src/lib/audio.ts).
+Code: `tts_get` in [api/tts.py](backend/app/api/tts.py), `speak` and `_trim` in [tts.py](backend/app/tts.py), `PUBLIC` in [auth.py](backend/app/auth.py), `playAudio` in [audio.ts](frontend/src/lib/audio.ts).
 
 - `/api/tts` is public because `<audio src>` cannot send a token.
 - The cache key is text, rate, and voice. Rate has 101 values and voice has 3 values, so each text can make 303 new files. The cache has no size or age limit.
@@ -51,7 +51,7 @@ Code: `tts_get` in [main.py](backend/app/main.py), `speak` and `_trim` in [tts.p
 
 ### F02: Audio decode before limits
 
-Code: `BodyLimit`, `read_audio`, `speech_analyze`, and `symbols_check` in [main.py](backend/app/main.py). FastAPI 0.143 reads the form (`fastapi/routing.py` line 443) before it runs the sign-in dependency (line 499).
+Code: `BodyLimit` in [middleware.py](backend/app/middleware.py), `read_audio` in [audio.py](backend/app/audio.py), and `speech_analyze` and `symbols_check` in [api/speech.py](backend/app/api/speech.py). FastAPI 0.143 reads the form (`fastapi/routing.py` line 443) before it runs the sign-in dependency (line 499).
 
 - `read_audio` decodes the full file and resamples it before it checks the length. Compressed formats such as FLAC and OGG decode to much larger arrays.
 - Measurement on this PC with the same decode steps: an 89,326-byte FLAC file decoded to 28.8 million samples, with a 960 MB memory peak. One hour of audio needs about 6 times more. Two or three requests at the same time can stop the server.

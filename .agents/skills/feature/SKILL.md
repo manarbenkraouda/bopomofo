@@ -47,7 +47,7 @@ It checks registration only, not behavior.
 
 - Save answers only through api.event or api.speech (frontend/src/lib/api.ts). They update the HUD and the combo, add the
   coach step id (details.step), and fire "zs:answered" for the step banner. A new backend endpoint that saves answers must
-  also store the step id and call coach.refresh(), as progress_event does.
+  also store the step id and call coach.refresh() (api/notices.py refresh_notices), as progress_event does.
 - db.add_event silently drops units whose kind is not in db.UNIT_KINDS.
 - Old rows (events.legacy = 1) have no "actual" and no context. New logic must work when detailed data is missing.
 - The model only chooses among values that the backend can measure. Check every model output in code (drop unknown values,
