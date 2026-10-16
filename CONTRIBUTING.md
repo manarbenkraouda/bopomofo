@@ -66,4 +66,4 @@ Before reporting a UI change as verified, open the affected routes with a signed
 
 State the problem, the resulting behavior, and the checks you ran. For a refactor, state what stayed unchanged and how you checked it. Name failed checks and missing browser or hardware tests. Never include real keys, learner records, or recordings in a report.
 
-The source-license decision and media inventory remain open. See [licensing](docs/licensing.md) before proposing redistribution or commercial use.
+Contributions are accepted under the project license, [AGPL-3.0-only](LICENSE). Do not add data, media, fonts, or models without their origin and terms. Add a row for each new asset to [licensing](docs/licensing.md).

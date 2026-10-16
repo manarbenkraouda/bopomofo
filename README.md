@@ -85,8 +85,8 @@ The build needs your Clerk configuration. Backend checks need a separate test da
 
 Refactors must preserve API responses, grading rules, prompts, keyboard actions, saved keys, and background work. The [cleanup verification record](docs/cleanup-verification.md) states what was checked and what still needs a device or signed-in browser.
 
-## Project status and reuse
+## License
 
-The repository is being prepared for public collaboration. A source license has not yet been selected. The speech model has noncommercial terms, and some bundled media and voice assets still need an attribution and redistribution review.
+The source code is licensed under [AGPL-3.0-only](LICENSE). If you run a changed copy as a service for other people, you must share its source code under the same license.
 
-Read [licensing and asset status](docs/licensing.md) before redistributing the project. Public release also needs a review of tracked files and Git history for private material. This cleanup does not claim to complete those release checks.
+The models, data, and media have their own terms. The speech model is for noncommercial use only (CC-BY-NC-4.0). The MOE symbol files need an attribution. Some voice clips must be replaced before a public release. Read [license and third-party terms](docs/licensing.md) before you redistribute the project.
