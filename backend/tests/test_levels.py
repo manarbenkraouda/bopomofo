@@ -282,3 +282,28 @@ def test_each_answer_updates_the_summaries_like_a_full_rebuild(tmpdb):
         c.execute("DELETE FROM level_item_days")
     assert levels.all_stars() == stars  # the first read builds them again from the history
     assert _summaries() == step_by_step
+
+
+def test_settings_open_levels_without_the_goals_and_keep_the_earned_level(tmpdb):
+    db.save_settings({"open_level": 3})
+    st = levels.check()
+    # The exercises and every symbol open, but the level, the goals, and the notices still follow the answers.
+    assert st["level"] == 1 and st["open_level"] == 3 and st["next"]["n"] == 2
+    assert {"dictation", "listening/zhuyin"} <= set(st["exercises"]) and st["symbols"] == levels.SYMS
+    assert [L["open"] for L in st["levels"]] == [True, True, True, False, False]
+    assert [L["unlocked"] for L in st["levels"]] == [True, False, False, False, False]
+    assert st["notices"] == [] and levels.opened()["level"] == 1
+    assert levels.step_allowed("write_symbols", {})
+    assert "level 3 before reaching it" in coach.prompts.level_rule(levels.opened())
+    # Back to the progress: the extra exercises close. An earned level never closes.
+    db.save_settings({"open_level": 1})
+    assert levels.check()["exercises"] == ["symbols", "reading", "recognize", "listening/tone"]
+    know(levels.SYMS)
+    assert levels.check()["level"] >= 2 and "dictation" in levels.opened()["exercises"]
+
+
+def test_settings_accept_only_a_real_level(client):
+    h = {"Authorization": "Bearer token-a"}
+    assert client.put("/api/settings", json={"open_level": levels.MAX_LEVEL + 1}, headers=h).status_code == 422
+    assert client.put("/api/settings", json={"open_level": 0}, headers=h).status_code == 422
+    assert client.put("/api/settings", json={"open_level": 2}, headers=h).json()["open_level"] == 2

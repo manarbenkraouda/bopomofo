@@ -1,4 +1,5 @@
 import { Preferences } from "@/components/settings/Preferences";
+import { LevelAccess } from "@/components/settings/LevelAccess";
 import { VoicePicker } from "@/components/settings/VoicePicker";
 import { AiEnergyCard } from "@/components/quota/AiQuota";
 import { ProfileLink } from "@/components/profile/ProfileLink";
@@ -13,6 +14,7 @@ export default function Page() {
         <AiEnergyCard />
       </div>
       <Preferences />
+      <LevelAccess />
       <VoicePicker />
     </div>
   );

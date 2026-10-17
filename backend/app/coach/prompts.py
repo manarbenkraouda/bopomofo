@@ -133,9 +133,14 @@ def level_rule(op: dict, task: str = "plan") -> str:
             " Set milestones only for skills these exercises measure. The app has its own milestone for the next level."
         )
     syms = "" if op["symbols"] == levels.SYMS else f" Symbol steps use only these symbols: {' '.join(op['symbols'])}."
+    chosen = (
+        f" The learner chose in Settings to open the exercises up to level {op['open_level']} before reaching it."
+        if op.get("open_level", op["level"]) > op["level"]
+        else ""
+    )
     return (
         f"\nLevel rule (overview.level): the learner is at level {op['level']} of {levels.MAX_LEVEL} and has unlocked only these exercises: {open_ex}."
-        f" Use only these step types: {', '.join(levels.allowed_types(op))}. Any other step type is removed.{syms}"
+        f" Use only these step types: {', '.join(levels.allowed_types(op))}. Any other step type is removed.{syms}{chosen}"
         " A level opens when its items are known: right on the first try, fast, on more than one day."
         " overview.level.next_level lists what is still missing: steps that train those items move the learner up."
         " overview.level.dropped lists known items that slipped: the app adds a review step for them itself."

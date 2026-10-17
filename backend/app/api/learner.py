@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .. import db, learner, limits, llm, placement
+from .. import db, learner, levels, limits, llm, placement
 
 router = APIRouter()
 
@@ -80,6 +80,8 @@ def onboarding(body: OnboardingIn):
 class SettingsIn(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     goal_min: int | None = Field(default=None, ge=5, le=120)
+    # Open the exercises up to this level without the level goals. 1 follows the progress only. Earned levels stay open.
+    open_level: int | None = Field(default=None, ge=1, le=levels.MAX_LEVEL)
 
 
 @router.put("/settings")
@@ -91,6 +93,8 @@ def settings_put(body: SettingsIn):
         changes["timezone"] = tz
     if body.goal_min is not None:
         changes["goal_min"] = body.goal_min
+    if body.open_level is not None:
+        changes["open_level"] = body.open_level
     if changes:
         db.save_settings(changes)
     return learner.state()

@@ -38,7 +38,7 @@ export const api = {
   saveProfile: (p: Profile) => call<Profile>("/api/profile", { ...json(p), method: "PUT" }),
   me: () => call<Me>("/api/me"),
   onboard: (o: Onboarding) => call<Me>("/api/onboarding", json(o)),
-  saveSettings: (s: { timezone?: string; goal_min?: number }) =>
+  saveSettings: (s: { timezone?: string; goal_min?: number; open_level?: number }) =>
     call<Me>("/api/settings", { ...json(s), method: "PUT" }),
   health: () => call<Health>("/api/health"),
   analyzeText: (text: string) => call<{ text: string; items: TextItem[] }>("/api/text/analyze", json({ text })),

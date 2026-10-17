@@ -77,6 +77,15 @@ export function LevelPath() {
                 Every exercise is open. Keep your known items fresh: Bobo plans a review when one slips.
               </p>
             )}
+            {lv.open_level > lv.level && (
+              <p className="mt-2 text-sm text-muted">
+                You opened the exercises up to level {lv.open_level} in{" "}
+                <Link href="/settings#levels" className="underline hover:text-accent">
+                  Settings
+                </Link>
+                . Your level still goes up with the goals.
+              </p>
+            )}
           </div>
         </div>
         <div className="relative mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line pt-3 text-xs text-muted">
@@ -162,8 +171,9 @@ export function LevelPath() {
 
 function LevelCard({ l, lv }: { l: LevelInfo; lv: Levels }) {
   const done = l.unlocked && !l.current;
+  const manual = l.open && !l.unlocked;
   return (
-    <div className={"card p-4 md:p-5 " + (l.current ? "border-accent/60" : !l.unlocked ? "opacity-70" : "")}>
+    <div className={"card p-4 md:p-5 " + (l.current ? "border-accent/60" : !l.open ? "opacity-70" : "")}>
       <div className="flex items-center gap-3">
         <span
           className={
@@ -171,12 +181,13 @@ function LevelCard({ l, lv }: { l: LevelInfo; lv: Levels }) {
             (done ? "bg-ok text-white" : l.current ? "bg-accent text-white" : "bg-line text-muted")
           }
         >
-          {done ? "✓" : l.unlocked ? l.n : "🔒"}
+          {done ? "✓" : l.open ? l.n : "🔒"}
         </span>
         <div className="min-w-0 flex-1">
           <div className="text-xs text-muted">
             Level {l.n}
             {l.current ? " · you are here" : ""}
+            {manual ? " · opened in Settings" : ""}
           </div>
           <div className="font-semibold">{l.title}</div>
         </div>
@@ -185,7 +196,7 @@ function LevelCard({ l, lv }: { l: LevelInfo; lv: Levels }) {
       {!done && <p className="mt-2 text-sm text-muted">{l.about}</p>}
       <div className="mt-3 flex flex-wrap gap-1.5">
         {l.opens.map((o, i) =>
-          l.unlocked ? (
+          l.open ? (
             <Link
               key={o.key}
               href={o.href}

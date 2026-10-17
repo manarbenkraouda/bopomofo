@@ -29,7 +29,7 @@ export const ROUTES: RouteInfo[] = [
     area: "progress",
     desc: "Your path: levels, goals, and what opens next",
     about:
-      "The app opens step by step. Level 1 is the alphabet: say each symbol and recognize it, and hear the four tones. Each level has goals; reach them and the next level opens new exercises. An item counts as known (★★★) only when you answer it right and fast enough over several tests (from level 3, also on more than one day), so luck or guessing does not count. Unlocks are permanent. When a known item slips, Bobo adds a short review to your plan.",
+      "The app opens step by step. Level 1 is the alphabet: say each symbol and recognize it, and hear the four tones. Each level has goals; reach them and the next level opens new exercises. An item counts as known (★★★) only when you answer it right and fast enough over several tests (from level 3, also on more than one day), so luck or guessing does not count. Unlocks are permanent. To practice freely, open more levels in Settings. When a known item slips, Bobo adds a short review to your plan.",
   },
   {
     href: "/coach",

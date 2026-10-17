@@ -80,7 +80,7 @@ export function Dashboard() {
   }, []);
   const open: Ex[] = lv
     ? lv.levels
-        .filter((l) => l.unlocked)
+        .filter((l) => l.open)
         .flatMap((l) =>
           l.opens.map((o) => ({
             ...o,

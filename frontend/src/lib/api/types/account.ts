@@ -21,6 +21,8 @@ export type Me = {
   name: string;
   /** The placement test after the onboarding: "due" for the everyday and fluent levels until it is done. */
   placement: "none" | "due" | "done";
+  /** Exercises are open up to this level, chosen in Settings. 1 follows the progress only. */
+  open_level: number;
 };
 
 export type Onboarding = {

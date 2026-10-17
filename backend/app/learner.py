@@ -5,7 +5,7 @@ The profile gets the onboarding answers as text, so the sentence writer (llm.py)
 
 from __future__ import annotations
 
-from . import db
+from . import db, levels
 from .config import DEFAULT_TIMEZONE
 
 # Onboarding answer → the sentence of the profile.
@@ -44,6 +44,7 @@ def state() -> dict:
         "bopomofo": s.get("bopomofo"),
         "reasons": s.get("reasons") or [],
         "placement": (s.get("placement") or {}).get("status") or "none",
+        "open_level": levels.manual_level(),
         "sentence_level": LEVEL_TEXT[level][1] if level in LEVEL_TEXT else "beginner",
         "name": db.get_profile().get("name", ""),
     }

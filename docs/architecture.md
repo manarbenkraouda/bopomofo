@@ -88,7 +88,7 @@ The frontend API contracts use type-only imports. Some contracts refer to each o
 - An answer and its level summary update use the existing transaction boundary.
 - Written tone and spoken tone are different fields. Scoring uses `surface_tone` after tone rules.
 - Learn mode, help, and later tries do not become tests from memory.
-- Level unlocks are permanent. The model cannot open an exercise or bypass a prerequisite.
+- Level unlocks are permanent. The model cannot open an exercise or bypass a prerequisite. Only the learner can open higher levels early, in Settings (settings `open_level`). That choice opens exercises only: the earned level, goals, stars, notices, and milestones still come from answers.
 - Model output has deterministic checks and a fixed fallback. Prompt text, retry limits, and grading thresholds are part of behavior.
 - Existing `zhuyin.*` storage keys stay stable. Renaming the app must not reset learner data.
 

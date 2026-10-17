@@ -260,6 +260,15 @@ def _level_of(keys) -> int:
     return n
 
 
+def manual_level() -> int:
+    """The level up to which the learner opened the exercises in Settings (settings "open_level"), or 1.
+    It opens exercises only. The earned level, the goals, the stars, and the milestones still follow the answers."""
+    if not db.current_user():
+        return 1
+    v = db.get_settings().get("open_level")
+    return min(max(v, 1), MAX_LEVEL) if isinstance(v, int) and not isinstance(v, bool) else 1
+
+
 def _open_symbols(keys, level: int) -> str:
     if level >= 2:
         return SYMS
@@ -272,12 +281,14 @@ def _open_symbols(keys, level: int) -> str:
     return out
 
 
-def opened(keys: dict | None = None) -> dict:
-    """The level, the open exercises, and the open symbols, from the saved unlocks."""
+def opened(keys: dict | None = None, manual: int | None = None) -> dict:
+    """The earned level, the open level, the open exercises, and the open symbols.
+    level: from the saved unlocks only. open_level: the higher of level and the Settings override (manual_level)."""
     keys = _unlock_keys() if keys is None else keys
     level = _level_of(keys)
-    ex = [e for lv in LEVELS[:level] for e in lv["opens"]]
-    return {"level": level, "exercises": ex, "symbols": _open_symbols(keys, level)}
+    top = max(level, manual_level() if manual is None else manual)
+    ex = [e for lv in LEVELS[:top] for e in lv["opens"]]
+    return {"level": level, "open_level": top, "exercises": ex, "symbols": _open_symbols(keys, top)}
 
 
 def is_open(exercise: str | None, op: dict | None = None) -> bool:
@@ -742,6 +753,8 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
                 "about": L["about"],
                 "unlocked": unlocked,
                 "unlocked_ts": keys.get(f"level:{L['n']}") if L["n"] > 1 else None,
+                # open: its exercises can be practiced, because the learner earned the level or opened it in Settings.
+                "open": L["n"] <= op["open_level"],
                 "current": L["n"] == lv,
                 "opens": [{"key": e, "label": EXERCISES[e][0], "href": EXERCISES[e][1]} for e in L["opens"]],
                 "goals": goals,
@@ -763,6 +776,7 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
         "level": lv,
         "title": LEVELS[lv - 1]["title"],
         "max_level": MAX_LEVEL,
+        "open_level": op["open_level"],
         "levels": levels,
         "chapters": chapters,
         "exercises": op["exercises"],

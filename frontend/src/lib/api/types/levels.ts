@@ -30,6 +30,8 @@ export type LevelInfo = {
   about: string;
   unlocked: boolean;
   unlocked_ts: number | null;
+  /** Its exercises are open: the learner reached the level, or opened it in Settings. */
+  open: boolean;
   current: boolean;
   opens: { key: string; label: string; href: string }[];
   goals: LevelGoal[];
@@ -48,9 +50,12 @@ export type ItemStars = {
 };
 
 export type Levels = {
+  /** The level reached with the goals. */
   level: number;
   title: string;
   max_level: number;
+  /** The highest level with open exercises: level, or higher when the learner opened more levels in Settings. */
+  open_level: number;
   levels: LevelInfo[];
   chapters: { key: string; title: string; symbols: string; open: boolean; accurate: number; of: number }[];
   /** Exercise keys the learner has unlocked, for example "reading" or "listening/tone". */

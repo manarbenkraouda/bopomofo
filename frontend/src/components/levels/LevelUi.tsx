@@ -102,6 +102,9 @@ export function LockedScreen({ route }: { route: RouteInfo }) {
         <Link href="/levels" className="btn btn-accent justify-center !rounded-xl !px-5 !py-3 font-semibold">
           See my path <Kbd className="max-md:!hidden">Enter</Kbd>
         </Link>
+        <Link href="/settings#levels" className="btn justify-center !rounded-xl !px-5 !py-3">
+          Open it now in Settings
+        </Link>
         <Link href="/" className="btn justify-center !rounded-xl !px-5 !py-3">
           Back to Home <Kbd className="max-md:!hidden">H</Kbd>
         </Link>
