@@ -31,10 +31,12 @@ export function Characters() {
   const [error, setError] = useState("");
   const [q, setQ] = useState<Q | null>(null);
   const [picked, setPicked] = useState<CharWord | null>(null);
+  const [helped, setHelped] = useState(false);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAt = useRef(0);
   const replays = useRef(0);
+  const help = useRef(false);
   const last = useRef<string | null>(null);
 
   useEffect(() => {
@@ -65,8 +67,10 @@ export function Characters() {
     last.current = w.text;
     setQ({ word: w, options: choices(w, words, data.lookalikes) });
     setPicked(null);
+    setHelped(false);
     shownAt.current = now();
     replays.current = 0;
+    help.current = false;
   }, [data, words, focus]);
 
   useEffect(() => {
@@ -84,16 +88,20 @@ export function Characters() {
       if (!q || picked !== null || !data) return;
       setPicked(o);
       const ok = o.text === q.word.text;
+      const helpedNow = help.current;
       const lookalike = lookalikesOf(q.word.text, data.lookalikes).includes(o.text);
-      setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
+      // A right answer after the hint counts as help, like "Hear the answer" in Reading and Numbers.
+      const good = ok && !helpedNow;
+      setScore((s) => ({ n: s.n + 1, ok: s.ok + (good ? 1 : 0), streak: good ? s.streak + 1 : 0 }));
       // Save the word picked, so the stats can show which characters are taken for others (她 for 他).
       api.event({
         area: "characters",
         mode: "recognize",
         item: q.word.text,
         ok,
-        first_try: ok,
+        first_try: good,
         ms: since(shownAt.current),
+        help: helpedNow,
         replays: replays.current,
         units: [
           {
@@ -101,6 +109,7 @@ export function Characters() {
             expected: q.word.text,
             actual: o.text,
             ok,
+            help: helpedNow,
             ctx: q.word.source,
             extra: { picked: o.english, lookalike },
           },
@@ -119,10 +128,14 @@ export function Characters() {
     [q, picked, data, next, focus],
   );
 
-  const replay = () => {
+  // The hint: the sound and the Bopomofo of the word. Before the answer, it counts as help.
+  const hint = () => {
     if (!q) return;
-    if (picked === null) replays.current += 1;
-    else if (advance.current) clearTimeout(advance.current);
+    if (picked === null) {
+      replays.current += 1;
+      help.current = true;
+      setHelped(true);
+    } else if (advance.current) clearTimeout(advance.current);
     playAudio(ttsUrl(q.word.text));
   };
 
@@ -135,7 +148,7 @@ export function Characters() {
       bar: false,
     })),
     { keys: [], label: "Answer", show: ["1-4", "/", "A S D F"], when: !!q && picked === null },
-    { keys: ["Space"], label: picked ? "Hear again" : "Hear it (help)", run: replay, when: !!q },
+    { keys: ["Space"], label: picked || helped ? "Hear it again" : "Show a hint", run: hint, when: !!q },
     { keys: ["Enter", "KeyN"], label: "Next", run: next, when: picked !== null },
   ]);
 
@@ -170,7 +183,9 @@ export function Characters() {
             >
               {q.word.text}
             </div>
-            <div className="min-h-8 text-accent text-xl tracking-wider">{picked !== null ? q.word.zhuyin : ""}</div>
+            <div lang="zh-TW" className="min-h-8 text-accent text-xl tracking-wider">
+              {picked !== null || helped ? q.word.zhuyin : ""}
+            </div>
             {picked !== null && <PlayButton src={ttsUrl(q.word.text)} title="Play again (Space)" />}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl">
@@ -210,6 +225,16 @@ export function Characters() {
               );
             })}
           </div>
+          {picked === null && (
+            <div className="flex flex-col items-center gap-1">
+              <button className="btn" onClick={hint}>
+                {helped ? "Hear it again" : "Show a hint"} <Kbd className="max-md:!hidden">Space</Kbd>
+              </button>
+              <div className="text-xs text-muted">
+                {helped ? "Hint used: this one counts as help." : "The hint plays the word and shows its Bopomofo."}
+              </div>
+            </div>
+          )}
           {picked !== null && (
             <div className="text-sm text-muted text-center max-md:hidden">
               {q.word.french ? "Français : " + q.word.french + " · " : ""}
