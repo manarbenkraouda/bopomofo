@@ -76,6 +76,16 @@ def test_recordings_save_one_sandhi_unit_per_rule_syllable_and_the_stats_count_l
     )
 
 
+def test_word_recordings_keep_the_word_mode_and_open_with_the_sentence_level(tmpdb):
+    stats.log_speaking("你好", _res("你好", [2, 3], [None, None]), "word")
+    with db.conn() as c:
+        modes = [r["mode"] for r in c.execute("SELECT mode FROM events WHERE area='speaking'")]
+    assert modes == ["word"]
+    n = next(i for i, lv in enumerate(levels.LEVELS) if lv["key"] == "sentences")
+    assert "speaking/word" not in levels.opened(keys={}, manual=n)["exercises"]
+    assert "speaking/word" in levels.opened(keys={}, manual=n + 1)["exercises"]
+
+
 def test_tone_rule_steps_are_checked_and_count_only_sandhi_answers(tmpdb, monkeypatch):
     monkeypatch.setattr(coach.settings, "RULES_GATE", False)
     s = coach.cleaning.clean_step(

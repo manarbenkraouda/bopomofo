@@ -295,7 +295,8 @@ async def pipeline(d: dict, reason: str, run: str) -> dict:
         try:
             if st["type"] == "speak_sentences" and st["params"].get("new"):
                 await write_sentences(st, d, profile, run)
-            elif st["type"] in DECK_TYPES and st["params"].get("source") != "sentence":
+            # Sentence and word cards come from the learner's sentences, so they need no syllable deck.
+            elif st["type"] in DECK_TYPES and st["params"].get("source") not in ("sentence", "word"):
                 await pick_deck(st, findings, hist, run)
         except Exception as e:  # noqa: BLE001
             st["meta"].setdefault("errors", []).append(str(e)[:200])

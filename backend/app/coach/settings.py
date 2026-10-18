@@ -56,7 +56,8 @@ MEASURES = {
     "dictation": ("hear a symbol name and write the symbol by hand (alphabet: sound to symbol)", True),
     "writing": ("hear a syllable or word and write its Bopomofo by hand, with the tone mark; needs the alphabet", True),
     "speaking": (
-        "say a sentence or syllable; the speech model checks each initial, final, and tone; no Bopomofo needed",
+        "say a sentence, a word from the learner's sentences, or a syllable; the speech model checks each initial, final,"
+        " and tone; no Bopomofo needed",
         False,
     ),
 }

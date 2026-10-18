@@ -13,7 +13,7 @@ export const ROUTE_EXERCISES: Record<string, string[]> = {
   "/dictation": ["dictation"],
   "/listening": ["listening/tone", "listening/zhuyin", "listening/rule"],
   "/writing": ["writing/symbol", "writing/syllable", "writing/word"],
-  "/speaking": ["speaking/syllable", "speaking/sentence", "speaking/custom", "speaking/rule"],
+  "/speaking": ["speaking/syllable", "speaking/word", "speaking/sentence", "speaking/custom", "speaking/rule"],
   "/sentences": ["sentences"],
 };
 
@@ -31,6 +31,7 @@ export const EXERCISE_DESC: Record<string, string> = {
   "writing/word": "Hear a word, write it",
   "speaking/syllable": "Say syllables, get every sound checked",
   "speaking/rule": "Say the tone changes in words",
+  "speaking/word": "Say the words of your sentences",
   "speaking/sentence": "Say sentences about your life",
   "speaking/custom": "Say any text you type",
   sentences: "Make sentences on any topic",
@@ -47,7 +48,9 @@ export function exerciseOf(href: string): string | null {
     );
   if (path === "/speaking") {
     const s = q.get("source") ?? "";
-    return "speaking/" + (["syllable", "custom", "rule"].includes(s) ? s : q.get("text") ? "custom" : "sentence");
+    return (
+      "speaking/" + (["syllable", "word", "custom", "rule"].includes(s) ? s : q.get("text") ? "custom" : "sentence")
+    );
   }
   if (path === "/writing") {
     const m = q.get("mode") ?? "";

@@ -297,7 +297,7 @@ def rules_gate(steps: list[dict], rs: dict, op: dict | None = None) -> tuple[lis
         s
         for s in steps
         if s["type"] not in RULE_STEPS_BLOCK
-        and not (s["type"] == "speak_sounds" and s["params"].get("source") == "sentence")
+        and not (s["type"] == "speak_sounds" and s["params"].get("source") in ("sentence", "word"))
         and not (s["type"] == "tone_rules" and (s.get("meta") or {}).get("rule") != "tone_rules")
     ]
     removed = [s["title"] for s in steps if s not in kept]

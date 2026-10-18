@@ -118,7 +118,9 @@ def log_speaking(
 ) -> int:
     """Save one recording and its evidence, including help, attempt, and coach step context."""
     mode = (
-        mode if mode in ("sentence", "syllable", "custom", "rule") else ("syllable" if len(text) == 1 else "sentence")
+        mode
+        if mode in ("sentence", "word", "syllable", "custom", "rule")
+        else ("syllable" if len(text) == 1 else "sentence")
     )
     ok = res["score"] >= 80
     return db.add_event(

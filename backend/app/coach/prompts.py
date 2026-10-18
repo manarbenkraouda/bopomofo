@@ -81,8 +81,8 @@ Step types (only these; the app measures each one from the answers given inside 
 - speak_sentences: {"sentence_ids":[int],"texts":[str],"new":{"count":0-4,"focus":{"tones":[1-5],"pairs":["a-b"],"syms":[Bopomofo]}},"reps":1-10,"min_score":60-100}
   Record each sentence until it scores min_score or more, reps times. At most 6 sentences. Reuse ids when they exist, "texts" for weak
   sentences without an id, and "new" to have a writer make new sentences that contain the focus.
-- speak_sounds: {"unit":"tone"|"initial"|"final","tones":[1-5],"syms":[Bopomofo],"source":"syllable"|"sentence","target":N}
-  Done after N right syllables of that unit.
+- speak_sounds: {"unit":"tone"|"initial"|"final","tones":[1-5],"syms":[Bopomofo],"source":"syllable"|"word"|"sentence","target":N}
+  Done after N right syllables of that unit. "word": the words of the learner's own sentences, one at a time.
 - listen_tones: {"tones":[2 to 4 tones from 1-4],"target":N}  Tone quiz. Done after N right.
 - listen_sounds: {"syms":[Bopomofo initials or finals],"target":N}  "Which Bopomofo" quiz.
 - read_symbols: {"syms":[single symbols],"target":N}  Say symbols out loud. N right on the first try.
@@ -94,7 +94,7 @@ Step types (only these; the app measures each one from the answers given inside 
   (written with the dictionary tone) and pick the tone that is said. speak: say short words that use the rule. N right answers on
   the rule. Use it when "tone_rules" shows rule errors, also when they come from sentences (literal errors: the learner reads the
   written tone).
-Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "sentence" or with speak_sentences, never on single syllables.
+Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "word" or "sentence" or with speak_sentences, never on single syllables.
 For listen_tones, listen_sounds, speak_sounds with source syllable, and write_syllables, a later stage picks the exact syllables from your
 focus and the learner's history: give the focus, not the syllables.
 Every step has "type", "title" (imperative, max 60 characters), "why" (one short, friendly sentence for the learner, at most one
@@ -121,7 +121,7 @@ TONE_RULES_RULE = """
 Tone rule (overview.tone_rules.rule_active is true): the learner does not know every tone rule yet. The Bopomofo shows the
 dictionary tone, so a learner who does not know the rules reads sentences with wrong tones. The app itself puts the rule steps
 first (overview.tone_rules.steps_the_app_adds_first): they are part of THIS plan. Do not plan speak_sentences or speak_sounds with
-source "sentence", and do not plan tone_rules steps yourself. The app writes the sentence of the diagnosis about the rules: do not repeat it."""
+source "word" or "sentence", and do not plan tone_rules steps yourself. The app writes the sentence of the diagnosis about the rules: do not repeat it."""
 
 
 def level_rule(op: dict, task: str = "plan") -> str:

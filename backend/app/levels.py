@@ -97,6 +97,12 @@ EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
         Spec("speaking", "sentence", ("tone", "initial", "final"), None, 10, 5, 85),
     ),
     "writing/word": ("Write words", "/writing?mode=word", Spec("writing", "word", ("symbol", "tone"), None, 10, 5, 90)),
+    # The words of the learner's own sentences, said one at a time.
+    "speaking/word": (
+        "Say words",
+        "/speaking?source=word",
+        Spec("speaking", "word", ("tone", "initial", "final"), None, 10, 5, 85),
+    ),
     "sentences": ("Sentences", "/sentences", None),
     "speaking/custom": (
         "Free speaking",
@@ -172,8 +178,8 @@ LEVELS: list[dict] = [
         "n": 4,
         "key": "sentences",
         "title": "Words and sentences",
-        "opens": ["speaking/sentence", "writing/word", "sentences"],
-        "about": "Say whole sentences, with every tone, and write words.",
+        "opens": ["speaking/sentence", "speaking/word", "writing/word", "sentences"],
+        "about": "Say whole sentences and their words, with every tone, and write words.",
         "goals": [
             {
                 "key": "speak",
@@ -217,7 +223,8 @@ STEP_EXERCISE = {
 def step_exercise(step_type: str, params: dict | None = None) -> str:
     """Map a coach step and its variant to the exercise needed to run it."""
     if step_type == "speak_sounds":
-        return "speaking/sentence" if (params or {}).get("source") == "sentence" else "speaking/syllable"
+        src = (params or {}).get("source")
+        return "speaking/" + (src if src in ("sentence", "word") else "syllable")
     if step_type == "tone_rules":
         return "speaking/rule" if (params or {}).get("mode") == "speak" else "listening/rule"
     return STEP_EXERCISE.get(step_type, "")
@@ -232,7 +239,7 @@ def exercise_of(href: str) -> str | None:
     if path == "/speaking":
         return "speaking/" + (
             q.get("source")
-            if q.get("source") in ("syllable", "custom", "rule")
+            if q.get("source") in ("syllable", "word", "custom", "rule")
             else "custom"
             if q.get("text")
             else "sentence"
@@ -300,7 +307,7 @@ def allowed_types(op: dict | None = None) -> list[str]:
     """Return coach step types that the learner's open exercises can support."""
     op = op or opened()
     types = [t for t, e in STEP_EXERCISE.items() if e in op["exercises"]]
-    if "speaking/syllable" in op["exercises"] or "speaking/sentence" in op["exercises"]:
+    if any(e in op["exercises"] for e in ("speaking/syllable", "speaking/word", "speaking/sentence")):
         types.append("speak_sounds")
     return types
 
@@ -323,8 +330,10 @@ def milestone_exercises(c: dict) -> list[str]:
         return ["writing/symbol", "writing/syllable", "writing/word"]
     if a == "speaking":
         if u == "sandhi":
-            return ["speaking/rule", "speaking/sentence", "speaking/custom"]
-        return ["speaking/sentence"] if u == "score" else ["speaking/syllable", "speaking/sentence", "speaking/custom"]
+            return ["speaking/rule", "speaking/sentence", "speaking/word", "speaking/custom"]
+        if u == "score":
+            return ["speaking/sentence"]
+        return ["speaking/syllable", "speaking/word", "speaking/sentence", "speaking/custom"]
     return [a] if a in EXERCISES else []
 
 
@@ -881,6 +890,7 @@ REMEDY = {
     "writing/word": "write_syllables",
     "speaking/syllable": "speak_sounds",
     "speaking/sentence": "speak_sounds",
+    "speaking/word": "speak_sounds",
     "speaking/custom": "speak_sounds",
     "listening/rule": "tone_rules",
     "speaking/rule": "tone_rules",
@@ -897,7 +907,7 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
     for ex, items in by.items():
         t = REMEDY.get(ex)
         rp = {
-            "source": "sentence" if ex == "speaking/sentence" else "syllable",
+            "source": {"speaking/sentence": "sentence", "speaking/word": "word"}.get(ex, "syllable"),
             "mode": "speak" if ex == "speaking/rule" else "quiz",
         }
         if not t or not step_allowed(t, rp, {"exercises": st["exercises"]}):
@@ -925,7 +935,7 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
             out.append({**base, "type": t, "params": {"tones": tones, "syms": syms}, "target": 10})
         elif t == "speak_sounds" and (syms or tones):
             unit = "tone" if tones else "initial" if syms[0] in INITIALS else "final"
-            src = "sentence" if ex == "speaking/sentence" or 5 in tones else "syllable"
+            src = rp["source"] if rp["source"] != "syllable" else "sentence" if 5 in tones else "syllable"
             out.append(
                 {
                     **base,

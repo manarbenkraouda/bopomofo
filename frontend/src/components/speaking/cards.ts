@@ -2,7 +2,7 @@ import { type FxStatus } from "@/components/quiz/Feedback";
 import { ttsUrl, type RulePhrase, type Sentence, type SpeechResult, type Syl, type TextItem } from "@/lib/api";
 import { type Focus } from "@/lib/focus";
 
-export type Source = "rule" | "sentence" | "syllable" | "custom";
+export type Source = "rule" | "sentence" | "word" | "syllable" | "custom";
 
 export type Card = {
   text: string;
@@ -13,11 +13,12 @@ export type Card = {
   rule?: RulePhrase;
 };
 
-export const SOURCES: Source[] = ["rule", "sentence", "syllable", "custom"];
+export const SOURCES: Source[] = ["rule", "sentence", "word", "syllable", "custom"];
 
 export const SOURCE_LABEL: Record<Source, string> = {
   rule: "Tone rules",
   sentence: "Sentences",
+  word: "Words",
   syllable: "Syllables",
   custom: "My own text",
 };
@@ -69,6 +70,36 @@ export const ruleCard = (p: RulePhrase): Card => ({
   audio: ttsUrl(p.text),
   slow: ttsUrl(p.text, -35),
   rule: p,
+});
+
+/** A word of the learner's sentences. syls: its syllables as said in the sentence, for the focus filter. */
+export type Word = { text: string; english: string; syls: Syl[] };
+
+/** The words of 2 to 4 syllables in the sentences, each one once. One-syllable words are already the syllable cards. */
+export function wordsOf(sentences: Sentence[]): Word[] {
+  const out = new Map<string, Word>();
+  for (const s of sentences) {
+    let from = 0;
+    for (const w of s.words ?? []) {
+      const at = s.hanzi.indexOf(w.text, from);
+      if (at < 0) continue;
+      from = at + w.text.length;
+      // The items of a sentence are one per character, so the word's characters are the same slice.
+      const syls = s.items.slice(at, at + w.text.length).filter((x): x is Syl => x.type === "syllable");
+      if (syls.length < 2 || syls.length > 4 || syls.length !== w.text.length || out.has(w.text)) continue;
+      out.set(w.text, { text: w.text, english: w.english, syls });
+    }
+  }
+  return [...out.values()];
+}
+
+/** items: the analysis of the word alone, as the backend grades it (a tone change can depend on the next word). */
+export const wordCard = (w: Word, items: TextItem[]): Card => ({
+  text: w.text,
+  items,
+  english: w.english,
+  audio: ttsUrl(w.text),
+  slow: ttsUrl(w.text, -35),
 });
 
 /** The syllables whose said tone is not the written tone, with the rule that changes them. */

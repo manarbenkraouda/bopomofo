@@ -34,9 +34,12 @@ import {
   SOURCES,
   sylMatch,
   verdict,
+  wordCard,
+  wordsOf,
   type Card,
   type Check,
   type Source,
+  type Word,
 } from "./cards";
 import { ResultView } from "./ResultView";
 import { ToneChanges } from "./ToneChanges";
@@ -51,7 +54,7 @@ export function SpeakingPractice() {
   const [source, setSource] = useState<Source>(() =>
     params.get("text")
       ? "custom"
-      : ((["syllable", "custom", "rule"] as const).find((s) => s === params.get("source")) ?? "sentence"),
+      : ((["syllable", "word", "custom", "rule"] as const).find((s) => s === params.get("source")) ?? "sentence"),
   );
   // Only the card types of the learner's level: a locked one (also from a link) falls back to the first open one.
   const { open, known } = useLevels();
@@ -98,15 +101,22 @@ export function SpeakingPractice() {
     return focus.active ? all.filter((s) => s.items.some((i) => i.type === "syllable" && sylMatch(i, focus))) : all;
   }, [allSentences, focus]);
   const fSyl = useMemo(() => allSylls.filter((s) => matches(s.zhuyin, focus)), [allSylls, focus]);
+  const allWords = useMemo(() => wordsOf(allSentences ?? []), [allSentences]);
+  const fWord = useMemo(
+    () => (focus.active ? allWords.filter((w) => w.syls.some((i) => sylMatch(i, focus))) : allWords),
+    [allWords, focus],
+  );
   const fRule = useMemo(
     () => (ruleData?.phrases ?? []).filter((p) => !focus.rules.length || focus.rules.includes(p.rule)),
     [ruleData, focus],
   );
   const sentences = fSent.length ? fSent : (allSentences ?? []);
   const sylls = fSyl.length ? fSyl : allSylls;
+  const words = fWord.length ? fWord : allWords;
   const phrases = fRule.length ? fRule : (ruleData?.phrases ?? []);
   const sentenceKey = sentences.map((s) => s.id).join(",");
   const syllKey = sylls.map((s) => s.id).join(",");
+  const wordKey = words.map((w) => w.text).join(",");
   const phraseKey = phrases.map((p) => p.text).join(",");
   /** The next sentence or syllable from the schedule. The key is the text, as saved with each recording. */
   const nextSentence = () => {
@@ -125,6 +135,10 @@ export function SpeakingPractice() {
   const nextPhrase = () => {
     const t = review().next(phrases.map((p) => p.text));
     return phrases.find((p) => p.text === t);
+  };
+  const nextWord = () => {
+    const t = review().next(words.map((w) => w.text));
+    return words.find((w) => w.text === t);
   };
 
   const clearRecording = () => {
@@ -150,6 +164,15 @@ export function SpeakingPractice() {
       const id = ++loadId.current;
       const r = await api.analyzeText(s.char).catch(() => null);
       if (id === loadId.current) show({ text: s.char, items: r?.items ?? [], audio: syllableAudio(s.id) });
+    },
+    [show],
+  );
+  // The word is analyzed alone, as the backend grades it: a tone change in the sentence can come from the next word.
+  const showWord = useCallback(
+    async (w: Word) => {
+      const id = ++loadId.current;
+      const r = await api.analyzeText(w.text).catch(() => null);
+      if (id === loadId.current) show(wordCard(w, r?.items ?? w.syls));
     },
     [show],
   );
@@ -198,7 +221,8 @@ export function SpeakingPractice() {
   // A link with ?source= picks the card type.
   const sourceParam = params.get("source");
   useEffect(() => {
-    if (sourceParam === "sentence" || sourceParam === "syllable" || sourceParam === "rule") setSource(sourceParam);
+    if (sourceParam === "sentence" || sourceParam === "word" || sourceParam === "syllable" || sourceParam === "rule")
+      setSource(sourceParam);
   }, [sourceParam]);
   // A new set of sentences starts from the schedule. A link with ?sentence= starts on that one.
   useEffect(() => {
@@ -215,6 +239,12 @@ export function SpeakingPractice() {
     if (s) showSyllable(s);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, syllKey, scheduled]);
+  useEffect(() => {
+    if (source !== "word" || !words.length || !scheduled) return;
+    const w = nextWord();
+    if (w) showWord(w);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, wordKey, scheduled]);
   useEffect(() => {
     if (source !== "rule" || !phrases.length || !scheduled) return;
     const p = nextPhrase();
@@ -257,6 +287,9 @@ export function SpeakingPractice() {
     } else if (source === "syllable" && sylls.length) {
       const s = nextSyllable();
       if (s) showSyllable(s);
+    } else if (source === "word" && words.length) {
+      const w = nextWord();
+      if (w) showWord(w);
     } else if (source === "rule" && phrases.length) {
       const p = nextPhrase();
       if (p) show(ruleCard(p));
@@ -381,9 +414,11 @@ export function SpeakingPractice() {
       ? !!card
       : source === "sentence"
         ? sentences.length > 0
-        : source === "rule"
-          ? phrases.length > 0
-          : sylls.length > 0);
+        : source === "word"
+          ? words.length > 0
+          : source === "rule"
+            ? phrases.length > 0
+            : sylls.length > 0);
 
   useHotkeys("speaking", [
     {
@@ -451,7 +486,14 @@ export function SpeakingPractice() {
         <FocusChip
           focus={focus}
           empty={
-            focus.active && (source === "sentence" ? !fSent.length : source === "rule" ? !fRule.length : !fSyl.length)
+            focus.active &&
+            (source === "sentence"
+              ? !fSent.length
+              : source === "word"
+                ? !fWord.length
+                : source === "rule"
+                  ? !fRule.length
+                  : !fSyl.length)
           }
         />
         <button
@@ -697,11 +739,18 @@ export function SpeakingPractice() {
         </div>
       ) : (
         <div className="card stage border-2 border-line p-8 flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted">
-          {source === "sentence" && allSentences && !allSentences.length ? (
+          {(source === "sentence" || source === "word") && allSentences && !allSentences.length ? (
             <>
               No sentences yet.
               <Link className="btn btn-primary" href="/sentences">
                 Create some sentences
+              </Link>
+            </>
+          ) : source === "word" && allSentences && !allWords.length ? (
+            <>
+              Your sentences have no words of two syllables or more yet.
+              <Link className="btn btn-primary" href="/sentences">
+                Create more sentences
               </Link>
             </>
           ) : (

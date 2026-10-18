@@ -260,6 +260,17 @@ def test_deck_must_cover_the_focus_and_neutral_tone_needs_context(tmpdb):
     assert coach.decks.deck_problems(step, [c["z"] for c in cands], cands) == []
 
 
+def test_word_steps_keep_their_source_and_need_the_word_exercise(tmpdb):
+    raw = {"type": "speak_sounds", "unit": "tone", "tones": [5], "source": "word"}
+    s = coach.cleaning.clean_step(raw, set())
+    # A word has more than one syllable, so the neutral tone can stay on word cards.
+    assert s["params"]["source"] == "word"
+    assert levels.step_exercise("speak_sounds", s["params"]) == "speaking/word"
+    assert levels.exercise_of(coach.progress.href({**s, "id": 1})) == "speaking/word"
+    no_words = {"exercises": ["speaking/syllable", "speaking/sentence"], "symbols": ""}
+    assert coach.cleaning.clean_step(raw, set(), op=no_words) is None
+
+
 def test_alphabet_comes_first_until_the_symbols_are_known(tmpdb, monkeypatch):
     monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 30)
     answer("reading", "symbol", "ㄅ", True)

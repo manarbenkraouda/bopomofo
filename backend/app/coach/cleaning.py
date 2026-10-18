@@ -64,11 +64,11 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
                 "unit": unit,
                 "tones": validate.tones(s.get("tones")),
                 "syms": validate.syms(s.get("syms")),
-                "source": "sentence" if s.get("source") == "sentence" else "syllable",
+                "source": s.get("source") if s.get("source") in ("sentence", "word") else "syllable",
             }
             if (unit == "tone" and not p["tones"]) or (unit != "tone" and not p["syms"]):
                 return None
-            if unit == "tone" and 5 in p["tones"]:
+            if unit == "tone" and 5 in p["tones"] and p["source"] == "syllable":
                 p["source"] = "sentence"  # the neutral tone only exists after another syllable
             if not levels.step_allowed(t, p, op):
                 return None
