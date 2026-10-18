@@ -87,7 +87,7 @@ def digest(lv: dict | None = None) -> dict:
     def is_mastered(i):
         return (i["acc"] or 0) >= 92 and i["n"] >= 20
 
-    skills = [i for i in items if i["n"] >= 3 and i["kind"] in ("tone", "initial", "final", "symbol", "sandhi")]
+    skills = [i for i in items if i["n"] >= 3 and i["kind"] in ("tone", "initial", "final", "symbol", "sandhi", "char")]
     mastered = [f"{i['area']} {i['kind']} {i['expected']}" for i in skills if is_mastered(i)]
     weak = [row(i) for i in skills if not is_mastered(i)]
 
@@ -173,6 +173,7 @@ def digest(lv: dict | None = None) -> dict:
 
     story_numbers = story.story_stats(units, events, secs, today)
     num = stats.number_stats(45)
+    chars = stats.char_stats(45)
     rs = rules_status(lv)
     rule_rows = [{k: v for k, v in r.items() if not k.endswith("_href")} for r in stats.rule_stats(45)]
     tone_rules = {
@@ -328,6 +329,13 @@ def digest(lv: dict | None = None) -> dict:
             "picked_instead": num["mixups"],
             "characters_said_wrong": num["chars"],
             "numbers_missed": num["missed"],
+        },
+        "characters": {
+            "by_source": chars["sources"],
+            "skills": pick(lambda r: r["unit"] == "char"),
+            "words": chars["words"][:30],
+            "picked_instead": chars["mixups"],
+            "course_words_never_practiced": chars["never"],
         },
         "symbols": {
             "skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),

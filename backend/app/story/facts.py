@@ -20,6 +20,7 @@ MODE_LABEL = {
     "speaking": "speaking",
     "numbers/listen": "numbers by ear",
     "numbers/speak": "saying numbers",
+    "characters": "reading characters",
 }
 
 

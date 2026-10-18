@@ -4,6 +4,7 @@
 // The coach adds more: ?items= (the exact syllables of a deck, Bopomofo with tone mark), ?ids= (sentence ids for Speaking),
 // and ?rules= (tone change rules: 3-3, bu, yi) for the tone rule exercises.
 // Numbers read ?nums= (exact numbers) and ?bands= (number sizes, lib/numbers.ts).
+// Characters read ?chars= (the Chinese words to repeat).
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
@@ -20,6 +21,7 @@ export type Focus = {
   rules: RuleId[];
   nums: number[];
   bands: Band[];
+  chars: string[];
   active: boolean;
   label: string;
 };
@@ -35,6 +37,7 @@ export function useFocus(): Focus {
   const ru = q.get("rules") ?? "";
   const nu = q.get("nums") ?? "";
   const ba = q.get("bands") ?? "";
+  const ch = q.get("chars") ?? "";
   return useMemo(() => {
     const tones = t
       .split(",")
@@ -63,6 +66,14 @@ export function useFocus(): Focus {
       ),
     ];
     const bands = BANDS.filter((b) => ba.split(",").includes(b));
+    const chars = [
+      ...new Set(
+        ch
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean),
+      ),
+    ];
     const label = [
       tones.map((n) => (n === 5 ? "neutral tone" : "tone " + n)).join(" / "),
       syms.join(" "),
@@ -71,6 +82,7 @@ export function useFocus(): Focus {
       rules.map((r) => RULE_LABEL[r]).join(" / "),
       nums.length ? nums.length + (nums.length === 1 ? " number" : " numbers") : "",
       bands.join(" / "),
+      chars.join(" "),
     ]
       .filter(Boolean)
       .join(" · ");
@@ -82,10 +94,20 @@ export function useFocus(): Focus {
       rules,
       nums,
       bands,
-      active: tones.length + syms.length + items.length + ids.length + rules.length + nums.length + bands.length > 0,
+      chars,
+      active:
+        tones.length +
+          syms.length +
+          items.length +
+          ids.length +
+          rules.length +
+          nums.length +
+          bands.length +
+          chars.length >
+        0,
       label,
     };
-  }, [t, s, it, id, ru, nu, ba]);
+  }, [t, s, it, id, ru, nu, ba, ch]);
 }
 
 /** A syllable matches when it is in the coach deck; without a deck, when its tone is one of the tones and it contains one of the symbols. */
@@ -104,7 +126,7 @@ function useClearHref() {
   const path = usePathname();
   const q = useSearchParams();
   const rest = new URLSearchParams(q.toString());
-  for (const k of ["tones", "syms", "items", "ids", "rules", "nums", "bands", "step", "learn"]) rest.delete(k);
+  for (const k of ["tones", "syms", "items", "ids", "rules", "nums", "bands", "chars", "step", "learn"]) rest.delete(k);
   return path + (rest.size ? "?" + rest.toString() : "");
 }
 

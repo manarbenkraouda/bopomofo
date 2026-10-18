@@ -121,6 +121,8 @@ EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
         "/numbers?mode=speak",
         Spec("numbers", "speak", ("number",), None, 10, 5, 85),
     ),
+    # Traditional characters: see a character or word and pick its meaning. Items: char:<the word shown>.
+    "characters": ("Characters", "/characters", Spec("characters", None, ("char",), 6000, 10, 5, 85)),
 }
 TONES4 = ["tone:1", "tone:2", "tone:3", "tone:4"]
 TONES5 = [*TONES4, "tone:5"]
@@ -134,8 +136,9 @@ LEVELS: list[dict] = [
         "n": 1,
         "key": "alphabet",
         "title": "Read the alphabet",
-        "opens": ["symbols", "reading", "recognize", "listening/tone", "numbers/listen", "numbers/speak"],
-        "about": "Learn the 37 symbols by sight, train your ear on the four tones, and learn the numbers.",
+        # Characters open here too: the choices are English meanings, so the exercise needs no Bopomofo.
+        "opens": ["symbols", "reading", "recognize", "listening/tone", "numbers/listen", "numbers/speak", "characters"],
+        "about": "Learn the 37 symbols by sight, train your ear on the four tones, and learn the numbers and first characters.",
         "goals": [
             {
                 "key": "read",
@@ -230,6 +233,7 @@ STEP_EXERCISE = {
     "speak_sentences": "speaking/sentence",
     "tone_rules": "listening/rule",
     "numbers": "numbers/listen",
+    "characters": "characters",
 }
 
 
@@ -423,11 +427,13 @@ def _keys_of(kind: str, expected: str) -> list[str]:
     if kind == "number":
         # One item per size band: single numbers repeat too rarely to earn stars.
         return ["num:" + number_band(int(expected))] if expected.isdigit() else []
+    if kind == "char":
+        return ["char:" + expected] if expected else []
     return list(dict.fromkeys(ch for ch in expected if ch in BOPOMOFO))
 
 
 def _exercise_key(area: str, mode: str | None) -> str | None:
-    if area in ("reading", "recognize", "dictation"):
+    if area in ("reading", "recognize", "dictation", "characters"):
         return area
     key = f"{area}/{mode}"
     return key if key in EXERCISES and EXERCISES[key][2] else None
@@ -491,7 +497,7 @@ _HISTORY_SQL = (
     "SELECT u.area, u.mode, u.kind, u.expected, u.ok, u.help, u.try_n, u.day, u.ts, u.event_id, e.ms,"
     " COALESCE(e.details::jsonb ->> 'learn', 'false') NOT IN ('false', '0', '') AS learn"
     " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL"
-    " AND u.kind IN ('symbol','tone','initial','final','sandhi','number')"
+    " AND u.kind IN ('symbol','tone','initial','final','sandhi','number','char')"
     " ORDER BY u.ts, u.id"
 )
 
@@ -677,6 +683,8 @@ def _label(item: str) -> str:
         return RULES[item[5:]]["name"] if item[5:] in RULES else item
     if item.startswith("num:"):
         return "numbers " + item[4:]
+    if item.startswith("char:"):
+        return item[5:]
     return ("neutral tone" if item == "tone:5" else "tone " + item[5:]) if item.startswith("tone:") else item
 
 
@@ -921,6 +929,7 @@ REMEDY = {
     "speaking/rule": "tone_rules",
     "numbers/listen": "numbers",
     "numbers/speak": "numbers",
+    "characters": "characters",
 }
 
 
@@ -946,6 +955,7 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
         tones = [int(i[5:]) for i in items if i.startswith("tone:")]
         rules = [i[5:] for i in items if i.startswith("rule:")]
         bands = [i[4:] for i in items if i.startswith("num:") and i[4:] in BANDS]
+        chars = [i[5:] for i in items if i.startswith("char:")][:12]
         syms = [i for i in items if i in BOPOMOFO][:6]
         names = " ".join(_label(i) for i in items[:6])
         base = {
@@ -958,6 +968,8 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
             out.append({**base, "type": t, "params": {"rules": rules, "mode": rp["mode"]}, "target": 10})
         elif t == "numbers" and bands:
             out.append({**base, "type": t, "params": {"mode": rp["mode"], "bands": bands, "nums": []}, "target": 10})
+        elif t == "characters" and chars:
+            out.append({**base, "type": t, "params": {"chars": chars}, "target": max(8, 2 * len(chars))})
         elif t in ("read_symbols", "recognize_symbols", "write_symbols") and syms:
             out.append({**base, "type": t, "params": {"syms": syms}, "target": max(6, 2 * len(syms))})
         elif t == "listen_tones" and tones:

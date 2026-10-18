@@ -9,7 +9,7 @@ import { playSfx } from "@/lib/sfx";
 import { Caps } from "./Kbd";
 import { BoboFace, BoboPose } from "@/components/mascot/Bobo";
 
-const FOCUS_KEYS = ["tones", "syms", "items", "ids", "rules", "nums", "bands", "learn"];
+const FOCUS_KEYS = ["tones", "syms", "items", "ids", "rules", "nums", "bands", "chars", "learn"];
 
 export function StepBanner() {
   const q = useSearchParams();

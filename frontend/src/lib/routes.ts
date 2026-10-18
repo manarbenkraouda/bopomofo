@@ -122,6 +122,16 @@ export const ROUTES: RouteInfo[] = [
       "Numbers from 0 to 99,999,999, as they are said in Taiwan (兩百, 一萬零五). Listen: hear a number and pick its digits with 1-4. Speak: see a number in digits, hold R (or the button), say it, and let go. Space plays the number. In Speak, hearing it first counts as help.",
   },
   {
+    href: "/characters",
+    label: "Characters",
+    icon: "字",
+    key: "KeyK",
+    area: "practice",
+    desc: "Read traditional characters for meaning",
+    about:
+      "Traditional characters and words from the course, mixed with words of your own sentences. See a character and pick its meaning with 1-4 (or A S D F). The wrong choices are look-alikes first (你, 妳, 您). After the answer, the app shows the Bopomofo and plays the word. Space plays it again, Enter or N goes on.",
+  },
+  {
     href: "/symbols",
     label: "Symbols",
     icon: "ㄅ",

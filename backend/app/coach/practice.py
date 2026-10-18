@@ -77,6 +77,12 @@ def apply_checkpoint(s: dict, prog: dict, r: dict) -> dict:
         ]
         if nums:
             p["nums"] = nums
+        chars = [
+            x for x in dict.fromkeys(str(v).strip() for v in (r.get("chars") or [])) if x in (p.get("chars") or [])
+        ]
+        # Keep at least 2 words, so a look-alike pair stays a pair.
+        if len(chars) >= 2:
+            p["chars"] = chars
         deck = [z for z in dict.fromkeys(str(x).strip() for x in r.get("deck") or []) if z in (p.get("deck") or [])]
         if len(deck) >= 4:
             p["deck"] = deck

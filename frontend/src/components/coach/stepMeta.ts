@@ -11,6 +11,7 @@ export const STEP_ICON: Record<string, string> = {
   write_syllables: "寫",
   tone_rules: "變",
   numbers: "數",
+  characters: "字",
 };
 
 export const STEP_KIND: Record<string, string> = {
@@ -24,6 +25,7 @@ export const STEP_KIND: Record<string, string> = {
   write_syllables: "Writing · syllables",
   tone_rules: "Tone rules",
   numbers: "Numbers",
+  characters: "Characters",
 };
 
 export const DOMAIN: Record<string, string> = {
@@ -34,6 +36,7 @@ export const DOMAIN: Record<string, string> = {
   sentences: "Sentences",
   tone_rules: "Tone rules",
   numbers: "Numbers",
+  characters: "Characters",
 };
 
 const RULE_CHIP: Record<string, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
@@ -62,6 +65,7 @@ export function focusChips(s: CoachStep): string[] {
     if (p.bands?.length) out.push(p.bands.join(" / "));
     if (p.nums?.length) out.push(p.nums.length + " picked numbers");
   }
+  if (s.type === "characters" && p.chars?.length) out.push(p.chars.join(" "));
   return out;
 }
 

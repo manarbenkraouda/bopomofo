@@ -1,0 +1,230 @@
+{
+  "about": "Traditional characters and words from the course deck \"Apprendre le Bopomofo, semaine 2\". english is the meaning shown in the exercise. lookalikes are groups that differ by one part (女 in 妳 and 她); they are the first wrong choices.",
+  "words": [
+    {
+      "text": "不好意思",
+      "zhuyin": "ㄅㄨˋ ㄏㄠˇ ㄧˋ ㄙ",
+      "english": "excuse me, sorry",
+      "french": "excuse-moi"
+    },
+    {
+      "text": "加油",
+      "zhuyin": "ㄐㄧㄚ ㄧㄡˊ",
+      "english": "keep going!",
+      "french": "courage"
+    },
+    {
+      "text": "小心",
+      "zhuyin": "ㄒㄧㄠˇ ㄒㄧㄣ",
+      "english": "be careful",
+      "french": "fais attention"
+    },
+    {
+      "text": "沒問題",
+      "zhuyin": "ㄇㄟˊ ㄨㄣˋ ㄊㄧˊ",
+      "english": "no problem",
+      "french": "pas de problème"
+    },
+    {
+      "text": "好久不見",
+      "zhuyin": "ㄏㄠˇ ㄐㄧㄡˇ ㄅㄨˋ ㄐㄧㄢˋ",
+      "english": "long time no see",
+      "french": "ça fait longtemps"
+    },
+    {
+      "text": "因為",
+      "zhuyin": "ㄧㄣ ㄨㄟˋ",
+      "english": "because",
+      "french": "parce que"
+    },
+    {
+      "text": "我",
+      "zhuyin": "ㄨㄛˇ",
+      "english": "I, me",
+      "french": "je, moi"
+    },
+    {
+      "text": "你",
+      "zhuyin": "ㄋㄧˇ",
+      "english": "you",
+      "french": "tu, toi"
+    },
+    {
+      "text": "他",
+      "zhuyin": "ㄊㄚ",
+      "english": "he, him",
+      "french": "il, lui"
+    },
+    {
+      "text": "山",
+      "zhuyin": "ㄕㄢ",
+      "english": "mountain",
+      "french": "montagne"
+    },
+    {
+      "text": "木",
+      "zhuyin": "ㄇㄨˋ",
+      "english": "wood, tree",
+      "french": "bois"
+    },
+    {
+      "text": "不",
+      "zhuyin": "ㄅㄨˋ",
+      "english": "not, no",
+      "french": "ne… pas"
+    },
+    {
+      "text": "好",
+      "zhuyin": "ㄏㄠˇ",
+      "english": "good, well",
+      "french": "bon, bien"
+    },
+    {
+      "text": "愛",
+      "zhuyin": "ㄞˋ",
+      "english": "to love",
+      "french": "aimer"
+    },
+    {
+      "text": "水",
+      "zhuyin": "ㄕㄨㄟˇ",
+      "english": "water",
+      "french": "eau"
+    },
+    {
+      "text": "妳",
+      "zhuyin": "ㄋㄧˇ",
+      "english": "you (to a woman)",
+      "french": "tu (féminin)"
+    },
+    {
+      "text": "您",
+      "zhuyin": "ㄋㄧㄣˊ",
+      "english": "you (polite)",
+      "french": "vous (respect)"
+    },
+    {
+      "text": "她",
+      "zhuyin": "ㄊㄚ",
+      "english": "she, her",
+      "french": "elle"
+    },
+    {
+      "text": "它",
+      "zhuyin": "ㄊㄚ",
+      "english": "it (thing or animal)",
+      "french": "il, elle (objet, animal)"
+    },
+    {
+      "text": "我們",
+      "zhuyin": "ㄨㄛˇ ˙ㄇㄣ",
+      "english": "we, us",
+      "french": "nous"
+    },
+    {
+      "text": "你們",
+      "zhuyin": "ㄋㄧˇ ˙ㄇㄣ",
+      "english": "you (plural)",
+      "french": "vous"
+    },
+    {
+      "text": "他們",
+      "zhuyin": "ㄊㄚ ˙ㄇㄣ",
+      "english": "they (men or mixed)",
+      "french": "ils"
+    },
+    {
+      "text": "她們",
+      "zhuyin": "ㄊㄚ ˙ㄇㄣ",
+      "english": "they (women)",
+      "french": "elles"
+    },
+    {
+      "text": "它們",
+      "zhuyin": "ㄊㄚ ˙ㄇㄣ",
+      "english": "they (things or animals)",
+      "french": "ils, elles (objets)"
+    },
+    {
+      "text": "男",
+      "zhuyin": "ㄋㄢˊ",
+      "english": "man, male",
+      "french": "homme"
+    },
+    {
+      "text": "女",
+      "zhuyin": "ㄋㄩˇ",
+      "english": "woman, female",
+      "french": "femme"
+    },
+    {
+      "text": "對",
+      "zhuyin": "ㄉㄨㄟˋ",
+      "english": "correct, right",
+      "french": "correct"
+    },
+    {
+      "text": "天",
+      "zhuyin": "ㄊㄧㄢ",
+      "english": "sky, day",
+      "french": "ciel, jour"
+    },
+    {
+      "text": "雨",
+      "zhuyin": "ㄩˇ",
+      "english": "rain",
+      "french": "pluie"
+    },
+    {
+      "text": "石",
+      "zhuyin": "ㄕˊ",
+      "english": "stone",
+      "french": "pierre"
+    },
+    {
+      "text": "金",
+      "zhuyin": "ㄐㄧㄣ",
+      "english": "gold, metal",
+      "french": "or, métal"
+    },
+    {
+      "text": "虎",
+      "zhuyin": "ㄏㄨˇ",
+      "english": "tiger",
+      "french": "tigre"
+    },
+    {
+      "text": "花",
+      "zhuyin": "ㄏㄨㄚ",
+      "english": "flower",
+      "french": "fleur"
+    },
+    {
+      "text": "草",
+      "zhuyin": "ㄘㄠˇ",
+      "english": "grass",
+      "french": "herbe"
+    }
+  ],
+  "lookalikes": [
+    [
+      "你",
+      "妳",
+      "您"
+    ],
+    [
+      "他",
+      "她",
+      "它"
+    ],
+    [
+      "他們",
+      "她們",
+      "它們"
+    ],
+    [
+      "你們",
+      "我們"
+    ]
+  ]
+}

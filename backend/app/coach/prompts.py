@@ -45,11 +45,12 @@ DOMAINS = {
     "symbols": "the 37 Bopomofo symbols and the tone marks in reading (saying them), recognize (typing their pinyin silently; recognize_mixups says which symbol the typed pinyin stands for), dictation and writing (writing them by hand): recall, symbols taken for others, stroke order, stroke problems, symbols never practiced",
     "sentences": "recorded sentences: which sentences score low, which syllables fail in them, and which material fits the level",
     "numbers": "numbers from 0 to 99,999,999 by ear (hear a number, pick its digits) and spoken (say a number shown in digits): accuracy per size (0-10, 11-99, 100-999, 1000-9999, 10000+), the kind of error (teens = 14 taken for 40; order = digits swapped; place = wrong 十/百/千/萬; digit = one wrong digit; 4-10 = 四 taken for 十; tone, sound, missed for speaking), the numbers picked instead, and the characters said wrong",
+    "characters": "traditional characters read for meaning (see a character or word, pick its English meaning among 4): accuracy per word and per source (deck = the course words, sentence = words of the learner's sentences), the words taken for others (lookalike = a character that differs by one part, like 他/她/它), and the course words never practiced",
 }
 
 ANALYZE = """Task: analyze one domain of the stats: DOMAIN.
 Find the gaps that block progress most. Use "produced_instead", the expected-to-produced tables, and the contexts to say exactly what goes wrong.
-Each finding: {"id":"short-key","area":"reading|recognize|listening|dictation|writing|speaking|numbers","items":["exact values from the data: tones as strings, Bopomofo, syllables, sentence ids, number sizes, or numbers"],
+Each finding: {"id":"short-key","area":"reading|recognize|listening|dictation|writing|speaking|numbers|characters","items":["exact values from the data: tones as strings, Bopomofo, syllables, sentence ids, number sizes, numbers, or Chinese words"],
 "problem":"what goes wrong, with the numbers","context":"when it happens, or empty","severity":1-5,"confidence":1-5,"drill":"the exercise that fixes it, one sentence"}
 Also give "strengths" (facts with numbers: things to stop drilling), "unknown" (things barely or never practiced that matter at this level),
 and "too_advanced" (things to postpone, with the reason).
@@ -99,6 +100,10 @@ Step types (only these; the app measures each one from the answers given inside 
   Numbers. listen: hear a number and pick its digits from 4 choices. speak: see a number in digits and say it. "bands" limits the
   size of the numbers, "nums" gives exact numbers to repeat (at most 12; for example the numbers picked wrong). Empty lists: any
   number. N right on the first try. Numbers need no Bopomofo.
+- characters: {"chars":["Chinese words of 1-4 characters"],"target":N}
+  Traditional characters: see a word and pick its English meaning from 4. "chars" gives the words to repeat (at most 12; course
+  words from the characters stats, or words of the learner's sentences; for example a look-alike group like 他 她 它). Empty: any
+  word. N right on the first try. Characters need no Bopomofo.
 Tone 5 (neutral) only exists after another syllable: train it with speak_sounds source "word" or "sentence" or with speak_sentences, never on single syllables.
 For listen_tones, listen_sounds, speak_sounds with source syllable, and write_syllables, a later stage picks the exact syllables from your
 focus and the learner's history: give the focus, not the syllables.
@@ -112,7 +117,7 @@ Alphabet rule (overview.alphabet.rule_active is true): the app itself puts the a
 repetition (the app plays each symbol and shows it; the learner repeats it), and tests from memory start only after enough repetitions.
 The steps the app adds are in overview.alphabet.steps_the_app_adds_first: they are part of THIS plan and come before your steps.
 Do not plan read_symbols, recognize_symbols, write_symbols, listen_sounds, or write_syllables. Plan the rest of the session with steps that need no
-Bopomofo and that the level allows (listen_tones and numbers; speak_sounds and speak_sentences only when overview.level.allowed_step_types lists them).
+Bopomofo and that the level allows (listen_tones, numbers, and characters; speak_sounds and speak_sentences only when overview.level.allowed_step_types lists them).
 The app writes the first sentence of the diagnosis about the alphabet steps:
 your diagnosis covers your own steps only. Do not repeat the alphabet count, do not say that your steps open the session, and never
 say that the alphabet waits for a later plan."""
@@ -189,8 +194,9 @@ Return {"verdicts":[{"pos":0,"action":"keep|drop|change","title":null,"why":null
 MILESTONES = """Task: set the milestones: 3 to 5 skill goals that take several plans to reach and show real progress.
 You get the overview, the top findings, the active milestones with their current values, and a menu of measurable skills with current values.
 - Keep an active milestone that is still useful and not reached: put its id in "keep".
-- A new milestone must be measurable: {"title","why","area","unit","expected","min_acc","window"}. area: reading|recognize|listening|dictation|writing|speaking|numbers.
-  unit: tone|initial|final|symbol|sandhi|score|number (score is speaking only: the average score, with expected []; sandhi: a tone rule, expected
+- A new milestone must be measurable: {"title","why","area","unit","expected","min_acc","window"}. area: reading|recognize|listening|dictation|writing|speaking|numbers|characters.
+  unit: tone|initial|final|symbol|sandhi|score|number|char (score is speaking only: the average score, with expected []; char is area
+  characters only, expected: the Chinese words; sandhi: a tone rule, expected
   ["3-3"|"bu"|"yi"], area listening for the rule quiz or speaking for every recording; number is area numbers only, expected: number
   sizes ["0-10"|"11-99"|"100-999"|"1000-9999"|"10000+"], or [] for every number, in both modes). It is reached when the last "window"
   first-try answers of that unit reach min_acc percent right (score: the average of the last "window" recordings).

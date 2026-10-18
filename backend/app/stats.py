@@ -17,13 +17,13 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from . import db, deep_check, levels, numbers, typed_fix
+from . import characters, db, deep_check, levels, numbers, typed_fix
 from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
 PRIOR = 4.0  # weight of the skill average in the weak score, in answers
 SESSION_GAP = 15 * 60  # a pause longer than this starts a new session
-AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking", "numbers"]
+AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking", "numbers", "characters"]
 VERB = {
     "reading": "said",
     "recognize": "typed",
@@ -32,6 +32,7 @@ VERB = {
     "dictation": "wrote",
     "writing": "wrote",
     "numbers": "gave",
+    "characters": "picked",
 }
 
 
@@ -248,6 +249,8 @@ def _seconds_by_day(events: list[dict], saved: dict[str, int]) -> dict[str, int]
 
 def _href(area: str, kind: str, expected: str, also: list | None = None) -> str | None:
     vals = [expected] + [a for a in (also or []) if a and a not in ("∅", "?", expected)]
+    if kind == "char":
+        return "/characters?chars=" + quote(",".join(vals[:6]))
     if kind == "sandhi":
         if expected not in RULES:
             return None
@@ -416,6 +419,55 @@ def number_stats(days: int | None = None) -> dict:
             ({"mode": m, "number": e, "n": v[0], "ok": v[1]} for (m, e), v in per.items() if v[1] < v[0]),
             key=lambda x: (x["ok"] - x["n"], -x["n"]),
         )[:10],
+    }
+
+
+def char_stats(days: int | None = None) -> dict:
+    """Traditional characters (see a word, pick its meaning), first tries only: accuracy per source (course deck or the
+    learner's sentences), per word, the words taken for others (look-alike or not), and the course words never practiced."""
+    rows = _rows(
+        "SELECT u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM units u JOIN events e ON e.id = u.event_id"
+        " WHERE u.kind='char' AND u.try_n=0 AND u.ok IS NOT NULL AND u.day>=? ORDER BY u.ts",
+        (_since(days),),
+    )
+    src: dict[str, list] = defaultdict(lambda: [0, 0, []])
+    per: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    mix: Counter = Counter()
+    for r in rows:
+        g = _good(r)
+        s = src[r["ctx"] or "deck"]
+        s[0] += 1
+        s[1] += g
+        if g and r["ms"]:
+            s[2].append(r["ms"])
+        per[r["expected"]][0] += 1
+        per[r["expected"]][1] += g
+        if not r["ok"] and r["actual"] not in (None, "", "?", r["expected"]):
+            mix[(r["expected"], r["actual"])] += 1
+    deck = characters.deck()
+    words = sorted(
+        (
+            {
+                "text": t,
+                "english": (deck.get(t) or {}).get("english"),
+                "n": v[0],
+                "ok": v[1],
+                "acc": _pct(v[1], v[0]),
+            }
+            for t, v in per.items()
+        ),
+        key=lambda x: (x["acc"] or 0, -x["n"]),
+    )
+    return {
+        "sources": {
+            k: {"n": v[0], "ok": v[1], "acc": _pct(v[1], v[0]), "ms": _median(v[2])} for k, v in sorted(src.items())
+        },
+        "words": words[:60],
+        "mixups": [
+            {"expected": e, "picked": a, "lookalike": a in characters.lookalike(e), "n": n}
+            for (e, a), n in mix.most_common(12)
+        ],
+        "never": [t for t in deck if t not in per],
     }
 
 
@@ -703,6 +755,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         "sessions": sessions,
         "rules": rule_stats(days),
         "numbers": number_stats(days),
+        "characters": char_stats(days),
         "mic_pairs": typed_fix.mic_pairs(),
         "deep_check": deep_check.summary(),
         "recent": recent(area=area),
@@ -978,6 +1031,23 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
                 "href": f"/numbers?mode={'speak' if speak else 'listen'}&bands={quote(bd)}",
             }
         )
+    # Characters: the words most often taken for another meaning.
+    w = weakest("characters", "char", 4, 3)
+    if w:
+        words = [i["expected"] for i in w]
+        n = sum(i["n"] for i in w)
+        ok = sum(i["ok"] for i in w)
+        out.append(
+            {
+                "id": "characters",
+                "area": "characters",
+                "title": f"Read {' '.join(words)}: 8 right",
+                "why": f"{round(100 * ok / n)}% right on {n} questions.",
+                "target": 8,
+                "progress": count("characters", "char", set(words), True),
+                "href": _href("characters", "char", words[0], words[1:]),
+            }
+        )
     # Tones first (the main goal of the app), then the others in a daily order.
     rnd = random.Random(t)
     rnd.shuffle(out)
@@ -1048,6 +1118,15 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
             "target": 10,
             "progress": sum(1 for e in now_ev if e["area"] == "numbers"),
             "href": "/numbers?mode=listen",
+        },
+        {
+            "id": "warm-characters",
+            "area": "characters",
+            "title": "Read 10 traditional characters",
+            "why": "Signs, menus, and messages in Taiwan use traditional characters.",
+            "target": 10,
+            "progress": sum(1 for e in now_ev if e["area"] == "characters"),
+            "href": "/characters",
         },
     ]
     have = {c["area"] for c in out}

@@ -13,12 +13,13 @@ import { AREA_LABEL, AREA_ORDER } from "./charts";
 import { GRID_COLS, SYMS, trainHref, WEAK_SHOWN } from "./display";
 import { OverviewView } from "./OverviewView";
 import { NumbersView } from "./NumbersView";
+import { CharactersView } from "./CharactersView";
 import { SoundsView } from "./SoundsView";
 import { SymbolsView } from "./SymbolsView";
 import { TonesView } from "./TonesView";
 
 // The ids "today" and "history" are kept so the saved tab of older versions still opens.
-type Tab = "today" | "tones" | "sounds" | "symbols" | "numbers" | "history";
+type Tab = "today" | "tones" | "sounds" | "symbols" | "numbers" | "characters" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "Overview" },
@@ -26,6 +27,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "sounds", label: "Sounds" },
   { id: "symbols", label: "Symbols" },
   { id: "numbers", label: "Numbers" },
+  { id: "characters", label: "Characters" },
   { id: "history", label: "Activity" },
 ];
 
@@ -95,7 +97,7 @@ export function Stats() {
       run: () => setTab(t.id),
       bar: false,
     })),
-    { keys: [], label: "View", show: ["1-5"] },
+    { keys: [], label: "View", show: [`1-${TABS.length}`] },
     ...cycleKeys("Range", RANGES, days, setDays),
     {
       keys: ["KeyA"],
@@ -231,6 +233,7 @@ export function Stats() {
       {data && tab === "tones" && data.overview.cards > 0 && <TonesView data={data} />}
       {data && tab === "sounds" && data.overview.cards > 0 && <SoundsView data={data} />}
       {data && tab === "numbers" && data.overview.cards > 0 && <NumbersView data={data} />}
+      {data && tab === "characters" && data.overview.cards > 0 && <CharactersView data={data} />}
       {data && tab === "symbols" && data.overview.cards > 0 && (
         <SymbolsView
           data={data}

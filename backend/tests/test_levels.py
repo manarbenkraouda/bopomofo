@@ -87,7 +87,7 @@ def test_level_two_opens_after_one_short_session_on_most_of_the_alphabet(tmpdb):
 
 def test_level_one_opens_the_alphabet_and_the_tones_only(tmpdb):
     st = levels.check()
-    # Numbers are open from level 1: they do not depend on the alphabet.
+    # Numbers and characters are open from level 1: they do not depend on the alphabet.
     assert st["level"] == 1 and st["exercises"] == [
         "symbols",
         "reading",
@@ -95,12 +95,14 @@ def test_level_one_opens_the_alphabet_and_the_tones_only(tmpdb):
         "listening/tone",
         "numbers/listen",
         "numbers/speak",
+        "characters",
     ]
     assert st["symbols"] == levels.INITIALS and set(st["step_types"]) == {
         "read_symbols",
         "recognize_symbols",
         "listen_tones",
         "numbers",
+        "characters",
     }
     assert coach.cleaning.clean_step({"type": "write_symbols", "syms": ["ㄅ"]}, set()) is None
     assert coach.cleaning.clean_step({"type": "speak_sounds", "unit": "tone", "tones": [3]}, set()) is None
@@ -313,6 +315,7 @@ def test_settings_open_levels_without_the_goals_and_keep_the_earned_level(tmpdb)
         "listening/tone",
         "numbers/listen",
         "numbers/speak",
+        "characters",
     ]
     know(levels.SYMS)
     assert levels.check()["level"] >= 2 and "dictation" in levels.opened()["exercises"]

@@ -112,6 +112,18 @@ def rules_plan(d: dict) -> dict:
                 "target": 12,
             }
         )
+    # Characters: the weakest words, read for meaning, in one step.
+    words = [s["x"] for s in d["_skills"] if s["unit"] == "char" and (s["right_pct"] or 0) < 90][:6]
+    if words and len(steps) < 5:
+        steps.append(
+            {
+                "type": "characters",
+                "chars": words,
+                "title": "Read " + " ".join(words),
+                "why": "The characters you still take for another meaning.",
+                "target": 12,
+            }
+        )
     for a, syms in grouped.items():
         steps.append(
             {

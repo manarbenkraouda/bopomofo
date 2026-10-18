@@ -10,6 +10,7 @@ export const AREA_COLOR: Record<string, string> = {
   writing: "#e3a62b",
   speaking: "#3cbc80",
   numbers: "#1fa6a6",
+  characters: "#d9607a",
 };
 export const AREA_LABEL: Record<string, string> = {
   reading: "Reading",
@@ -19,8 +20,18 @@ export const AREA_LABEL: Record<string, string> = {
   writing: "Writing",
   speaking: "Speaking",
   numbers: "Numbers",
+  characters: "Characters",
 };
-export const AREA_ORDER = ["reading", "recognize", "listening", "dictation", "writing", "speaking", "numbers"];
+export const AREA_ORDER = [
+  "reading",
+  "recognize",
+  "listening",
+  "dictation",
+  "writing",
+  "speaking",
+  "numbers",
+  "characters",
+];
 
 /** Accuracy color: green from 85 %, amber from 65 %, red below. */
 export const accTone = (p: number | null | undefined) =>

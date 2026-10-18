@@ -36,7 +36,7 @@ import pg8000.dbapi
 from . import config
 
 pg8000.dbapi.paramstyle = "qmark"  # pg8000 reads the style from the module only
-UNIT_KINDS = {"tone", "initial", "final", "symbol", "syllable", "stroke", "order", "sandhi", "number"}
+UNIT_KINDS = {"tone", "initial", "final", "symbol", "syllable", "stroke", "order", "sandhi", "number", "char"}
 MIGRATIONS = Path(__file__).parent / "migrations"
 POOL_SIZE = 10
 NUMERIC_OID = 1700

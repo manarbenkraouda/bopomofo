@@ -42,6 +42,7 @@ export const itemName = (it: { kind: string; expected: string }) =>
 export const trainHref = (area: string, kind: string, vals: string[]) => {
   const v = encodeURIComponent(vals.filter((x) => x && x !== "∅" && x !== "?").join(","));
   if (kind === "number") return "/numbers?mode=" + (area === "speak" ? "speak" : "listen") + "&nums=" + v;
+  if (kind === "char") return "/characters?chars=" + v;
   if (kind === "tone")
     return area === "listening"
       ? "/listening?quiz=tone&tones=" + v

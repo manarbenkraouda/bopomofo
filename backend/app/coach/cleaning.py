@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .. import db, levels
+from .. import characters, db, levels
 from ..numbers import BANDS, MAX
 from ..zhuyin import RULES
 from . import validate
@@ -103,6 +103,14 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
             }
             if not levels.step_allowed(t, p, op):
                 return None
+        elif t == "characters":
+            # A word must have a meaning the exercise can show: a course word, or a word of the learner's sentences.
+            src = s.get("params") if isinstance(s.get("params"), dict) else s
+            words = [str(x).strip() for x in src.get("chars") or [] if isinstance(x, str)]
+            texts = (
+                [r["hanzi"] for r in db.list_sentences(500)] if any(w not in characters.deck() for w in words) else []
+            )
+            p = {"chars": [w for w in dict.fromkeys(words) if characters.valid(w, texts)][:12]}
         elif t in SYMBOL_TYPES:
             p = {"syms": [x for x in validate.syms(s.get("syms"), single=True) if x in op["symbols"]]}
         else:
@@ -134,6 +142,7 @@ def clean_milestone(m: dict) -> dict | None:
         "alphabet",
         "sandhi",
         "number",
+        "char",
     ):
         return None
     unit = m["unit"]
@@ -146,6 +155,10 @@ def clean_milestone(m: dict) -> dict | None:
         exp = [b for b in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if b in BANDS]
         if m["area"] != "numbers":
             return None
+    elif unit == "char":
+        exp = [w for w in dict.fromkeys(str(x).strip() for x in (m.get("expected") or [])) if characters.valid(w)][:12]
+        if m["area"] != "characters":
+            return None
     else:
         exp = (
             [str(t) for t in validate.tones(m.get("expected"))]
@@ -157,6 +170,8 @@ def clean_milestone(m: dict) -> dict | None:
     if unit not in ("score", "alphabet", "number") and not exp:
         return None
     if m["area"] == "numbers" and unit != "number":
+        return None
+    if (m["area"] == "characters") != (unit == "char"):
         return None
     if unit == "score" and m["area"] != "speaking":
         return None
@@ -204,6 +219,7 @@ def focus_of(s: dict) -> dict:
             "learn",
             "bands",
             "nums",
+            "chars",
         )
         if p.get(k) not in (None, [], "")
     }

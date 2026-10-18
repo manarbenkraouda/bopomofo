@@ -12,7 +12,8 @@ export type StepType =
   | "write_symbols"
   | "write_syllables"
   | "tone_rules"
-  | "numbers";
+  | "numbers"
+  | "characters";
 
 export type CoachNote = { kind: string; text: string; ts: number };
 
@@ -47,6 +48,7 @@ export type CoachStep = {
     mode?: "quiz" | "speak" | "listen";
     bands?: string[];
     nums?: number[];
+    chars?: string[];
     learn?: boolean;
   };
   finding_ids: string[];

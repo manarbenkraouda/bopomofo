@@ -24,6 +24,7 @@ TYPES = {
     "write_syllables": "writing",
     "tone_rules": "listening",
     "numbers": "numbers",
+    "characters": "characters",
 }
 DECK_TYPES = {"listen_tones", "listen_sounds", "speak_sounds", "write_syllables"}
 DEFAULT_TARGET = {
@@ -36,6 +37,7 @@ DEFAULT_TARGET = {
     "write_syllables": 10,
     "tone_rules": 12,
     "numbers": 12,
+    "characters": 12,
 }
 SYMBOL_TYPES = {"read_symbols", "recognize_symbols", "write_symbols"}  # one symbol per answer, focus = single symbols
 SYLLABLES_FILE = ROOT.parent / "frontend" / "public" / "data" / "syllables.json"
@@ -70,6 +72,12 @@ MEASURES = {
     "numbers/speak": (
         "see a number in digits and say it out loud; the speech model checks every syllable, so a wrong number shows which"
         " characters were said wrong; no Bopomofo needed",
+        False,
+    ),
+    "characters": (
+        "see a traditional character or word (course words and words of the learner's sentences) and pick its English"
+        " meaning among 4; the wrong choices are look-alikes first (你/妳/您, 他/她/它); measures reading characters;"
+        " no Bopomofo needed",
         False,
     ),
 }

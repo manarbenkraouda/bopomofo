@@ -13,7 +13,7 @@ export type Summary = {
 
 /** One part of an answer: what was expected and what the learner actually produced. */
 export type Unit = {
-  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order" | "sandhi" | "number";
+  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order" | "sandhi" | "number" | "char";
   expected: string | number;
   actual?: string | number | null;
   ok?: boolean | null;
@@ -28,7 +28,7 @@ export type Unit = {
 };
 
 export type PracticeEvent = {
-  area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking" | "numbers";
+  area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking" | "numbers" | "characters";
   mode?: string;
   item: string;
   ok: boolean;
@@ -109,6 +109,8 @@ export type Stats = {
   range: { days: number | null; since: string; area: string | null };
   /** Numbers by ear (listen) and spoken (speak), first tries only. */
   numbers: NumberStats;
+  /** Traditional characters read for meaning, first tries only. */
+  characters: CharStats;
   overview: Totals & { prev?: Totals };
   daily: {
     day: string;
@@ -182,4 +184,12 @@ export type NumberStats = {
   mixups: { expected: string; picked: string; error: string; n: number }[];
   chars: { char: string; n: number; ok: number; acc: number | null }[];
   missed: { mode: string; number: string; n: number; ok: number }[];
+};
+
+export type CharStats = {
+  /** deck: the course words; sentence: words of the learner's sentences. */
+  sources: Record<string, { n: number; ok: number; acc: number | null; ms: number | null }>;
+  words: { text: string; english: string | null; n: number; ok: number; acc: number | null }[];
+  mixups: { expected: string; picked: string; lookalike: boolean; n: number }[];
+  never: string[];
 };
