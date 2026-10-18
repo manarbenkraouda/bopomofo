@@ -14,6 +14,11 @@ let shared: HoldMic | null = null;
 let opening: Promise<HoldMic> | null = null;
 let users = 0;
 let closeTimer: ReturnType<typeof setTimeout> | null = null;
+// An open microphone puts phones (and Bluetooth headsets) in call mode: every sound plays at call quality, in this app
+// and in other apps. So the microphone pauses while the app plays a clip and while the app is hidden, and opens again after.
+let paused = false;
+let holders = 0; // components with a clip in progress: the microphone does not pause under them
+const pauseListeners = new Set<() => void>();
 
 function openShared(): Promise<HoldMic> {
   if (shared) return Promise.resolve(shared);
@@ -29,6 +34,25 @@ function openShared(): Promise<HoldMic> {
       opening = null;
     });
   return opening;
+}
+
+function pauseShared() {
+  if (holders > 0 || (!shared && !opening)) return;
+  paused = true;
+  const m = shared;
+  shared = null;
+  if (m) void m.stop();
+  else void opening?.then((o) => (paused && shared === o ? pauseShared() : undefined));
+}
+
+/** Open the microphone again after a pause, if a page still uses it and the app is shown. */
+function unpauseShared() {
+  if (!paused || users === 0 || document.visibilityState !== "visible") return;
+  paused = false;
+  openShared().then(
+    () => pauseListeners.forEach((f) => f()),
+    () => {},
+  );
 }
 
 /** The text to show for a dropped clip. key: the key to hold on a desktop. */
@@ -91,11 +115,13 @@ export function useHoldMic(opts: {
     if (down.current || !alive.current) return;
     down.current = true;
     setError("");
+    const wasPaused = paused;
     stopAudio();
     const was = shared;
     const m = was ?? (await open());
     // Opened by this press: the start of the speech is already lost, so record nothing and ask for a new press.
-    if (!m || !was) {
+    // After a pause (a clip played) the learner expects the press to record, so it records without the audio before it.
+    if (!m || (!was && !wasPaused)) {
       down.current = false;
       if (m) cbs.current.onDiscard?.("opened");
       return;
@@ -106,6 +132,7 @@ export function useHoldMic(opts: {
     m.muted = false;
     m.press();
     mine.current = true;
+    holders++;
     setState("holding");
     timer.current = setTimeout(() => releaseRef.current(), (cbs.current.maxS ?? 6) * 1000);
   }, [open, attach]);
@@ -117,6 +144,7 @@ export function useHoldMic(opts: {
     const m = shared;
     if (!m || !mine.current) return;
     mine.current = false;
+    holders--;
     setState("sending");
     const r = await m.release();
     if (!alive.current) return;
@@ -155,13 +183,17 @@ export function useHoldMic(opts: {
     return () => {
       alive.current = false;
       if (timer.current) clearTimeout(timer.current);
-      if (mine.current) shared?.cancel();
+      if (mine.current) {
+        shared?.cancel();
+        holders--;
+      }
       mine.current = down.current = false;
       if (--users === 0)
         closeTimer = setTimeout(() => {
           closeTimer = null;
           const m = shared;
           shared = null;
+          paused = false;
           void m?.stop();
         }, 1500);
       setState("off");
@@ -169,23 +201,36 @@ export function useHoldMic(opts: {
     };
   }, [active, attach, open]);
 
-  // The app's own sounds do not go into the audio kept before a press.
+  // The app's own sounds do not go into the audio kept before a press. A clip (a voice) pauses the microphone, so it
+  // plays at full quality; a short sound effect only clears the audio kept before a press.
   useEffect(() => {
     if (!active) return;
     const a = onPlaying((src) => {
-      if (!shared) return;
-      if (src) shared.muted = true;
-      else {
+      if (src) {
+        if (shared) shared.muted = true;
+        pauseShared();
+      } else if (paused) unpauseShared();
+      else if (shared) {
         shared.muted = false;
         shared.quiet(200);
       }
     });
     const b = onSfx((ms) => shared?.quiet(ms + 100));
+    const vis = () => (document.visibilityState === "visible" ? unpauseShared() : pauseShared());
+    document.addEventListener("visibilitychange", vis);
+    const reopened = () => {
+      if (!alive.current || !shared) return;
+      attach(shared);
+      setState((s) => (s === "off" || s === "opening" ? "ready" : s));
+    };
+    pauseListeners.add(reopened);
     return () => {
       a();
       b();
+      document.removeEventListener("visibilitychange", vis);
+      pauseListeners.delete(reopened);
     };
-  }, [active]);
+  }, [active, attach]);
 
   /** Props for the hold button. Pointer capture keeps the hold when the finger slides off the button. */
   const bind = {
