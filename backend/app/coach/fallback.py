@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from .. import levels
+from ..numbers import BANDS
 from ..zhuyin import RULES
 
 
@@ -94,6 +95,23 @@ def rules_plan(d: dict) -> dict:
         "recognize": ("recognize_symbols", "Recognize "),
         "dictation": ("write_symbols", "Write "),
     }
+    # Numbers: the weakest size band of each mode, from the numbers slice of the digest.
+    for b in sorted((d.get("numbers") or {}).get("by_size") or [], key=lambda x: x["acc"] or 0):
+        if len(steps) >= 5 or b["n"] < 5 or (b["acc"] or 0) >= 85 or b["band"] not in BANDS:
+            continue
+        mode = "speak" if b["mode"] == "speak" else "listen"
+        if any(s["type"] == "numbers" and s["mode"] == mode for s in steps):
+            continue
+        steps.append(
+            {
+                "type": "numbers",
+                "mode": mode,
+                "bands": [b["band"]],
+                "title": ("Say" if mode == "speak" else "Hear") + f" numbers {b['band']}",
+                "why": f"Right {b['acc']:.0f}% of the time so far in this size of number.",
+                "target": 12,
+            }
+        )
     for a, syms in grouped.items():
         steps.append(
             {

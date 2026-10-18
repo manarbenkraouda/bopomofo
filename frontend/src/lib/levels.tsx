@@ -15,6 +15,7 @@ export const ROUTE_EXERCISES: Record<string, string[]> = {
   "/writing": ["writing/symbol", "writing/syllable", "writing/word"],
   "/speaking": ["speaking/syllable", "speaking/word", "speaking/sentence", "speaking/custom", "speaking/rule"],
   "/sentences": ["sentences"],
+  "/numbers": ["numbers/listen", "numbers/speak"],
 };
 
 /** One short line per exercise, for the Home tiles and the level path. */
@@ -35,6 +36,8 @@ export const EXERCISE_DESC: Record<string, string> = {
   "speaking/sentence": "Say sentences about your life",
   "speaking/custom": "Say any text you type",
   sentences: "Make sentences on any topic",
+  "numbers/listen": "Hear a number, pick its digits",
+  "numbers/speak": "See a number, say it out loud",
 };
 
 /** The exercise of a link, like levels.exercise_of in the backend: /listening?quiz=zhuyin is "listening/zhuyin". */
@@ -56,6 +59,7 @@ export function exerciseOf(href: string): string | null {
     const m = q.get("mode") ?? "";
     return "writing/" + (m === "symbol" || m === "word" ? m : "syllable");
   }
+  if (path === "/numbers") return "numbers/" + (q.get("mode") === "speak" ? "speak" : "listen");
   const key = path.replace(/^\/+|\/+$/g, "");
   return ROUTE_EXERCISES["/" + key] ? key : null;
 }
@@ -68,6 +72,7 @@ export function itemLabel(item: string): string {
     return (
       ({ "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" } as Record<string, string>)[item.slice(5)] ?? item.slice(5)
     );
+  if (item.startsWith("num:")) return "numbers " + item.slice(4);
   return item;
 }
 

@@ -27,6 +27,7 @@ import time
 from dataclasses import dataclass
 
 from . import db
+from .numbers import BANDS, band as number_band
 from .zhuyin import BOPOMOFO, RULES, SYMS
 
 INITIALS, FINALS, MEDIALS = SYMS[:21], SYMS[21:34], SYMS[34:]
@@ -109,6 +110,17 @@ EXERCISES: dict[str, tuple[str, str, Spec | None]] = {
         "/speaking?source=custom",
         Spec("speaking", "custom", ("tone", "initial", "final"), None, 10, 5, 85),
     ),
+    # Numbers need no Bopomofo: the learner hears or sees digits. Items: the size bands (num:0-10, num:100-999, ...).
+    "numbers/listen": (
+        "Hear numbers",
+        "/numbers?mode=listen",
+        Spec("numbers", "listen", ("number",), 6000, 20, 10, 90),
+    ),
+    "numbers/speak": (
+        "Say numbers",
+        "/numbers?mode=speak",
+        Spec("numbers", "speak", ("number",), None, 10, 5, 85),
+    ),
 }
 TONES4 = ["tone:1", "tone:2", "tone:3", "tone:4"]
 TONES5 = [*TONES4, "tone:5"]
@@ -122,8 +134,8 @@ LEVELS: list[dict] = [
         "n": 1,
         "key": "alphabet",
         "title": "Read the alphabet",
-        "opens": ["symbols", "reading", "recognize", "listening/tone"],
-        "about": "Learn the 37 symbols by sight, and train your ear on the four tones.",
+        "opens": ["symbols", "reading", "recognize", "listening/tone", "numbers/listen", "numbers/speak"],
+        "about": "Learn the 37 symbols by sight, train your ear on the four tones, and learn the numbers.",
         "goals": [
             {
                 "key": "read",
@@ -217,6 +229,7 @@ STEP_EXERCISE = {
     "write_syllables": "writing/syllable",
     "speak_sentences": "speaking/sentence",
     "tone_rules": "listening/rule",
+    "numbers": "numbers/listen",
 }
 
 
@@ -227,6 +240,8 @@ def step_exercise(step_type: str, params: dict | None = None) -> str:
         return "speaking/" + (src if src in ("sentence", "word") else "syllable")
     if step_type == "tone_rules":
         return "speaking/rule" if (params or {}).get("mode") == "speak" else "listening/rule"
+    if step_type == "numbers":
+        return "numbers/speak" if (params or {}).get("mode") == "speak" else "numbers/listen"
     return STEP_EXERCISE.get(step_type, "")
 
 
@@ -246,6 +261,8 @@ def exercise_of(href: str) -> str | None:
         )
     if path == "/writing":
         return "writing/" + (q.get("mode") if q.get("mode") in ("symbol", "word") else "syllable")
+    if path == "/numbers":
+        return "numbers/" + ("speak" if q.get("mode") == "speak" else "listen")
     key = path.strip("/")
     return key if key in EXERCISES else None
 
@@ -334,6 +351,8 @@ def milestone_exercises(c: dict) -> list[str]:
         if u == "score":
             return ["speaking/sentence"]
         return ["speaking/syllable", "speaking/word", "speaking/sentence", "speaking/custom"]
+    if a == "numbers":
+        return ["numbers/listen", "numbers/speak"]
     return [a] if a in EXERCISES else []
 
 
@@ -401,6 +420,9 @@ def _keys_of(kind: str, expected: str) -> list[str]:
         return ["tone:" + expected] if expected in ("1", "2", "3", "4", "5") else []
     if kind == "sandhi":
         return ["rule:" + expected] if expected in RULES else []
+    if kind == "number":
+        # One item per size band: single numbers repeat too rarely to earn stars.
+        return ["num:" + number_band(int(expected))] if expected.isdigit() else []
     return list(dict.fromkeys(ch for ch in expected if ch in BOPOMOFO))
 
 
@@ -468,7 +490,8 @@ def _built(c) -> bool:
 _HISTORY_SQL = (
     "SELECT u.area, u.mode, u.kind, u.expected, u.ok, u.help, u.try_n, u.day, u.ts, u.event_id, e.ms,"
     " COALESCE(e.details::jsonb ->> 'learn', 'false') NOT IN ('false', '0', '') AS learn"
-    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND u.kind IN ('symbol','tone','initial','final','sandhi')"
+    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL"
+    " AND u.kind IN ('symbol','tone','initial','final','sandhi','number')"
     " ORDER BY u.ts, u.id"
 )
 
@@ -652,6 +675,8 @@ def _notice(c, kind: str, key: str, title: str, text: str) -> None:
 def _label(item: str) -> str:
     if item.startswith("rule:"):
         return RULES[item[5:]]["name"] if item[5:] in RULES else item
+    if item.startswith("num:"):
+        return "numbers " + item[4:]
     return ("neutral tone" if item == "tone:5" else "tone " + item[5:]) if item.startswith("tone:") else item
 
 
@@ -894,6 +919,8 @@ REMEDY = {
     "speaking/custom": "speak_sounds",
     "listening/rule": "tone_rules",
     "speaking/rule": "tone_rules",
+    "numbers/listen": "numbers",
+    "numbers/speak": "numbers",
 }
 
 
@@ -908,12 +935,17 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
         t = REMEDY.get(ex)
         rp = {
             "source": {"speaking/sentence": "sentence", "speaking/word": "word"}.get(ex, "syllable"),
-            "mode": "speak" if ex == "speaking/rule" else "quiz",
+            "mode": "speak"
+            if ex in ("speaking/rule", "numbers/speak")
+            else "listen"
+            if ex == "numbers/listen"
+            else "quiz",
         }
         if not t or not step_allowed(t, rp, {"exercises": st["exercises"]}):
             continue
         tones = [int(i[5:]) for i in items if i.startswith("tone:")]
         rules = [i[5:] for i in items if i.startswith("rule:")]
+        bands = [i[4:] for i in items if i.startswith("num:") and i[4:] in BANDS]
         syms = [i for i in items if i in BOPOMOFO][:6]
         names = " ".join(_label(i) for i in items[:6])
         base = {
@@ -924,6 +956,8 @@ def remediation(st: dict, limit: int = 2) -> list[dict]:
         }
         if t == "tone_rules" and rules:
             out.append({**base, "type": t, "params": {"rules": rules, "mode": rp["mode"]}, "target": 10})
+        elif t == "numbers" and bands:
+            out.append({**base, "type": t, "params": {"mode": rp["mode"], "bands": bands, "nums": []}, "target": 10})
         elif t in ("read_symbols", "recognize_symbols", "write_symbols") and syms:
             out.append({**base, "type": t, "params": {"syms": syms}, "target": max(6, 2 * len(syms))})
         elif t == "listen_tones" and tones:

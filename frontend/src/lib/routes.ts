@@ -112,6 +112,16 @@ export const ROUTES: RouteInfo[] = [
       "Random symbols without end, with no microphone. The symbol pronunciation plays after a correct answer. Type the pinyin of each symbol: b or bo for ㄅ, zh for ㄓ, v (or ü) for ㄩ, eh (or ê) for ㄝ. Enter checks, Space shows the answer, and → skips a symbol after the answer is shown. A wrong answer shows which symbol you typed instead. A card counts as known only when it is right the first time, without the answer. Esc leaves the answer field, so the app keys work again; Enter goes back to it.",
   },
   {
+    href: "/numbers",
+    label: "Numbers",
+    icon: "數",
+    key: "KeyN",
+    area: "practice",
+    desc: "Hear numbers and say them out loud",
+    about:
+      "Numbers from 0 to 99,999,999, as they are said in Taiwan (兩百, 一萬零五). Listen: hear a number and pick its digits with 1-4. Speak: see a number in digits, hold R (or the button), say it, and let go. Space plays the number. In Speak, hearing it first counts as help.",
+  },
+  {
     href: "/symbols",
     label: "Symbols",
     icon: "ㄅ",

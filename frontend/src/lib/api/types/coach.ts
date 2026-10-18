@@ -11,7 +11,8 @@ export type StepType =
   | "recognize_symbols"
   | "write_symbols"
   | "write_syllables"
-  | "tone_rules";
+  | "tone_rules"
+  | "numbers";
 
 export type CoachNote = { kind: string; text: string; ts: number };
 
@@ -43,7 +44,9 @@ export type CoachStep = {
     focus?: { tones: number[]; pairs: string[]; syms: string[] };
     written?: number;
     rules?: RuleId[];
-    mode?: "quiz" | "speak";
+    mode?: "quiz" | "speak" | "listen";
+    bands?: string[];
+    nums?: number[];
     learn?: boolean;
   };
   finding_ids: string[];

@@ -14,12 +14,13 @@ bopomofo is a practice app for the 37 Bopomofo symbols and Taiwan Mandarin. It c
 
 ## Practice, with useful feedback
 
-| Skill  | What you do                               | What the app checks                                 |
-| ------ | ----------------------------------------- | --------------------------------------------------- |
-| Read   | Say a symbol or type its pinyin           | Symbol recognition and recall                       |
-| Listen | Identify tones, symbols, and tone changes | Confusions and spoken tone rules                    |
-| Write  | Draw symbols, syllables, and words        | Shape, stroke order, direction, and missing strokes |
-| Speak  | Record syllables and sentences            | Initials, finals, tones, and pitch                  |
+| Skill   | What you do                                                | What the app checks                                 |
+| ------- | ---------------------------------------------------------- | --------------------------------------------------- |
+| Read    | Say a symbol or type its pinyin                            | Symbol recognition and recall                       |
+| Listen  | Identify tones, symbols, and tone changes                  | Confusions and spoken tone rules                    |
+| Write   | Draw symbols, syllables, and words                         | Shape, stroke order, direction, and missing strokes |
+| Speak   | Record syllables and sentences                             | Initials, finals, tones, and pitch                  |
+| Numbers | Hear a number and pick it, or say a number shown in digits | Teens and tens, place values, 零, and tones         |
 
 - **A guided path:** five levels, an optional placement test, and permanent exercise unlocks.
 - **A coach with evidence:** focused drills, progress checks, and explanations tied to saved statistics.

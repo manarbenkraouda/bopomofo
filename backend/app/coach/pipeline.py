@@ -111,6 +111,8 @@ def milestone_menu(d: dict) -> list[dict]:
     """The milestones the model can choose from: the weakest skills, with their accuracy over 30 and 60 days."""
     menu = []
     for r in d["_skills"][:30]:
+        if r["area"] == "numbers":
+            continue
         c = {"area": r["area"], "unit": r["unit"], "expected": [r["x"]], "min_acc": 90, "window": 30}
         a, b = milestone_progress(c), milestone_progress({**c, "window": 60})
         menu.append(
@@ -133,6 +135,22 @@ def milestone_menu(d: dict) -> list[dict]:
             "last_50_avg": milestone_progress({**c, "window": 50})["value"],
         }
     )
+    # Numbers: one entry for every number, and one per size the learner has practiced.
+    sizes = sorted({b["band"] for b in (d.get("numbers") or {}).get("by_size") or []})
+    for exp in ([], *([s] for s in sizes)):
+        c = {"area": "numbers", "unit": "number", "expected": exp, "min_acc": 90, "window": 30}
+        a, b = milestone_progress(c), milestone_progress({**c, "window": 60})
+        if b["n"]:
+            menu.append(
+                {
+                    "area": "numbers",
+                    "unit": "number",
+                    "expected": exp,
+                    "last_30_pct": a["value"],
+                    "last_60_pct": b["value"],
+                    "answers": b["n"],
+                }
+            )
     return menu
 
 

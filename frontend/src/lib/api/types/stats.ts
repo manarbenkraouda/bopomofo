@@ -13,7 +13,7 @@ export type Summary = {
 
 /** One part of an answer: what was expected and what the learner actually produced. */
 export type Unit = {
-  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order" | "sandhi";
+  kind: "tone" | "initial" | "final" | "symbol" | "syllable" | "stroke" | "order" | "sandhi" | "number";
   expected: string | number;
   actual?: string | number | null;
   ok?: boolean | null;
@@ -28,7 +28,7 @@ export type Unit = {
 };
 
 export type PracticeEvent = {
-  area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking";
+  area: "reading" | "recognize" | "listening" | "dictation" | "writing" | "speaking" | "numbers";
   mode?: string;
   item: string;
   ok: boolean;
@@ -107,6 +107,8 @@ export type RecentEvent = {
 
 export type Stats = {
   range: { days: number | null; since: string; area: string | null };
+  /** Numbers by ear (listen) and spoken (speak), first tries only. */
+  numbers: NumberStats;
   overview: Totals & { prev?: Totals };
   daily: {
     day: string;
@@ -171,3 +173,13 @@ export type Stats = {
 };
 
 export type MicPair = { area: string; kind: string; expected: string; heard: string; n: number; confirmed: boolean };
+
+export type NumberStats = {
+  modes: Record<string, { n: number; ok: number; acc: number | null; ms: number | null }>;
+  bands: { mode: string; band: string; n: number; ok: number; acc: number | null }[];
+  errors: { mode: string; error: string; n: number }[];
+  error_names: Record<string, string>;
+  mixups: { expected: string; picked: string; error: string; n: number }[];
+  chars: { char: string; n: number; ok: number; acc: number | null }[];
+  missed: { mode: string; number: string; n: number; ok: number }[];
+};

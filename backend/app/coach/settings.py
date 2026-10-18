@@ -23,6 +23,7 @@ TYPES = {
     "write_symbols": "dictation",
     "write_syllables": "writing",
     "tone_rules": "listening",
+    "numbers": "numbers",
 }
 DECK_TYPES = {"listen_tones", "listen_sounds", "speak_sounds", "write_syllables"}
 DEFAULT_TARGET = {
@@ -34,6 +35,7 @@ DEFAULT_TARGET = {
     "write_symbols": 10,
     "write_syllables": 10,
     "tone_rules": 12,
+    "numbers": 12,
 }
 SYMBOL_TYPES = {"read_symbols", "recognize_symbols", "write_symbols"}  # one symbol per answer, focus = single symbols
 SYLLABLES_FILE = ROOT.parent / "frontend" / "public" / "data" / "syllables.json"
@@ -58,6 +60,16 @@ MEASURES = {
     "speaking": (
         "say a sentence, a word from the learner's sentences, or a syllable; the speech model checks each initial, final,"
         " and tone; no Bopomofo needed",
+        False,
+    ),
+    "numbers/listen": (
+        "hear a number in Mandarin (0 to 99 999 999) and pick its digits among 4; measures number comprehension by ear;"
+        " no Bopomofo needed",
+        False,
+    ),
+    "numbers/speak": (
+        "see a number in digits and say it out loud; the speech model checks every syllable, so a wrong number shows which"
+        " characters were said wrong; no Bopomofo needed",
         False,
     ),
 }

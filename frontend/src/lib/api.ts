@@ -53,7 +53,8 @@ export const api = {
   sentence: (id: number) => call<Sentence>("/api/sentences/" + id),
   deleteSentence: (id: number) => call<{ ok: boolean }>("/api/sentences/" + id, { method: "DELETE" }),
   /** help: the learner used the cheat (model audio or Pinyin) on this card. tryN: 0 for the first recording of the card. */
-  speech: (wav: Blob, text: string, mode = "", opts: { help?: boolean; tryN?: number } = {}) => {
+  /** opts.number: a spoken number (Numbers, speak mode); the server checks its characters and saves it as a number answer. */
+  speech: (wav: Blob, text: string, mode = "", opts: { help?: boolean; tryN?: number; number?: number } = {}) => {
     markActive();
     const f = new FormData();
     f.append("audio", wav, "speech.wav");
@@ -61,6 +62,7 @@ export const api = {
     f.append("mode", mode);
     if (opts.help) f.append("help", "1");
     if (opts.tryN) f.append("try_n", String(opts.tryN));
+    if (opts.number !== undefined) f.append("number", String(opts.number));
     const step = currentStep();
     if (step) f.append("step", String(step));
     return call<

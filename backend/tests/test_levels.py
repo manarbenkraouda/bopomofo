@@ -87,11 +87,20 @@ def test_level_two_opens_after_one_short_session_on_most_of_the_alphabet(tmpdb):
 
 def test_level_one_opens_the_alphabet_and_the_tones_only(tmpdb):
     st = levels.check()
-    assert st["level"] == 1 and st["exercises"] == ["symbols", "reading", "recognize", "listening/tone"]
+    # Numbers are open from level 1: they do not depend on the alphabet.
+    assert st["level"] == 1 and st["exercises"] == [
+        "symbols",
+        "reading",
+        "recognize",
+        "listening/tone",
+        "numbers/listen",
+        "numbers/speak",
+    ]
     assert st["symbols"] == levels.INITIALS and set(st["step_types"]) == {
         "read_symbols",
         "recognize_symbols",
         "listen_tones",
+        "numbers",
     }
     assert coach.cleaning.clean_step({"type": "write_symbols", "syms": ["ㄅ"]}, set()) is None
     assert coach.cleaning.clean_step({"type": "speak_sounds", "unit": "tone", "tones": [3]}, set()) is None
@@ -297,7 +306,14 @@ def test_settings_open_levels_without_the_goals_and_keep_the_earned_level(tmpdb)
     assert "level 3 before reaching it" in coach.prompts.level_rule(levels.opened())
     # Back to the progress: the extra exercises close. An earned level never closes.
     db.save_settings({"open_level": 1})
-    assert levels.check()["exercises"] == ["symbols", "reading", "recognize", "listening/tone"]
+    assert levels.check()["exercises"] == [
+        "symbols",
+        "reading",
+        "recognize",
+        "listening/tone",
+        "numbers/listen",
+        "numbers/speak",
+    ]
     know(levels.SYMS)
     assert levels.check()["level"] >= 2 and "dictation" in levels.opened()["exercises"]
 

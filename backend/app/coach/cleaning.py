@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .. import db, levels
+from ..numbers import BANDS, MAX
 from ..zhuyin import RULES
 from . import validate
 from .settings import DEFAULT_TARGET, MAX_SENTENCES, SYMBOL_TYPES, TYPES
@@ -18,7 +19,9 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
         return None
     op = op or levels.opened()
     if not levels.step_allowed(
-        t, {"source": s.get("source"), "mode": s.get("mode")} if t in ("speak_sounds", "tone_rules") else None, op
+        t,
+        {"source": s.get("source"), "mode": s.get("mode")} if t in ("speak_sounds", "tone_rules", "numbers") else None,
+        op,
     ):
         return None
     meta = {"finding_ids": [validate.text(x, 60) for x in (s.get("finding_ids") or []) if x][:6], "review": ""}
@@ -86,6 +89,20 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
                 p["learn"] = True
             if not levels.step_allowed(t, p, op):
                 return None
+        elif t == "numbers":
+            src = s.get("params") if isinstance(s.get("params"), dict) else s
+            nums = []
+            for x in src.get("nums") or []:
+                v = validate.integer(x, -1, MAX + 1, -1) if not isinstance(x, bool) else -1
+                if 0 <= v <= MAX and v not in nums:
+                    nums.append(v)
+            p = {
+                "mode": "speak" if src.get("mode") == "speak" else "listen",
+                "bands": [b for b in dict.fromkeys(str(x) for x in (src.get("bands") or [])) if b in BANDS],
+                "nums": nums[:12],
+            }
+            if not levels.step_allowed(t, p, op):
+                return None
         elif t in SYMBOL_TYPES:
             p = {"syms": [x for x in validate.syms(s.get("syms"), single=True) if x in op["symbols"]]}
         else:
@@ -116,12 +133,18 @@ def clean_milestone(m: dict) -> dict | None:
         "score",
         "alphabet",
         "sandhi",
+        "number",
     ):
         return None
     unit = m["unit"]
     if unit == "sandhi":
         exp = [r for r in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if r in RULES]
         if m["area"] not in ("listening", "speaking"):
+            return None
+    elif unit == "number":
+        # A number milestone counts the size bands in "expected"; empty = every number.
+        exp = [b for b in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if b in BANDS]
+        if m["area"] != "numbers":
             return None
     else:
         exp = (
@@ -131,7 +154,9 @@ def clean_milestone(m: dict) -> dict | None:
             if unit not in ("score", "alphabet")
             else []
         )
-    if unit not in ("score", "alphabet") and not exp:
+    if unit not in ("score", "alphabet", "number") and not exp:
+        return None
+    if m["area"] == "numbers" and unit != "number":
         return None
     if unit == "score" and m["area"] != "speaking":
         return None
@@ -177,6 +202,8 @@ def focus_of(s: dict) -> dict:
             "rules",
             "mode",
             "learn",
+            "bands",
+            "nums",
         )
         if p.get(k) not in (None, [], "")
     }

@@ -18,6 +18,8 @@ MODE_LABEL = {
     "dictation": "writing symbols you hear",
     "writing": "writing syllables",
     "speaking": "speaking",
+    "numbers/listen": "numbers by ear",
+    "numbers/speak": "saying numbers",
 }
 
 

@@ -39,7 +39,9 @@ def digest(lv: dict | None = None) -> dict:
 
     # One row per practice mode, with what it measures: a tone quiz says nothing about knowing the symbols.
     modes = []
-    for key in sorted({(e["area"], e["mode"] if e["area"] in ("listening",) else None) for e in events}, key=str):
+    for key in sorted(
+        {(e["area"], e["mode"] if e["area"] in ("listening", "numbers") else None) for e in events}, key=str
+    ):
         ev = [e for e in events if e["area"] == key[0] and (key[1] is None or e["mode"] == key[1])]
         week = [e for e in ev if e["day"] >= d7]
         old = [e for e in ev if e["day"] < d7]
@@ -170,6 +172,7 @@ def digest(lv: dict | None = None) -> dict:
     from .. import story
 
     story_numbers = story.story_stats(units, events, secs, today)
+    num = stats.number_stats(45)
     rs = rules_status(lv)
     rule_rows = [{k: v for k, v in r.items() if not k.endswith("_href")} for r in stats.rule_stats(45)]
     tone_rules = {
@@ -317,6 +320,15 @@ def digest(lv: dict | None = None) -> dict:
             "deep_fixes": deep_fixes,
         },
         "tone_rules": tone_rules,
+        "numbers": {
+            "by_mode": num["modes"],
+            "by_size": num["bands"],
+            "errors": num["errors"],
+            "error_kinds": num["error_names"],
+            "picked_instead": num["mixups"],
+            "characters_said_wrong": num["chars"],
+            "numbers_missed": num["missed"],
+        },
         "symbols": {
             "skills": pick(lambda r: r["unit"] == "symbol" or (r["area"] == "writing" and r["unit"] == "tone"), 40),
             "recognize_mixups": recognize_mixups,

@@ -6,7 +6,7 @@ import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from .. import db, deep_check, scoring, speaker, stats, symbols, typed_fix
+from .. import db, deep_check, numbers, scoring, speaker, stats, symbols, typed_fix
 from ..asr import recognizer
 from ..audio import read_audio
 from .notices import refresh_notices
@@ -30,7 +30,14 @@ def speech_analyze(
     step: str = Form("", max_length=16),
     help: str = Form("", max_length=8),
     try_n: str = Form("", max_length=8),
+    number: str = Form("", max_length=8),
 ):
+    # Numbers mode: the learner sees digits. The text to check is always the characters of that number (Taiwan usage).
+    num = int(number) if number.isdigit() and int(number) <= numbers.MAX else None
+    if number and num is None:
+        raise HTTPException(400, "The number must be a whole number from 0 to 99999999.")
+    if num is not None:
+        text = numbers.hanzi(num)
     require_speech_model()
     a = read_audio(audio.file.read())
     if np.abs(a).max() < SILENCE_PEAK:
@@ -47,14 +54,17 @@ def speech_analyze(
     # Every syllable is saved: expected and heard tone, initial, and final, so the stats can show confusions.
     # "step": the coach step this recording belongs to. Only answers given inside a step count for it.
     # "help": the learner heard the model or saw the Pinyin first (the cheat). "try_n": 0 for the first recording of this card.
-    eid = stats.log_speaking(
-        text,
-        res,
-        mode or None,
-        int(step) if step.isdigit() else None,
-        help=help in ("1", "true"),
-        try_n=int(try_n) if try_n.isdigit() else 0,
-    )
+    args = {
+        "step": int(step) if step.isdigit() else None,
+        "help": help in ("1", "true"),
+        "try_n": int(try_n) if try_n.isdigit() else 0,
+    }
+    if num is not None:
+        # A spoken number gets no deep check: the deep check rewrites speaking answers only.
+        eid = stats.log_number_speech(num, res, **args)
+        del lp
+        return {**res, "event_id": eid, "deep_check": "skipped", "notices": refresh_notices()}
+    eid = stats.log_speaking(text, res, mode or None, **args)
     # A missed answer gets a second, slower check in a separate low-priority process. The answer does not wait for it.
     deep = "off" if deep_check.mode() == "off" else "skipped"
     if want_deep:

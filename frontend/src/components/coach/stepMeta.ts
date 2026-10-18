@@ -10,6 +10,7 @@ export const STEP_ICON: Record<string, string> = {
   write_symbols: "默",
   write_syllables: "寫",
   tone_rules: "變",
+  numbers: "數",
 };
 
 export const STEP_KIND: Record<string, string> = {
@@ -22,6 +23,7 @@ export const STEP_KIND: Record<string, string> = {
   write_symbols: "Dictation",
   write_syllables: "Writing · syllables",
   tone_rules: "Tone rules",
+  numbers: "Numbers",
 };
 
 export const DOMAIN: Record<string, string> = {
@@ -31,6 +33,7 @@ export const DOMAIN: Record<string, string> = {
   symbols: "Symbols",
   sentences: "Sentences",
   tone_rules: "Tone rules",
+  numbers: "Numbers",
 };
 
 const RULE_CHIP: Record<string, string> = { "3-3": "3-3 rule", bu: "不 rule", yi: "一 rule" };
@@ -54,6 +57,11 @@ export function focusChips(s: CoachStep): string[] {
   if (p.rules?.length) out.push(p.rules.map((r) => RULE_CHIP[r] ?? r).join(" / "));
   if (s.type === "tone_rules")
     out.push(p.learn ? "learn: rule shown" : p.mode === "speak" ? "say aloud" : "from memory");
+  if (s.type === "numbers") {
+    out.push(p.mode === "speak" ? "say aloud" : "by ear");
+    if (p.bands?.length) out.push(p.bands.join(" / "));
+    if (p.nums?.length) out.push(p.nums.length + " picked numbers");
+  }
   return out;
 }
 

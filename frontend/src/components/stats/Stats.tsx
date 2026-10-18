@@ -12,18 +12,20 @@ import { ActivityView } from "./ActivityView";
 import { AREA_LABEL, AREA_ORDER } from "./charts";
 import { GRID_COLS, SYMS, trainHref, WEAK_SHOWN } from "./display";
 import { OverviewView } from "./OverviewView";
+import { NumbersView } from "./NumbersView";
 import { SoundsView } from "./SoundsView";
 import { SymbolsView } from "./SymbolsView";
 import { TonesView } from "./TonesView";
 
 // The ids "today" and "history" are kept so the saved tab of older versions still opens.
-type Tab = "today" | "tones" | "sounds" | "symbols" | "history";
+type Tab = "today" | "tones" | "sounds" | "symbols" | "numbers" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "Overview" },
   { id: "tones", label: "Tones" },
   { id: "sounds", label: "Sounds" },
   { id: "symbols", label: "Symbols" },
+  { id: "numbers", label: "Numbers" },
   { id: "history", label: "Activity" },
 ];
 
@@ -228,6 +230,7 @@ export function Stats() {
       )}
       {data && tab === "tones" && data.overview.cards > 0 && <TonesView data={data} />}
       {data && tab === "sounds" && data.overview.cards > 0 && <SoundsView data={data} />}
+      {data && tab === "numbers" && data.overview.cards > 0 && <NumbersView data={data} />}
       {data && tab === "symbols" && data.overview.cards > 0 && (
         <SymbolsView
           data={data}

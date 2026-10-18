@@ -35,10 +35,13 @@ export const itemName = (it: { kind: string; expected: string }) =>
       ? "Initial " + it.expected
       : it.kind === "final"
         ? "Final " + it.expected
-        : it.expected;
+        : it.kind === "number"
+          ? Number(it.expected).toLocaleString("en-US")
+          : it.expected;
 
 export const trainHref = (area: string, kind: string, vals: string[]) => {
   const v = encodeURIComponent(vals.filter((x) => x && x !== "∅" && x !== "?").join(","));
+  if (kind === "number") return "/numbers?mode=" + (area === "speak" ? "speak" : "listen") + "&nums=" + v;
   if (kind === "tone")
     return area === "listening"
       ? "/listening?quiz=tone&tones=" + v

@@ -67,6 +67,16 @@ def apply_checkpoint(s: dict, prog: dict, r: dict) -> dict:
         rules = [x for x in dict.fromkeys(str(v) for v in (r.get("rules") or [])) if x in (p.get("rules") or [])]
         if rules:
             p["rules"] = rules
+        bands = [x for x in dict.fromkeys(str(v) for v in (r.get("bands") or [])) if x in (p.get("bands") or [])]
+        if bands:
+            p["bands"] = bands
+        nums = [
+            x
+            for x in dict.fromkeys(validate.integer(v, -1, 10**9, -1) for v in (r.get("nums") or []))
+            if x in (p.get("nums") or [])
+        ]
+        if nums:
+            p["nums"] = nums
         deck = [z for z in dict.fromkeys(str(x).strip() for x in r.get("deck") or []) if z in (p.get("deck") or [])]
         if len(deck) >= 4:
             p["deck"] = deck

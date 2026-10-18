@@ -17,13 +17,13 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from urllib.parse import quote
 
-from . import db, deep_check, levels, typed_fix
+from . import db, deep_check, levels, numbers, typed_fix
 from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
 PRIOR = 4.0  # weight of the skill average in the weak score, in answers
 SESSION_GAP = 15 * 60  # a pause longer than this starts a new session
-AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking"]
+AREAS = ["reading", "recognize", "listening", "dictation", "writing", "speaking", "numbers"]
 VERB = {
     "reading": "said",
     "recognize": "typed",
@@ -31,6 +31,7 @@ VERB = {
     "speaking": "said",
     "dictation": "wrote",
     "writing": "wrote",
+    "numbers": "gave",
 }
 
 
@@ -144,6 +145,62 @@ def log_speaking(
     )
 
 
+def log_number_speech(n: int, res: dict, step: int | None = None, help: bool = False, try_n: int = 0) -> int:
+    """Save one spoken number: the tone, sound, and syllable units of each character (area numbers), and one "number"
+    unit for the whole number. The speech model cannot say which number was said instead, so a wrong number has
+    actual "?" and extra.error tells what went wrong first (missed, sound, tone), with the characters said wrong."""
+    ok = res["score"] >= 80
+    bad = [
+        s
+        for s in res.get("syllables") or []
+        if not (
+            s.get("heard") and s.get("tone_ok") and s.get("initial_ok") is not False and s.get("final_ok") is not False
+        )
+    ]
+    err = None
+    if not ok:
+        err = (
+            "missed"
+            if any(not s.get("heard") for s in bad)
+            else "sound"
+            if any(s.get("initial_ok") is False or s.get("final_ok") is False for s in bad)
+            else "tone"
+            if bad
+            else "other"
+        )
+    unit = {
+        "kind": "number",
+        "expected": str(n),
+        "actual": str(n) if ok else "?",
+        "ok": ok,
+        "ctx": numbers.band(n),
+        "extra": {
+            "hanzi": numbers.hanzi(n),
+            "error": err,
+            "wrong": "".join(s["expected"].get("char") or "" for s in bad),
+        },
+    }
+    return db.add_event(
+        {
+            "area": "numbers",
+            "mode": "speak",
+            "item": str(n),
+            "ok": ok,
+            "score": res["score"],
+            "first_try": ok and not help and try_n == 0,
+            "tries": try_n + 1,
+            "help": help,
+            "details": {
+                "hanzi": numbers.hanzi(n),
+                "heard": res.get("heard_raw"),
+                "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
+                **({"step": step} if step else {}),
+            },
+            "units": [{**u, "help": help, "try_n": try_n} for u in [*speaking_units(res), unit]],
+        }
+    )
+
+
 # ---------- helpers ----------
 
 
@@ -219,6 +276,9 @@ def _href(area: str, kind: str, expected: str, also: list | None = None) -> str 
         return ("/listening?quiz=zhuyin&syms=" if area == "listening" else "/speaking?source=syllable&syms=") + syms
     if kind in ("stroke", "order"):
         return "/dictation?syms=" + quote(expected)
+    if kind == "number":
+        nums = [v for v in vals if v.isdigit()]
+        return "/numbers?mode=listen&nums=" + ",".join(nums) if nums else None
     return None
 
 
@@ -227,6 +287,8 @@ def _label(kind: str, expected: str) -> str:
         return "Neutral tone" if expected == "5" else "Tone " + expected
     if kind == "sandhi":
         return RULES[expected]["name"] if expected in RULES else expected
+    if kind == "number" and expected.isdigit():
+        return f"{int(expected):,} ({numbers.hanzi(int(expected))})"
     return expected
 
 
@@ -289,6 +351,72 @@ def rule_stats(days: int | None = None) -> list[dict]:
 
 
 # ---------- per item ----------
+
+
+def number_stats(days: int | None = None) -> dict:
+    """Numbers (listen: hear a number and pick it; speak: say a shown number), first tries only: accuracy and answer time
+    per mode, accuracy per size band, the kinds of error, the numbers picked instead, the characters said wrong most,
+    and the numbers missed most."""
+    rows = _rows(
+        "SELECT u.mode, u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM units u JOIN events e ON e.id = u.event_id"
+        " WHERE u.kind='number' AND u.try_n=0 AND u.ok IS NOT NULL AND u.day>=? ORDER BY u.ts",
+        (_since(days),),
+    )
+    chars = _rows(
+        "SELECT ctx, ok, help FROM units WHERE area='numbers' AND kind='syllable' AND try_n=0 AND ok IS NOT NULL AND day>=?",
+        (_since(days),),
+    )
+    modes: dict[str, list] = defaultdict(lambda: [0, 0, []])
+    bands: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
+    errors: Counter = Counter()
+    mix: Counter = Counter()
+    per: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
+    for r in rows:
+        g = _good(r)
+        m = modes[r["mode"] or "listen"]
+        m[0] += 1
+        m[1] += g
+        if g and r["ms"]:
+            m[2].append(r["ms"])
+        bands[(r["mode"], r["ctx"] or "?")][0] += 1
+        bands[(r["mode"], r["ctx"] or "?")][1] += g
+        per[(r["mode"], r["expected"])][0] += 1
+        per[(r["mode"], r["expected"])][1] += g
+        ex = r["extra"]
+        if isinstance(ex, str):
+            try:
+                ex = json.loads(ex)
+            except ValueError:
+                ex = {}
+        if not g:
+            errors[(r["mode"], (ex or {}).get("error") or ("help" if r["ok"] else "other"))] += 1
+            if r["mode"] == "listen" and r["actual"] not in (None, "?", r["expected"]):
+                mix[(r["expected"], r["actual"], (ex or {}).get("error") or "other")] += 1
+    words: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for r in chars:
+        words[r["ctx"] or "?"][0] += 1
+        words[r["ctx"] or "?"][1] += _good(r)
+    order = {b: i for i, b in enumerate(numbers.BANDS)}
+    return {
+        "modes": {
+            k: {"n": v[0], "ok": v[1], "acc": _pct(v[1], v[0]), "ms": _median(v[2])} for k, v in sorted(modes.items())
+        },
+        "bands": sorted(
+            ({"mode": m, "band": b, "n": v[0], "ok": v[1], "acc": _pct(v[1], v[0])} for (m, b), v in bands.items()),
+            key=lambda x: (x["mode"] or "", order.get(x["band"], 9)),
+        ),
+        "errors": [{"mode": m, "error": e, "n": n} for (m, e), n in errors.most_common()],
+        "error_names": numbers.ERRORS,
+        "mixups": [{"expected": e, "picked": a, "error": k, "n": n} for (e, a, k), n in mix.most_common(12)],
+        "chars": sorted(
+            ({"char": c, "n": v[0], "ok": v[1], "acc": _pct(v[1], v[0])} for c, v in words.items() if v[0] >= 2),
+            key=lambda x: (x["acc"] or 0, -x["n"]),
+        )[:12],
+        "missed": sorted(
+            ({"mode": m, "number": e, "n": v[0], "ok": v[1]} for (m, e), v in per.items() if v[1] < v[0]),
+            key=lambda x: (x["ok"] - x["n"], -x["n"]),
+        )[:10],
+    }
 
 
 def item_stats(units: list[dict], today: date) -> list[dict]:
@@ -574,6 +702,7 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
         "hours": by_hour,
         "sessions": sessions,
         "rules": rule_stats(days),
+        "numbers": number_stats(days),
         "mic_pairs": typed_fix.mic_pairs(),
         "deep_check": deep_check.summary(),
         "recent": recent(area=area),
@@ -697,10 +826,10 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     t = today.isoformat()
     since = (today - timedelta(days=45)).isoformat()
     past = _rows(
-        "SELECT day, area, kind, expected, actual, ok, try_n, help FROM units WHERE day>=? AND day<? AND kind!='stroke'",
+        "SELECT day, area, mode, kind, expected, actual, ok, try_n, help, ctx FROM units WHERE day>=? AND day<? AND kind!='stroke'",
         (since, t),
     )
-    now = _rows("SELECT area, kind, expected, ok, try_n, help FROM units WHERE day=?", (t,))
+    now = _rows("SELECT area, mode, kind, expected, ok, try_n, help, ctx FROM units WHERE day=?", (t,))
     now_ev = _rows("SELECT area, mode FROM events WHERE day=?", (t,))
     items = item_stats(past, today)
     out: list[dict] = []
@@ -819,6 +948,36 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
                 "href": _href(i["area"], "sandhi", i["expected"]),
             }
         )
+    # Numbers: the weakest size band, by ear or said out loud (first tries).
+    nb: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
+    for u in past:
+        if u["kind"] == "number" and u["try_n"] == 0 and u["ok"] is not None and u["ctx"] in numbers.BANDS:
+            nb[(u["mode"], u["ctx"])][0] += 1
+            nb[(u["mode"], u["ctx"])][1] += _good(u)
+    nw = sorted(((v[1] / v[0], k, v) for k, v in nb.items() if v[0] >= 5 and v[1] / v[0] < 0.85), key=lambda x: x[0])
+    if nw:
+        _, (mode, bd), v = nw[0]
+        speak = mode == "speak"
+        out.append(
+            {
+                "id": "numbers-" + ("speak" if speak else "listen"),
+                "area": "numbers",
+                "title": f"{'Say' if speak else 'Hear'} {8 if speak else 10} numbers from {bd.replace('-', ' to ').replace('+', ' up')} right",
+                "why": f"{round(100 * v[1] / v[0])}% right on {v[0]} {'recordings' if speak else 'questions'}.",
+                "target": 8 if speak else 10,
+                "progress": sum(
+                    1
+                    for u in now
+                    if u["kind"] == "number"
+                    and u["mode"] == mode
+                    and u["ctx"] == bd
+                    and u["ok"]
+                    and not u["help"]
+                    and u["try_n"] == 0
+                ),
+                "href": f"/numbers?mode={'speak' if speak else 'listen'}&bands={quote(bd)}",
+            }
+        )
     # Tones first (the main goal of the app), then the others in a daily order.
     rnd = random.Random(t)
     rnd.shuffle(out)
@@ -880,6 +1039,15 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
             "target": 20,
             "progress": sum(1 for e in now_ev if e["area"] == "recognize"),
             "href": "/recognize",
+        },
+        {
+            "id": "warm-numbers",
+            "area": "numbers",
+            "title": "Answer 10 number questions",
+            "why": "Prices, times, and phone numbers come fast in real life.",
+            "target": 10,
+            "progress": sum(1 for e in now_ev if e["area"] == "numbers"),
+            "href": "/numbers?mode=listen",
         },
     ]
     have = {c["area"] for c in out}

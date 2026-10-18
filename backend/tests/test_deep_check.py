@@ -262,7 +262,7 @@ def test_analyze_never_sends_or_saves_the_model_output(pg, monkeypatch):
     sf.write(buf, (0.3 * np.sin(np.arange(16000) / 16000 * 2 * np.pi * 220)).astype(np.float32), 16000, format="WAV")
     buf.seek(0)
     out = speech_analyze(
-        audio=UploadFile(file=buf, filename="a.wav"), text="破", mode="syllable", step="", help="", try_n=""
+        audio=UploadFile(file=buf, filename="a.wav"), text="破", mode="syllable", step="", help="", try_n="", number=""
     )
     assert "_lp" not in out and "_has_ref" not in out and out["deep_check"] == "queued"
     assert jobs and jobs[0]["check"]["lp"] is lp and jobs[0]["event_id"] == out["event_id"]
