@@ -25,6 +25,12 @@ class Api(private val auth: Auth, private val http: OkHttpClient, private val tt
 
     suspend fun sentences(): List<JSONObject> = json { get("/api/sentences") }.optJSONArray("sentences")?.objects().orEmpty()
 
+    /** The open number sizes of a mode ("listen" or "speak"), smallest first, from the level path (levels.number_bands).
+     *  null when the server does not send them (an older server): then every size is open, like the web app. */
+    suspend fun numberBands(mode: String): List<String>? =
+        json { get("/api/levels") }.optJSONObject("numbers")?.optJSONArray(mode)?.objects()
+            ?.filter { it.optBoolean("open") }?.map { it.optString("band") }?.ifEmpty { null }
+
     /** Reading: did the learner say the name of this symbol? */
     suspend fun checkSymbol(wav: ByteArray, symbol: String): JSONObject = json {
         post(

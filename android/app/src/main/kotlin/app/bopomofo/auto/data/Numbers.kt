@@ -103,6 +103,13 @@ object Numbers {
         return BANDS.last()
     }
 
+    /** A size from the open sizes of the ladder (smallest first): the newest one 60% of the time, the ones before it as a
+     *  review. The same rule as ladderBand in frontend/src/lib/numbers.ts. */
+    fun ladderBand(open: List<String>): String {
+        if (open.size <= 1) return open.firstOrNull() ?: BANDS.first()
+        return if (Random.nextDouble() < 0.6) open.last() else open[Random.nextInt(open.size - 1)]
+    }
+
     private fun nearMisses(n: Long): List<Long> {
         val out = mutableListOf<Long>()
         val s = n.toString()
@@ -128,9 +135,10 @@ object Numbers {
         return out.distinct().filter { it in 0..MAX && it != n }
     }
 
-    /** Four unique choices with the answer: the closest near misses first, then random numbers of the same band. */
-    fun choices(n: Long): List<Long> {
-        val near = nearMisses(n)
+    /** Four unique choices with the answer: the closest near misses first, then random numbers of the same band.
+     *  open: the open sizes; a wrong choice of a bigger size (7 against 70) waits until that size opens. */
+    fun choices(n: Long, open: List<String> = BANDS): List<Long> {
+        val near = nearMisses(n).filter { band(it) in open || band(it) == band(n) }
         val strongN = max(0, near.size - 2 * n.toString().length)
         val strong = near.take(strongN).shuffled()
         val weak = near.drop(strongN).shuffled()

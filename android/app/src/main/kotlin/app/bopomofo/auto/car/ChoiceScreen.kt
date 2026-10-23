@@ -64,6 +64,8 @@ class ChoiceScreen(ctx: CarContext, private val kind: ChoiceKind) : Screen(ctx) 
     )
 
     private var q: Question? = null
+    private var bands: List<String>? = null
+    private var asked = 0
     private var picked = -1
     private var shownAt = 0L
     private var replays = 0
@@ -162,8 +164,11 @@ class ChoiceScreen(ctx: CarContext, private val kind: ChoiceKind) : Screen(ctx) 
             Question(w.text, opts.map { Option(it.text, it.english, null, it.text + " · " + it.zhuyin) }, opts.indexOfFirst { it.text == w.text }, word = w)
         }
         ChoiceKind.NUMBERS -> {
-            val n = Numbers.randomIn(Numbers.randomBand())
-            val opts = Numbers.choices(n)
+            // The open sizes of the ladder, read again every 10 questions so a size opened in the car comes in.
+            if (asked++ % 10 == 0) bands = runCatching { app.api.numberBands("listen") }.getOrNull() ?: bands
+            val open = bands ?: Numbers.BANDS
+            val n = Numbers.randomIn(Numbers.ladderBand(open))
+            val opts = Numbers.choices(n, open)
             Question(
                 n.toString(),
                 opts.map { Option(it.toString(), Numbers.digits(it), Glyph.text(carContext, Numbers.digits(it), size = 120f, maxChars = 12)) },

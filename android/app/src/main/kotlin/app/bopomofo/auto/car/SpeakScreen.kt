@@ -87,6 +87,8 @@ class SpeakScreen(ctx: CarContext, private val kind: SpeakKind) : Screen(ctx) {
     private var symbols: List<MoeRow>? = null
     private var sentences: List<JSONObject>? = null
     private var last: String? = null
+    private var bands: List<String>? = null
+    private var asked = 0
 
     init {
         lifecycle.addObserver(object : DefaultLifecycleObserver {
@@ -302,7 +304,9 @@ class SpeakScreen(ctx: CarContext, private val kind: SpeakKind) : Screen(ctx) {
                 Card(hanzi, hanzi, s.optString("english"), s.optString("english"), text = hanzi)
             }
             SpeakKind.NUMBERS -> {
-                val n = Numbers.randomIn(Numbers.randomBand())
+                // The open sizes of the ladder, read again every 10 numbers so a size opened in the car comes in.
+                if (asked++ % 10 == 0) bands = runCatching { app.api.numberBands("speak") }.getOrNull() ?: bands
+                val n = Numbers.randomIn(Numbers.ladderBand(bands ?: Numbers.BANDS))
                 Card(n.toString(), Numbers.digits(n), "Say it in Mandarin", Numbers.hanzi(n), text = Numbers.hanzi(n), number = n)
             }
         }
