@@ -50,9 +50,9 @@ def placement_get():
 
 
 class PlacementIn(BaseModel):
-    # 37 symbols; 42 syllables and 12 sentences (placement.py), with room for content changes.
+    # 37 symbols; up to three recordings per voice card, with room for content changes.
     alphabet_ids: list[int] = Field(default_factory=list, max_length=120)
-    voice_ids: list[int] = Field(default_factory=list, max_length=120)
+    voice_ids: list[int] = Field(default_factory=list, max_length=360)
     voice_skipped: bool = False
 
 

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { api, clearAudioCache, playableSrc, setTokenGetter, ttsUrl } from "../api";
 import { call, send } from "./transport";
+import * as session from "../session";
 
 const originalFetch = globalThis.fetch;
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
@@ -81,14 +82,50 @@ describe("API boundary", () => {
   });
 
   test("speech uploads retain the step, help flag, and recording number", async () => {
-    await api.speech(new Blob(["clip"]), "你好", "sentence", { help: true, tryN: 2 });
+    await api.speech(new Blob(["clip"]), "你好", "sentence", { help: true, tryN: 2, cardId: "spoken-card" });
     const form = requests[0].init?.body as FormData;
     expect(requests[0].url).toEndWith("/api/speech/analyze");
     expect(form.get("step")).toBe("12");
     expect(form.get("help")).toBe("1");
     expect(form.get("try_n")).toBe("2");
+    expect(form.get("card_id")).toBe("spoken-card");
     expect(form.get("text")).toBe("你好");
     expect((form.get("audio") as File).name).toBe("speech.wav");
+  });
+
+  test("two misses then a pass keep the combo and count one card", async () => {
+    const record = spyOn(session, "recordAttempt").mockImplementation(() => {});
+    const details = { attempt_card: "retry-pass" };
+    for (const tries of [1, 2]) {
+      await api.event({ area: "listening", item: "ㄅㄚ", ok: false, tries, details, units: [] });
+    }
+    expect(record).not.toHaveBeenCalled();
+    await api.event({ area: "listening", item: "ㄅㄚ", ok: true, tries: 3, details, units: [] });
+    await api.event({ area: "listening", item: "ㄅㄚ", ok: true, tries: 4, details, units: [] });
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenCalledWith("listening", true);
+    expect(JSON.parse(String(requests[0].init?.body)).details.first_try_limit).toBe(3);
+  });
+
+  test("three misses or a hint end first-try credit once", async () => {
+    const record = spyOn(session, "recordAttempt").mockImplementation(() => {});
+    const details = { attempt_card: "retry-fail" };
+    for (const tries of [1, 2, 3, 4]) {
+      await api.event({ area: "numbers", item: "14", ok: tries === 4, tries, details, units: [] });
+    }
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record).toHaveBeenLastCalledWith("numbers", false);
+    await api.event({
+      area: "characters",
+      item: "他",
+      ok: true,
+      help: true,
+      tries: 2,
+      details: { attempt_card: "hinted" },
+      units: [],
+    });
+    expect(record).toHaveBeenCalledTimes(2);
+    expect(record).toHaveBeenLastCalledWith("characters", false);
   });
 
   test("publishes quota updates from successful and refused requests", async () => {

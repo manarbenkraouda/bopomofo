@@ -549,18 +549,28 @@ def _built(c) -> bool:
 _HISTORY_SQL = (
     "SELECT u.area, u.mode, u.kind, u.expected, u.ok, u.help, u.try_n, u.day, u.ts, u.event_id, e.ms,"
     " COALESCE(e.details::jsonb ->> 'learn', 'false') NOT IN ('false', '0', '') AS learn"
-    " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL"
+    " FROM practice_units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL"
     " AND u.kind IN ('symbol','tone','initial','final','sandhi','number','char')"
-    " ORDER BY u.ts, u.id"
 )
 
 
-def rebuild(c) -> None:
+def rebuild(c, *, area: str | None = None, mode: str | None = None) -> None:
     """Build the summaries of the current user from the whole history (one pass, in time order). Runs once per user,
-    after the migration; after that, record() keeps them up to date with each answer."""
+    after the migration; after that, record() keeps them up to date with each answer.
+    A retry rebuilds only its exercise because it can replace an earlier miss."""
+    exercise = _exercise_key(area, mode) if area else None
+    if area and not exercise:
+        return
+    sql, args = _HISTORY_SQL, ()
+    if exercise:
+        sql += " AND u.area=?"
+        args = (area,)
+        if "/" in exercise:
+            sql += " AND u.mode IS NOT DISTINCT FROM ?"
+            args += (mode,)
     items: dict[tuple, dict] = {}
     days: set[tuple] = set()
-    for r in c.execute(_HISTORY_SQL).fetchall():
+    for r in c.execute(sql + " ORDER BY u.ts, u.id", args).fetchall():
         for ex, item, test, right in _contribs(
             r["area"], r["mode"], r["kind"], r["expected"], r["ok"], r["help"], r["try_n"], r["learn"]
         ):
@@ -574,8 +584,11 @@ def rebuild(c) -> None:
     n_days: dict[tuple, int] = {}
     for ex, item, _ in days:
         n_days[(ex, item)] = n_days.get((ex, item), 0) + 1
-    c.execute("DELETE FROM level_items")
-    c.execute("DELETE FROM level_item_days")
+    for table in ("level_items", "level_item_days"):
+        if exercise:
+            c.execute(f"DELETE FROM {table} WHERE exercise=?", (exercise,))
+        else:
+            c.execute(f"DELETE FROM {table}")
     rows = [
         (ex, item, s["reps"], s["tests"], n_days.get((ex, item), 0), json.dumps(s["last"], ensure_ascii=False))
         for (ex, item), s in items.items()

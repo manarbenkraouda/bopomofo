@@ -28,9 +28,11 @@ def hit(step: dict, r: dict) -> bool:
             return not tones or r["expected"] in tones
         return not syms or _match(r["expected"], syms, False)
     if t == "listen_tones":
-        return r["kind"] == "tone" and (not tones or r["expected"] in tones)
+        return r["kind"] == "tone" and r["try_n"] == 0 and (not tones or r["expected"] in tones)
     if t == "listen_sounds":
-        return r["kind"] in ("initial", "final") and (not syms or _match(r["expected"], syms, False))
+        return (
+            r["kind"] in ("initial", "final") and r["try_n"] == 0 and (not syms or _match(r["expected"], syms, False))
+        )
     if t == "numbers":
         # First tries only; a step with no focus counts every number.
         nums = [str(x) for x in p.get("nums") or []]
@@ -53,7 +55,7 @@ def hit(step: dict, r: dict) -> bool:
     deck = p.get("deck")
     if deck and r.get("item") is not None and r["item"] not in deck:
         return False
-    return r["kind"] in ("symbol", "tone") and r["expected"] != "∅"
+    return r["kind"] in ("symbol", "tone") and r["try_n"] == 0 and r["expected"] != "∅"
 
 
 STEP_SQL = "(e.details::jsonb ->> 'step') = CAST(? AS TEXT)"
@@ -98,7 +100,7 @@ def step_progress(step: dict, detail: bool = False) -> dict:
             ]
         return out
     rows = store.query(
-        "SELECT u.kind, u.expected, u.actual, u.ok, u.help, u.try_n, u.ctx, e.item FROM units u JOIN events e ON e.id = u.event_id"
+        "SELECT u.kind, u.expected, u.actual, u.ok, u.help, u.try_n, u.ctx, e.item FROM practice_units u JOIN events e ON e.id = u.event_id"
         f" WHERE {STEP_SQL} AND u.ok IS NOT NULL AND u.kind IN ('tone','initial','final','symbol','sandhi','number','char') ORDER BY u.id",
         (sid,),
     )
@@ -133,7 +135,7 @@ def baseline(step: dict, ts: float) -> dict:
             "average_score": round(sum(r["score"] for r in rows) / len(rows)) if rows else None,
         }
     rows = store.query(
-        "SELECT kind, expected, actual, ok, help, try_n, ctx FROM units WHERE area=? AND ts>=? AND ts<? AND ok IS NOT NULL AND try_n=0"
+        "SELECT kind, expected, actual, ok, help, try_n, ctx FROM practice_units WHERE area=? AND ts>=? AND ts<? AND ok IS NOT NULL AND try_n=0"
         " AND kind IN ('tone','initial','final','symbol','sandhi','number','char')",
         (
             "speaking"
@@ -206,14 +208,14 @@ def milestone_progress(c: dict, lv: dict | None = None) -> dict:
     elif c["unit"] == "number":
         # expected holds bands; an empty list means every number.
         rows = store.query(
-            "SELECT ctx, ok, help FROM units WHERE area='numbers' AND kind='number' AND try_n=0 AND ok IS NOT NULL ORDER BY id DESC LIMIT 2000",
+            "SELECT ctx, ok, help FROM practice_units WHERE area='numbers' AND kind='number' AND try_n=0 AND ok IS NOT NULL ORDER BY id DESC LIMIT 2000",
         )
         rows = [r for r in rows if not c["expected"] or r["ctx"] in c["expected"]][: c["window"]]
         n = len(rows)
         value = round(100 * sum(1 for r in rows if r["ok"] and not r["help"]) / n, 1) if n else None
     else:
         rows = store.query(
-            "SELECT expected, ok, help FROM units WHERE area=? AND kind=? AND try_n=0 AND ok IS NOT NULL ORDER BY id DESC LIMIT 2000",
+            "SELECT expected, ok, help FROM practice_units WHERE area=? AND kind=? AND try_n=0 AND ok IS NOT NULL ORDER BY id DESC LIMIT 2000",
             (c["area"], c["unit"]),
         )
         exact = c["unit"] in ("tone", "symbol", "initial", "sandhi", "char")

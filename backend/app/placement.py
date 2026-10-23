@@ -128,7 +128,9 @@ def _rows(event_ids: list[int]) -> list[dict]:
         return [
             dict(r)
             for r in c.execute(
-                "SELECT e.id, e.area, e.mode, e.ts, u.kind, u.expected, u.ok, u.help, u.try_n FROM events e JOIN units u ON u.event_id = e.id"
+                "SELECT e.id, e.area, e.mode, e.ts, u.kind, u.expected, u.ok, u.help, u.try_n,"
+                " COALESCE(e.details::jsonb ->> 'attempt_card', e.id::text) AS card_id"
+                " FROM events e JOIN practice_units u ON u.event_id = e.id"
                 f" WHERE e.id IN ({ph}) AND e.ts >= ? ORDER BY u.id",
                 (*event_ids, time.time() - MAX_AGE),
             ).fetchall()
@@ -153,7 +155,7 @@ def score_alphabet(rows: list[dict]) -> dict:
 
 
 def score_voice(rows: list[dict], mode: str) -> dict:
-    """The symbols and tones the recordings prove: first recording of each card only, more often right than wrong."""
+    """The symbols and tones the first-try results prove: more often right than wrong."""
     rs = [r for r in rows if r["area"] == "speaking" and r["mode"] == mode and not r["try_n"]]
     right, wrong = Counter(), Counter()
     for r in rs:
@@ -162,7 +164,7 @@ def score_voice(rows: list[dict], mode: str) -> dict:
                 (right if r["ok"] else wrong)[k] += 1
     symbols = "".join(s for s in levels.SYMS if right[s] > wrong[s])
     return {
-        "cards": len({r["id"] for r in rs}),
+        "cards": len({r.get("card_id", r["id"]) for r in rs}),
         "symbols": symbols,
         "tones": [int(t[5:]) for t in levels.TONES5 if right[t] > wrong[t]],
         "missed": [s for s in levels.SYMS if s in wrong and s not in symbols][:20],

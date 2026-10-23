@@ -151,7 +151,8 @@ def recount(c, event_ids) -> int:
                 for u in us:
                     if u["kind"] == "number" and not u["ok"]:
                         c.execute("UPDATE units SET ok=1, actual=expected WHERE id=?", (u["id"],))
-            first = whole and not e["help"] and (e["tries"] or 1) == 1
+            limit = 3 if _extra(e["details"]).get("first_try_limit") == 3 else 1
+            first = whole and not e["help"] and (e["tries"] or 1) <= limit
         else:
             sym = [u for u in us if u["kind"] == "symbol"]
             if not sym:

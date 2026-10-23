@@ -2,6 +2,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Health, type SymbolCheck, type Unit } from "@/lib/api";
+import { firstTry } from "@/lib/attempts";
 import { onPlaying, playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
@@ -151,14 +152,14 @@ export function ReadingQuiz() {
       const row = curRef.current;
       if (!row) return;
       const c = card.current;
-      const firstTry = ok && !c.revealed && (c.tries === 0 || typedFix);
+      const first = firstTry(ok, c.revealed, typedFix ? 0 : c.tries);
       // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
-      const helped = !learn && ok && c.revealed && (c.tries === 0 || typedFix);
-      review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn, helped);
+      const helped = !learn && ok && c.revealed && (c.tries < 3 || typedFix);
+      review().answer(row.sym, learn ? ok && c.tries === 0 : first, !learn, helped);
       setStats((s) => ({
         cards: s.cards + 1,
-        firstTry: s.firstTry + (firstTry ? 1 : 0),
-        streak: firstTry ? s.streak + 1 : 0,
+        firstTry: s.firstTry + (first ? 1 : 0),
+        streak: first ? s.streak + 1 : 0,
         right: s.right + (ok ? 1 : 0),
       }));
       const units: Unit[] = c.units.length
@@ -167,8 +168,8 @@ export function ReadingQuiz() {
       api.event({
         area: "reading",
         item: row.sym,
-        ok: firstTry,
-        first_try: firstTry,
+        ok: first,
+        first_try: first,
         ms: c.ms,
         tries: typedFix ? c.tries : c.tries + (ok ? 1 : 0),
         help: c.revealed,

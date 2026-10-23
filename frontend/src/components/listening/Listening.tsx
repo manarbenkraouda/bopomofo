@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
+import { firstTry, firstTryResult } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, matches, useFocus } from "@/lib/focus";
 import { ANSWER_KEYS, ANSWER_LETTERS, cycleKeys, useHotkeys, type Hotkey } from "@/lib/hotkeys";
@@ -84,11 +85,13 @@ function SyllableQuiz({
   const [items, setItems] = useState<SyllableItem[]>([]);
   const [q, setQ] = useState<Q | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
+  const [misses, setMisses] = useState<string[]>([]);
   const [held, setHeld] = useState(false); // auto-advance stopped to compare tones
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAt = useRef(0);
   const replays = useRef(0);
+  const attempt = useRef({ cardId: "", tries: 0, counted: false });
   const focus = useFocus();
   // The question order: all the syllables, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   // Each quiz has its own schedule: hearing the tone and finding the spelling are different skills.
@@ -130,9 +133,11 @@ function SyllableQuiz({
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
+    attempt.current = { cardId: crypto.randomUUID(), tries: 0, counted: false };
     const nq = make();
     setQ(nq);
     setPicked(null);
+    setMisses([]);
     setHeld(false);
     shownAt.current = now();
     replays.current = 0;
@@ -151,11 +156,16 @@ function SyllableQuiz({
 
   const choose = useCallback(
     (o: string) => {
-      if (!q || picked) return;
-      setPicked(o);
+      if (!q || picked || misses.includes(o)) return;
+      const cur = attempt.current;
       const ok = o === q.answer;
-      review().answer(q.item.zhuyin, ok);
-      setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
+      const counted = firstTryResult(ok, false, cur.tries);
+      if (counted !== null) {
+        cur.counted = true;
+        setPicked(o);
+        review().answer(q.item.zhuyin, counted);
+        setScore((s) => ({ n: s.n + 1, ok: s.ok + (counted ? 1 : 0), streak: counted ? s.streak + 1 : 0 }));
+      } else setMisses((m) => [...m, o]);
       // Save what was picked, so the stats can show which tone or sound you hear instead of the right one.
       const e = parts(q.item.zhuyin);
       const units =
@@ -175,17 +185,23 @@ function SyllableQuiz({
         mode: quiz,
         item: q.item.zhuyin,
         ok,
-        first_try: ok,
+        first_try: firstTry(ok, false, cur.tries),
+        tries: cur.tries + 1,
         ms: since(shownAt.current),
         replays: replays.current,
-        units,
-        details: { options: q.options, picked: o, focus: focus.active ? focus.label : undefined },
+        units: units.map((u) => ({ ...u, try_n: cur.tries })),
+        details: {
+          attempt_card: cur.cardId,
+          options: q.options,
+          picked: o,
+          focus: focus.active ? focus.label : undefined,
+        },
       });
+      cur.tries += 1;
       playSfx(ok ? "right" : "wrong");
-      // Always move on by itself: after 1 s when right, after 1.5 s when wrong (time to see the right answer).
-      advance.current = setTimeout(next, ok ? 1000 : 1500);
+      if (counted !== null) advance.current = setTimeout(next, ok ? 1000 : 1500);
     },
-    [q, picked, quiz, next, focus, review],
+    [q, picked, misses, quiz, next, focus, review],
   );
 
   const toneSet = q && picked ? toneSetOf(items, q.item) : [];
@@ -263,12 +279,13 @@ function SyllableQuiz({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 w-full max-w-3xl">
             {q.options.map((o, i) => {
               const right = picked && o === q.answer,
-                wrong = picked === o && o !== q.answer;
+                wrong = misses.includes(o) || (picked === o && o !== q.answer);
               const fx = picked === o ? fxClass(right ? "right" : "wrong") : "";
               return (
                 <button
                   key={o}
                   onClick={() => choose(o)}
+                  disabled={!!picked || misses.includes(o)}
                   className={
                     "tile relative rounded-2xl border-2 px-4 pb-5 pt-6 md:pt-9 text-center transition " +
                     fx +
@@ -295,6 +312,11 @@ function SyllableQuiz({
               );
             })}
           </div>
+          {!picked && misses.length > 0 && (
+            <p role="status" className="text-bad">
+              Not quite. Try again.
+            </p>
+          )}
           {picked && (
             <div className="flex flex-col items-center gap-3">
               <div className="cjk text-4xl max-md:hidden">

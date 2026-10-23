@@ -26,7 +26,7 @@ bopomofo is a practice app for the 37 Bopomofo symbols and Taiwan Mandarin. It c
 - **A guided path:** five levels, an optional placement test, and permanent exercise unlocks.
 - **A coach with evidence:** focused drills, progress checks, and explanations tied to saved statistics.
 - **Personal sentences:** Taiwan Mandarin, Bopomofo, English, word meanings, and local audio.
-- **Practice from memory:** helped answers and later tries stay distinct from first-try recall.
+- **Practice from memory:** “first try” allows up to three attempts without hints. Helped answers stay distinct.
 - **Keyboard and touch controls:** press and hold to record, writing with a pointer, and page shortcuts.
 
 The [learner guide](docs/user-guide.md) lists every mode, shortcut, and learning rule.

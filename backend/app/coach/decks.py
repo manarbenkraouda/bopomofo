@@ -39,7 +39,7 @@ def syllable_history(days: int = 60) -> dict[str, dict]:
     char_z = {s["char"]: s["z"] for s in sy}
     h: dict[str, dict] = defaultdict(lambda: {"n": 0, "ok": 0, "wrong": Counter(), "areas": Counter()})
     rows = store.query(
-        "SELECT event_id, area, kind, expected, actual, ok, ctx FROM units WHERE area IN ('listening','speaking')"
+        "SELECT event_id, area, kind, expected, actual, ok, ctx FROM practice_units WHERE area IN ('listening','speaking')"
         " AND kind IN ('tone','syllable') AND try_n=0 AND ok IS NOT NULL AND day>=?",
         (since,),
     )

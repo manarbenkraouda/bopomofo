@@ -16,8 +16,8 @@ import { Voice } from "./Voice";
 
 /**
  * The placement test, once, after the onboarding of a learner who speaks everyday Mandarin or more (backend/app/placement.py).
- * 1. The alphabet (only for learners who know some Bopomofo): each of the 37 symbols, type its pinyin. One try each.
- * 2. The voice: say 42 syllables (every symbol and tone), then 12 sentences. One recording each; the speech check scores sounds and tones.
+ * 1. The alphabet (only for learners who know some Bopomofo): type each symbol's pinyin, with three attempts without hints.
+ * 2. The voice: say 42 syllables (every symbol and tone), then 12 sentences. Up to three recordings each; the speech check scores sounds and tones.
  * About 10 minutes. A reload resumes where the learner stopped.
  * Every answer is saved as a normal Recognize or Speaking answer. At the end the server scores the answers and opens levels.
  * Keyboard: Enter checks and continues, Space records and stops (and is "I don't know" in the alphabet), → skips a card.

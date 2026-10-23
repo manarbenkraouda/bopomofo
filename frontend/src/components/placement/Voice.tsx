@@ -5,18 +5,19 @@ import { ActionBar, type Tone } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
 import { ZhuyinText } from "@/components/ZhuyinText";
 import { api } from "@/lib/api";
+import { firstTryResult } from "@/lib/attempts";
 import { useHotkeys } from "@/lib/hotkeys";
 import { playSfx } from "@/lib/sfx";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { type Card } from "./types";
 
 const MAX_SECONDS = { syllable: 5, sentence: 10 } as const;
 
 type Rec = "idle" | "recording" | "checking" | "done";
 
-/** One voice card: record once, see a short result, go on. A failed recording (silent, too short) can be recorded again. */
+/** One voice card: allow three attempts without hints before showing the result. */
 export function Voice({
   card,
   last,
@@ -36,6 +37,7 @@ export function Voice({
   const [error, setError] = useState(outer);
   const [score, setScore] = useState<number | null>(null);
   const [marks, setMarks] = useState<(string | undefined)[]>([]);
+  const attempt = useRef({ cardId: "", tries: 0 });
   const canRecord = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
   const phone = useViewport().w < PHONE;
 
@@ -43,8 +45,18 @@ export function Voice({
     async ({ wav }: Clip) => {
       setStep("checking");
       try {
-        const res = await api.speech(wav, card.text, card.mode, { tryN: 0 });
+        const cur = attempt.current;
+        cur.cardId ||= crypto.randomUUID();
+        const res = await api.speech(wav, card.text, card.mode, { tryN: cur.tries, cardId: cur.cardId });
         if (res.event_id) onAnswer(res.event_id);
+        const done = firstTryResult(res.score >= 80, false, cur.tries) !== null;
+        cur.tries += 1;
+        if (!done) {
+          setError("Not quite. Try again.");
+          playSfx("wrong");
+          setStep("idle");
+          return;
+        }
         setScore(res.score);
         setMarks(
           res.syllables.map((s) =>

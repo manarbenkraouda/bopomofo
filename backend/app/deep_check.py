@@ -326,7 +326,8 @@ def _rescore_event(c, ev: dict, before, after, whole: bool) -> None:
     d["deep_fix"] = {"before": before, "after": after}
     js = json.dumps(d, ensure_ascii=False)
     if after is not None and after >= RIGHT and not ev["ok"]:
-        first = whole and not ev["help"] and (ev["tries"] or 1) == 1
+        limit = 3 if d.get("first_try_limit") == 3 else 1
+        first = whole and not ev["help"] and (ev["tries"] or 1) <= limit
         c.execute(
             "UPDATE events SET score=?, ok=1, first_try=?, details=? WHERE id=?", (after, int(first), js, ev["id"])
         )

@@ -3,6 +3,7 @@
 // The words come from the course deck and from the learner's own sentences; the wrong choices are look-alikes first.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ttsUrl } from "@/lib/api";
+import { firstTry, firstTryResult } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import {
   allWords,
@@ -31,6 +32,7 @@ export function Characters() {
   const [error, setError] = useState("");
   const [q, setQ] = useState<Q | null>(null);
   const [picked, setPicked] = useState<CharWord | null>(null);
+  const [misses, setMisses] = useState<string[]>([]);
   const [helped, setHelped] = useState(false);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -38,6 +40,7 @@ export function Characters() {
   const replays = useRef(0);
   const help = useRef(false);
   const last = useRef<string | null>(null);
+  const attempt = useRef({ cardId: "", tries: 0 });
 
   useEffect(() => {
     let stop = false;
@@ -67,6 +70,8 @@ export function Characters() {
     last.current = w.text;
     setQ({ word: w, options: choices(w, words, data.lookalikes) });
     setPicked(null);
+    setMisses([]);
+    attempt.current = { cardId: crypto.randomUUID(), tries: 0 };
     setHelped(false);
     shownAt.current = now();
     replays.current = 0;
@@ -85,14 +90,18 @@ export function Characters() {
 
   const choose = useCallback(
     (o: CharWord) => {
-      if (!q || picked !== null || !data) return;
-      setPicked(o);
+      if (!q || picked !== null || !data || misses.includes(o.text)) return;
+      const cur = attempt.current;
       const ok = o.text === q.word.text;
       const helpedNow = help.current;
       const lookalike = lookalikesOf(q.word.text, data.lookalikes).includes(o.text);
       // A right answer after the hint counts as help, like "Hear the answer" in Reading and Numbers.
-      const good = ok && !helpedNow;
-      setScore((s) => ({ n: s.n + 1, ok: s.ok + (good ? 1 : 0), streak: good ? s.streak + 1 : 0 }));
+      const good = firstTry(ok, helpedNow, cur.tries);
+      const counted = firstTryResult(ok, helpedNow, cur.tries);
+      if (counted !== null) {
+        setPicked(o);
+        setScore((s) => ({ n: s.n + 1, ok: s.ok + (counted ? 1 : 0), streak: counted ? s.streak + 1 : 0 }));
+      } else setMisses((m) => [...m, o.text]);
       // Save the word picked, so the stats can show which characters are taken for others (她 for 他).
       api.event({
         area: "characters",
@@ -100,6 +109,7 @@ export function Characters() {
         item: q.word.text,
         ok,
         first_try: good,
+        tries: cur.tries + 1,
         ms: since(shownAt.current),
         help: helpedNow,
         replays: replays.current,
@@ -110,22 +120,25 @@ export function Characters() {
             actual: o.text,
             ok,
             help: helpedNow,
+            try_n: cur.tries,
             ctx: q.word.source,
             extra: { picked: o.english, lookalike },
           },
         ],
         details: {
+          attempt_card: cur.cardId,
           options: q.options.map((x) => x.text),
           zhuyin: q.word.zhuyin,
           focus: focus.active ? focus.label : undefined,
         },
       });
+      cur.tries += 1;
       playSfx(ok ? "right" : "wrong");
-      playAudio(ttsUrl(q.word.text));
+      if (counted !== null) playAudio(ttsUrl(q.word.text));
       // A right answer moves on by itself; a wrong one waits, so the learner can compare the two characters.
       if (ok) advance.current = setTimeout(next, 1600);
     },
-    [q, picked, data, next, focus],
+    [q, picked, misses, data, next, focus],
   );
 
   // The hint: the sound and the Bopomofo of the word. Before the answer, it counts as help.
@@ -191,11 +204,12 @@ export function Characters() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4 w-full max-w-3xl">
             {q.options.map((o, i) => {
               const isRight = picked !== null && o.text === q.word.text;
-              const isWrong = picked?.text === o.text && !isRight;
+              const isWrong = misses.includes(o.text) || (picked?.text === o.text && !isRight);
               return (
                 <button
                   key={o.text}
                   onClick={() => choose(o)}
+                  disabled={picked !== null || misses.includes(o.text)}
                   className={
                     "tile relative rounded-2xl border-2 pl-20 pr-4 py-4 text-left transition " +
                     (picked?.text === o.text ? fxClass(isRight ? "right" : "wrong") : "") +
@@ -225,6 +239,11 @@ export function Characters() {
               );
             })}
           </div>
+          {picked === null && misses.length > 0 && (
+            <p role="status" className="text-bad">
+              Not quite. Try again.
+            </p>
+          )}
           {picked === null && (
             <div className="flex flex-col items-center gap-1">
               <button className="btn" onClick={hint}>

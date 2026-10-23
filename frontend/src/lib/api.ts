@@ -27,12 +27,15 @@ import { type Challenge, type PracticeEvent, type Stats, type Summary } from "./
 import { type PastTest } from "./review";
 import { type SavedReview } from "./reviewSettings";
 import { markActive, recordAttempt } from "./session";
+import { FIRST_TRY_ATTEMPTS, firstTryResult } from "./attempts";
 
 const json = (body: unknown): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
+
+const countedCards = new Set<string>();
 
 export const api = {
   aiQuota: () => call<AiQuota>("/api/ai/quota", { cache: "no-store" }),
@@ -56,7 +59,12 @@ export const api = {
   deleteSentence: (id: number) => call<{ ok: boolean }>("/api/sentences/" + id, { method: "DELETE" }),
   /** help: the learner used the cheat (model audio or Pinyin) on this card. tryN: 0 for the first recording of the card. */
   /** opts.number: a spoken number (Numbers, speak mode); the server checks its characters and saves it as a number answer. */
-  speech: (wav: Blob, text: string, mode = "", opts: { help?: boolean; tryN?: number; number?: number } = {}) => {
+  speech: (
+    wav: Blob,
+    text: string,
+    mode = "",
+    opts: { help?: boolean; tryN?: number; number?: number; cardId?: string } = {},
+  ) => {
     markActive();
     const f = new FormData();
     f.append("audio", wav, "speech.wav");
@@ -64,6 +72,7 @@ export const api = {
     f.append("mode", mode);
     if (opts.help) f.append("help", "1");
     if (opts.tryN) f.append("try_n", String(opts.tryN));
+    if (opts.cardId) f.append("card_id", opts.cardId);
     if (opts.number !== undefined) f.append("number", String(opts.number));
     const step = currentStep();
     if (step) f.append("step", String(step));
@@ -90,9 +99,24 @@ export const api = {
     }),
   /** Save one graded answer with everything the learner produced. Also counts it for today's HUD. */
   event: (ev: PracticeEvent) => {
-    recordAttempt(ev.area, ev.ok);
+    const cardId = ev.details?.attempt_card;
+    if (typeof cardId === "string") {
+      const result = ev.details?.learn ? ev.ok : firstTryResult(ev.ok, !!ev.help, (ev.tries ?? 1) - 1);
+      if (!countedCards.has(cardId) && result !== null) {
+        recordAttempt(ev.area, result);
+        countedCards.add(cardId);
+        if (countedCards.size > 500) countedCards.delete(countedCards.values().next().value!);
+      }
+    } else recordAttempt(ev.area, ev.ok);
     const step = currentStep();
-    const body = step ? { ...ev, details: { ...ev.details, step } } : ev;
+    const body = {
+      ...ev,
+      details: {
+        ...(!ev.details?.placement ? { first_try_limit: FIRST_TRY_ATTEMPTS } : {}),
+        ...ev.details,
+        ...(step ? { step } : {}),
+      },
+    };
     return call<{ ok: boolean; id?: number; notices?: LevelNotice[] }>("/api/progress/event", json(body))
       .then((r) => {
         answered();

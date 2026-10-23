@@ -2,7 +2,7 @@
 
 Words used here:
 - production: one unit, that is one thing the learner said, heard, or wrote, with what was expected.
-- first try: a unit with try_n = 0. It counts as right only if it was right without help (answer shown).
+- first try: up to three attempts without help. practice_units exposes one credited unit as try_n = 0.
 - weak score: recency-weighted accuracy on first tries, pulled toward the average for that skill when
   there is little data (a Beta prior). Old answers count half after HALF_LIFE days.
 """
@@ -18,6 +18,7 @@ from datetime import date, timedelta
 from urllib.parse import quote
 
 from . import characters, db, deep_check, levels, numbers, typed_fix
+from .attempts import FIRST_TRY_ATTEMPTS, first_try
 from .zhuyin import RULES, tested_rule, zhuyin_of
 
 HALF_LIFE = 14.0
@@ -116,7 +117,13 @@ def speaking_units(res: dict) -> list[dict]:
 
 
 def log_speaking(
-    text: str, res: dict, mode: str | None, step: int | None = None, help: bool = False, try_n: int = 0
+    text: str,
+    res: dict,
+    mode: str | None,
+    step: int | None = None,
+    help: bool = False,
+    try_n: int = 0,
+    card_id: str = "",
 ) -> int:
     """Save one recording and its evidence, including help, attempt, and coach step context."""
     mode = (
@@ -132,10 +139,12 @@ def log_speaking(
             "item": text,
             "ok": ok,
             "score": res["score"],
-            "first_try": ok and not help and try_n == 0,
+            "first_try": first_try(ok, help, try_n),
             "tries": try_n + 1,
             "help": help,
             "details": {
+                "first_try_limit": FIRST_TRY_ATTEMPTS,
+                **({"attempt_card": card_id} if card_id else {}),
                 "heard": res.get("heard_raw"),
                 "extra": len(res.get("extra") or []),
                 "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
@@ -146,7 +155,9 @@ def log_speaking(
     )
 
 
-def log_number_speech(n: int, res: dict, step: int | None = None, help: bool = False, try_n: int = 0) -> int:
+def log_number_speech(
+    n: int, res: dict, step: int | None = None, help: bool = False, try_n: int = 0, card_id: str = ""
+) -> int:
     """Save one spoken number: the tone, sound, and syllable units of each character (area numbers), and one "number"
     unit for the whole number. The speech model cannot say which number was said instead, so a wrong number has
     actual "?" and extra.error tells what went wrong first (missed, sound, tone), with the characters said wrong."""
@@ -188,10 +199,12 @@ def log_number_speech(n: int, res: dict, step: int | None = None, help: bool = F
             "item": str(n),
             "ok": ok,
             "score": res["score"],
-            "first_try": ok and not help and try_n == 0,
+            "first_try": first_try(ok, help, try_n),
             "tries": try_n + 1,
             "help": help,
             "details": {
+                "first_try_limit": FIRST_TRY_ATTEMPTS,
+                **({"attempt_card": card_id} if card_id else {}),
                 "hanzi": numbers.hanzi(n),
                 "heard": res.get("heard_raw"),
                 "audio_seconds": (res.get("timing") or {}).get("audio_seconds"),
@@ -302,7 +315,7 @@ def rule_stats(days: int | None = None) -> list[dict]:
     """Per tone rule: first tries in the rule quiz (listening/rule) and in every recording (speaking), the kind of error
     (literal: read the written tone; over: changed 不/一 where the tone stays; other), the last 7 days, and the hardest characters."""
     rows = _rows(
-        "SELECT day, area, expected, actual, ok, help, ctx, extra FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
+        "SELECT day, area, expected, actual, ok, help, ctx, extra FROM practice_units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
         " AND day>=? ORDER BY ts",
         (_since(days),),
     )
@@ -361,12 +374,12 @@ def number_stats(days: int | None = None) -> dict:
     per mode, accuracy per size band, the kinds of error, the numbers picked instead, the characters said wrong most,
     and the numbers missed most."""
     rows = _rows(
-        "SELECT u.mode, u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM units u JOIN events e ON e.id = u.event_id"
+        "SELECT u.mode, u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM practice_units u JOIN events e ON e.id = u.event_id"
         " WHERE u.kind='number' AND u.try_n=0 AND u.ok IS NOT NULL AND u.day>=? ORDER BY u.ts",
         (_since(days),),
     )
     chars = _rows(
-        "SELECT ctx, ok, help FROM units WHERE area='numbers' AND kind='syllable' AND try_n=0 AND ok IS NOT NULL AND day>=?",
+        "SELECT ctx, ok, help FROM practice_units WHERE area='numbers' AND kind='syllable' AND try_n=0 AND ok IS NOT NULL AND day>=?",
         (_since(days),),
     )
     modes: dict[str, list] = defaultdict(lambda: [0, 0, []])
@@ -426,7 +439,7 @@ def char_stats(days: int | None = None) -> dict:
     """Traditional characters (see a word, pick its meaning), first tries only: accuracy per source (course deck or the
     learner's sentences), per word, the words taken for others (look-alike or not), and the course words never practiced."""
     rows = _rows(
-        "SELECT u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM units u JOIN events e ON e.id = u.event_id"
+        "SELECT u.expected, u.actual, u.ok, u.help, u.ctx, u.extra, e.ms FROM practice_units u JOIN events e ON e.id = u.event_id"
         " WHERE u.kind='char' AND u.try_n=0 AND u.ok IS NOT NULL AND u.day>=? ORDER BY u.ts",
         (_since(days),),
     )
@@ -538,29 +551,27 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
     af = " AND area=?" if area else ""
     aa = (area,) if area else ()
     events = _rows(
-        "SELECT id, ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays FROM events WHERE day>=?"
+        "SELECT id, ts, day, area, mode, item, ok, first_try, score, ms, tries, help, replays FROM practice_events WHERE day>=?"
         + af
         + " ORDER BY ts",
         (since, *aa),
     )
     units = _rows(
         "SELECT u.event_id, u.day, u.area, u.mode, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n, u.help, u.ctx, u.lex, u.prev, u.next,"
-        " u.source, u.uncertain, e.legacy FROM units u JOIN events e ON e.id = u.event_id WHERE u.day>=?"
+        " u.source, u.uncertain, e.legacy FROM practice_units u JOIN events e ON e.id = u.event_id WHERE u.day>=?"
         + af.replace("area", "u.area"),
         (since, *aa),
     )
     saved = {r["day"]: r["seconds"] for r in _rows("SELECT day, seconds FROM days")}
-    all_events = _rows("SELECT ts, day, area, ok, ms FROM events ORDER BY ts")
-    secs_all = _seconds_by_day(all_events, saved)
+    all_events = _rows("SELECT ts, day, area, ok, ms FROM practice_events ORDER BY ts")
+    time_events = _rows("SELECT ts, day, area FROM events ORDER BY ts")
+    secs_all = _seconds_by_day(time_events, saved)
+    secs_area = _seconds_by_day([e for e in time_events if e["area"] == area], {}) if area else secs_all
 
     def totals(evs: list[dict], d_from: str, d_to: str) -> dict:
         n = len(evs)
         ok = sum(e["ok"] for e in evs)
-        secs = (
-            sum(_seconds_by_day(evs, {}).values())
-            if area
-            else sum(s for d, s in secs_all.items() if d_from <= d <= d_to)
-        )
+        secs = sum(s for d, s in secs_area.items() if d_from <= d <= d_to)
         return {
             "cards": n,
             "ok": ok,
@@ -578,7 +589,6 @@ def compute(days: int | None = 30, area: str | None = None) -> dict:
 
     # Day by day.
     first_day = events[0]["day"] if events else today.isoformat()
-    secs_area = _seconds_by_day(events, {}) if area else secs_all
     by_day: dict[str, dict] = {}
     d = date.fromisoformat(since if days else first_day)
     while d <= today:
@@ -822,9 +832,9 @@ def weak(items: list[dict], limit: int = 12, op: dict | None = None) -> list[dic
 
 def records() -> dict:
     """Compute personal records from this learner's full answer and practice-time history."""
-    evs = _rows("SELECT ts, day, area, ok, score, ms FROM events ORDER BY ts")
+    evs = _rows("SELECT ts, day, area, ok, score, ms FROM practice_events ORDER BY ts")
     saved = {r["day"]: r["seconds"] for r in _rows("SELECT day, seconds FROM days")}
-    secs = _seconds_by_day(evs, saved)
+    secs = _seconds_by_day(_rows("SELECT ts, day FROM events ORDER BY ts"), saved)
     rec: dict[str, dict | None] = {}
     run = best = 0
     best_day = ""
@@ -884,10 +894,10 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
     t = today.isoformat()
     since = (today - timedelta(days=45)).isoformat()
     past = _rows(
-        "SELECT day, area, mode, kind, expected, actual, ok, try_n, help, ctx FROM units WHERE day>=? AND day<? AND kind!='stroke'",
+        "SELECT day, area, mode, kind, expected, actual, ok, try_n, help, ctx FROM practice_units WHERE day>=? AND day<? AND kind!='stroke'",
         (since, t),
     )
-    now = _rows("SELECT area, mode, kind, expected, ok, try_n, help, ctx FROM units WHERE day=?", (t,))
+    now = _rows("SELECT area, mode, kind, expected, ok, try_n, help, ctx FROM practice_units WHERE day=?", (t,))
     now_ev = _rows("SELECT area, mode FROM events WHERE day=?", (t,))
     items = item_stats(past, today)
     out: list[dict] = []

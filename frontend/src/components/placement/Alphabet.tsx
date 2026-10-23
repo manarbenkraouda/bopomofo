@@ -2,6 +2,7 @@
 
 import { Kbd } from "@/components/shell/Kbd";
 import { api, type Unit } from "@/lib/api";
+import { FIRST_TRY_ATTEMPTS } from "@/lib/attempts";
 import { useHotkeys } from "@/lib/hotkeys";
 import { answerText, normalizePinyin, symbolOfPinyin } from "@/lib/pinyin";
 import { playSfx } from "@/lib/sfx";
@@ -10,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 
 const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
-/** One symbol: type its pinyin, one try. Space (or the button) says "I don't know". */
+/** One symbol: up to three attempts without hints. Space says "I don't know". */
 export function Alphabet({
   sym,
   onAnswer,
@@ -25,6 +26,7 @@ export function Alphabet({
   const [fb, setFb] = useState<null | { ok: boolean; typed: string }>(null);
   const input = useRef<HTMLInputElement>(null);
   const shown = useRef(now());
+  const attempts = useRef<Unit[]>([]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(
     () => () => {
@@ -34,9 +36,21 @@ export function Alphabet({
   );
 
   const save = (ok: boolean, actual: string, text: string) => {
-    const units: Unit[] = [
-      { kind: "symbol", expected: sym, actual, ok, try_n: 0, help: false, ...(text ? { extra: { typed: text } } : {}) },
-    ];
+    attempts.current.push({
+      kind: "symbol",
+      expected: sym,
+      actual,
+      ok,
+      try_n: attempts.current.length,
+      help: false,
+      ...(text ? { extra: { typed: text } } : {}),
+    });
+    if (!ok && text && attempts.current.length < FIRST_TRY_ATTEMPTS) {
+      setTyped("");
+      setHint("Not quite. Try again.");
+      playSfx("wrong");
+      return;
+    }
     onAnswer(
       api
         .event({
@@ -45,10 +59,10 @@ export function Alphabet({
           ok,
           first_try: ok,
           ms: since(shown.current),
-          tries: 1,
+          tries: attempts.current.length,
           help: false,
-          units,
-          details: { placement: true, skipped: !text || undefined },
+          units: attempts.current,
+          details: { placement: true, first_try_limit: FIRST_TRY_ATTEMPTS, skipped: !text || undefined },
         })
         .then((r) => r.id),
     );

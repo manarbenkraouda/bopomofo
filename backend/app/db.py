@@ -498,6 +498,18 @@ def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: 
     rows = _insert_units(c, eid, ts, day, ev["area"], ev.get("mode"), ev.get("units") or [])
     from . import levels  # the level summaries change with the answer, in the same transaction
 
+    details = ev.get("details") or {}
+    if details.get("first_try_limit") == 3:
+        if details.get("attempt_card") and (ev.get("tries") or 1) > 1:
+            # A retry can replace the earlier test result of this card.
+            levels.rebuild(c, area=ev["area"], mode=ev.get("mode"))
+            return eid
+        units = [
+            dict(r)
+            for r in c.execute("SELECT kind, expected, ok, try_n, help FROM practice_units WHERE event_id=?", (eid,))
+        ]
+    else:
+        units = [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows]
     levels.record(
         c,
         eid,
@@ -507,7 +519,7 @@ def add_event(ev: dict, c: Conn | None = None, ts: float | None = None, legacy: 
         ev.get("mode"),
         ev.get("ms"),
         ev.get("details"),
-        [{"kind": r[5], "expected": r[6], "ok": r[8], "try_n": r[10], "help": r[11]} for r in rows],
+        units,
     )
     return eid
 
@@ -610,13 +622,15 @@ def summary() -> dict:
     """Short totals for the home screen and for weighting the practice picks."""
     now = time.time()
     with conn() as c:
-        ev = c.execute("SELECT area, ok, ts, day FROM events").fetchall()
-        sym_rows = c.execute("SELECT area, expected, ok, help FROM units WHERE kind='symbol' AND try_n=0").fetchall()
+        ev = c.execute("SELECT area, ok, ts, day FROM practice_events").fetchall()
+        sym_rows = c.execute(
+            "SELECT area, expected, ok, help FROM practice_units WHERE kind='symbol' AND try_n=0"
+        ).fetchall()
         tone_rows = c.execute(
             "SELECT expected, ok FROM units WHERE kind='tone' AND area='speaking' AND ok IS NOT NULL"
         ).fetchall()
         rule_rows = c.execute(
-            "SELECT expected, ok, help FROM units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
+            "SELECT expected, ok, help FROM practice_units WHERE kind='sandhi' AND try_n=0 AND ok IS NOT NULL"
         ).fetchall()
         active = {r[0] for r in c.execute("SELECT day FROM days WHERE seconds > 0")}
         n_sent = c.execute("SELECT COUNT(*) FROM sentences").fetchone()[0]
@@ -663,11 +677,11 @@ def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
     """The recent tests of each item of one practice mode, oldest first: [time, 1 if right on the first try without help,
     1 if a hint or the cheat was used, 1 if right on the first try with or without help, the speaking score or None].
     The practice picks use them to schedule reviews (frontend/src/lib/review.ts). Only tests count: learn-mode answers
-    (the answer is shown on purpose) are left out, and in speaking only the first recording of a card counts.
+    (the answer is shown on purpose) are left out. New cards allow three attempts without hints.
     The help flag and the score let the learner's settings decide what counts as right (helpCounts, passScore)."""
     sql = (
-        "SELECT item, ts, COALESCE(first_try, ok) AS good, help, score FROM events WHERE area = ?"
-        " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1)"
+        "SELECT item, ts, COALESCE(first_try, ok) AS good, help, score FROM practice_events WHERE area = ?"
+        " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1 OR details::jsonb ->> 'first_try_limit' = '3')"
         " AND (details IS NULL OR details::jsonb ->> 'learn' IS NULL)"
     )
     args: list = [area]

@@ -2,6 +2,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Unit } from "@/lib/api";
+import { firstTry } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
@@ -98,18 +99,18 @@ export function WritingQuiz() {
   const finishCard = useCallback(
     (row: MoeRow, passed: boolean) => {
       const c = card.current;
-      const firstTry = passed && !c.cheated && c.tries === 0;
+      const first = firstTry(passed, c.cheated, c.tries);
       // In learn mode the strokes are shown: a right copy moves the symbol on, but it is not a test.
       review().answer(
         row.sym,
-        learn ? passed && c.tries === 0 : firstTry,
+        learn ? passed && c.tries === 0 : first,
         !learn,
-        !learn && passed && c.cheated && c.tries === 0,
+        !learn && passed && c.cheated && c.tries < 3,
       );
       setStats((s) => ({
         cards: s.cards + 1,
-        firstTry: s.firstTry + (firstTry ? 1 : 0),
-        streak: firstTry ? s.streak + 1 : 0,
+        firstTry: s.firstTry + (first ? 1 : 0),
+        streak: first ? s.streak + 1 : 0,
         right: s.right + (passed ? 1 : 0),
       }));
       const units: Unit[] = c.units.length
@@ -118,8 +119,8 @@ export function WritingQuiz() {
       api.event({
         area: "dictation",
         item: row.sym,
-        ok: firstTry,
-        first_try: firstTry,
+        ok: first,
+        first_try: first,
         ms: c.ms,
         tries: c.tries + (passed ? 1 : 0),
         help: c.cheated,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
@@ -30,6 +32,7 @@ def speech_analyze(
     step: str = Form("", max_length=16),
     help: str = Form("", max_length=8),
     try_n: str = Form("", max_length=8),
+    card_id: Annotated[str, Form(max_length=64)] = "",
     number: str = Form("", max_length=8),
 ):
     # Numbers mode: the learner sees digits. The text to check is always the characters of that number (Taiwan usage).
@@ -58,6 +61,7 @@ def speech_analyze(
         "step": int(step) if step.isdigit() else None,
         "help": help in ("1", "true"),
         "try_n": int(try_n) if try_n.isdigit() else 0,
+        "card_id": card_id,
     }
     if num is not None:
         # A spoken number gets no deep check: the deep check rewrites speaking answers only.

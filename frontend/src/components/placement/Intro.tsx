@@ -6,11 +6,11 @@ export function Intro({ alphabet, syllables, sentences }: { alphabet: boolean; s
   const parts: [string, string, string][] = [
     ...(alphabet
       ? [
-          ["ㄅ", "The symbols", "See each of the 37 symbols and type its sound in pinyin. One try each."] as [
-            string,
-            string,
-            string,
-          ],
+          [
+            "ㄅ",
+            "The symbols",
+            "See each of the 37 symbols and type its sound in pinyin. Up to 3 tries each without hints.",
+          ] as [string, string, string],
         ]
       : []),
     [

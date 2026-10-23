@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api, ttsUrl, type RuleId, type RulePhrase, type ToneRule } from "@/lib/api";
+import { firstTryResult } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, useFocus } from "@/lib/focus";
 import { ANSWER_KEYS, ANSWER_LETTERS, useHotkeys, type Hotkey } from "@/lib/hotkeys";
@@ -44,10 +45,12 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
   const [error, setError] = useState("");
   const [q, setQ] = useState<RulePhrase | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
+  const [misses, setMisses] = useState<number[]>([]);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAt = useRef(0);
   const replays = useRef(0);
+  const attempt = useRef({ cardId: "", tries: 0 });
   const focus = useFocus();
   const learn = useSearchParams().get("learn") === "1";
   const { review, ready } = useReview("listening", "rule");
@@ -74,6 +77,8 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
     const p = pool.find((x) => x.text === t) ?? pool[0];
     setQ(p);
     setPicked(null);
+    setMisses([]);
+    attempt.current = { cardId: crypto.randomUUID(), tries: 0 };
     shownAt.current = now();
     replays.current = 0;
     if (learn) playAudio(ttsUrl(p.text));
@@ -91,9 +96,12 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
 
   const choose = useCallback(
     (tone: number) => {
-      if (!q || picked !== null) return;
-      setPicked(tone);
+      if (!q || picked !== null || misses.includes(tone)) return;
+      const cur = attempt.current;
       const ok = tone === q.said;
+      const counted = learn ? ok : firstTryResult(ok, false, cur.tries);
+      if (counted !== null) setPicked(tone);
+      else setMisses((m) => [...m, tone]);
       // literal: picked the written tone where the rule changes it. over: changed 不 or 一 where the tone stays.
       const error = ok
         ? null
@@ -102,14 +110,17 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
           : !q.changes && q.rule !== "3-3"
             ? "over"
             : "other";
-      review().answer(q.text, ok, !learn);
-      setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
+      if (counted !== null) {
+        review().answer(q.text, counted, !learn);
+        setScore((s) => ({ n: s.n + 1, ok: s.ok + (counted ? 1 : 0), streak: counted ? s.streak + 1 : 0 }));
+      }
       api.event({
         area: "listening",
         mode: "rule",
         item: q.text,
         ok,
         first_try: ok && !learn,
+        tries: cur.tries + 1,
         ms: since(shownAt.current),
         replays: replays.current,
         help: learn,
@@ -122,17 +133,24 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
             ctx: q.char,
             lex: q.written,
             help: learn,
+            try_n: cur.tries,
             extra: { said: q.said, error, zhuyin: q.zhuyin },
           },
         ],
-        details: { picked: tone, focus: focus.active ? focus.label : undefined, learn: learn || undefined },
+        details: {
+          attempt_card: cur.cardId,
+          picked: tone,
+          focus: focus.active ? focus.label : undefined,
+          learn: learn || undefined,
+        },
       });
+      cur.tries += 1;
       playSfx(ok ? "right" : "wrong");
-      playAudio(ttsUrl(q.text));
+      if (counted !== null) playAudio(ttsUrl(q.text));
       // Right: move on by itself. Wrong: wait, so the learner can read the rule.
       if (ok) advance.current = setTimeout(next, learn ? 1400 : 1800);
     },
-    [q, picked, review, learn, focus, next],
+    [q, picked, misses, review, learn, focus, next],
   );
 
   useHotkeys("rules", [
@@ -226,12 +244,13 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
               const isAns = t === q.said,
                 show = picked !== null || learn;
               const isRight = show && isAns,
-                wrong = picked === t && !isAns;
+                wrong = misses.includes(t) || (picked === t && !isAns);
               const fx = picked === t ? fxClass(isAns ? "right" : "wrong") : "";
               return (
                 <button
                   key={t}
                   onClick={() => choose(t)}
+                  disabled={picked !== null || misses.includes(t)}
                   className={
                     "tile relative rounded-2xl border-2 px-4 pb-4 pt-6 md:pt-8 text-center transition " +
                     fx +
@@ -257,6 +276,11 @@ export function RuleQuiz({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: 
               );
             })}
           </div>
+          {picked === null && misses.length > 0 && (
+            <p role="status" className="text-bad">
+              Not quite. Try again.
+            </p>
+          )}
           {picked !== null && (
             <div className="flex flex-col items-center gap-2 max-md:hidden">
               <button className="btn" onClick={next}>

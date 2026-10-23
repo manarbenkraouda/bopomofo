@@ -29,7 +29,7 @@ def alphabet_status() -> dict:
     are repetitions only: they are not tests, so they do not count for or against "known"."""
     rows = store.query(
         "SELECT u.area, u.kind, u.expected, u.ok, u.help, u.try_n, (e.details::jsonb -> 'learn') AS learn"
-        " FROM units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND ((u.kind='symbol'"
+        " FROM practice_units u JOIN events e ON e.id = u.event_id WHERE u.ok IS NOT NULL AND ((u.kind='symbol'"
         " AND u.area IN ('reading','recognize','dictation','writing')) OR (u.kind IN ('initial','final') AND u.area='listening'))"
         " ORDER BY u.ts, u.id"
     )

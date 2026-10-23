@@ -31,11 +31,12 @@ def digest(lv: dict | None = None) -> dict:
     d45 = (today - timedelta(days=44)).isoformat()
     units = store.query(
         "SELECT u.event_id, u.day, u.area, u.kind, u.expected, u.actual, u.ok, u.pos, u.try_n, u.help, u.ctx, u.lex, u.prev, u.next, e.legacy"
-        " FROM units u JOIN events e ON e.id = u.event_id WHERE u.day>=?",
+        " FROM practice_units u JOIN events e ON e.id = u.event_id WHERE u.day>=?",
         (d45,),
     )
     events = store.query(
-        "SELECT id, ts, day, area, mode, item, ok, help, score, legacy FROM events WHERE day>=? ORDER BY ts", (d45,)
+        "SELECT id, ts, day, area, mode, item, ok, help, score, legacy FROM practice_events WHERE day>=? ORDER BY ts",
+        (d45,),
     )
     saved = {r["day"]: r["seconds"] for r in store.query("SELECT day, seconds FROM days")}
     secs = stats._seconds_by_day(store.query("SELECT ts, day FROM events ORDER BY ts"), saved)

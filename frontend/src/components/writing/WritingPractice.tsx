@@ -6,6 +6,7 @@ import { Burst, FxFrame, StatusPill, type FxStatus } from "@/components/quiz/Fee
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
 import { api, type Unit } from "@/lib/api";
+import { firstTry, firstTryResult } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, matches, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
@@ -68,6 +69,7 @@ export function WritingPractice() {
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAt = useRef(0);
   const replays = useRef(0);
+  const attempt = useRef({ cardId: "", tries: 0, helped: false });
   const focus = useFocus();
   const modeParam = useSearchParams().get("mode");
   // The card order: all the items, repeated at growing gaps, and reviews when they are due (lib/review.ts).
@@ -166,10 +168,12 @@ export function WritingPractice() {
     setStrokes([]);
     setGraded(null);
     setRevealed(false);
+    setMsg("");
+    attempt.current = { cardId: crypto.randomUUID(), tries: 0, helped: guide };
     shownAt.current = now();
     replays.current = 0;
     if (it) playAudio(it.audio);
-  }, [pick]);
+  }, [pick, guide]);
   useEffect(() => {
     if (data && ready && (mode !== "word" || words)) next();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -213,22 +217,30 @@ export function WritingPractice() {
         SYMBOLS,
         withTone,
       );
-      setGraded(res);
-      setRevealed(reveal);
-      setAnim(Date.now());
+      const cur = attempt.current;
+      const help = reveal || cur.helped;
       const ok = !reveal && res.every((r) => r.nearly);
       const perfect = !reveal && res.every((r) => r.ok);
+      const counted = firstTryResult(ok, help, cur.tries);
+      if (counted !== null) {
+        setGraded(res);
+        setRevealed(reveal);
+        setAnim(Date.now());
+        setStats((s) => ({ done: s.done + 1, ok: s.ok + (counted ? 1 : 0), streak: counted ? s.streak + 1 : 0 }));
+        review().answer(itemKey(item), counted, true, ok && help && cur.tries < 3);
+      } else {
+        setMsg("Not quite. Try again.");
+        setStrokes([]);
+      }
       if (!reveal) playSfx(perfect ? "right" : ok ? "close" : "wrong");
       setFxKey((k) => k + 1);
       // A perfect answer moves on by itself; otherwise take the time to read the corrections.
       if (perfect) advance.current = setTimeout(next, 1400);
-      setStats((s) => ({ done: s.done + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
-      review().answer(itemKey(item), ok);
       // Save every part: the symbol each written shape looked like and its strokes, omitted and extra symbols (∅), and the tone mark as a tone number.
       const units: Unit[] = res.flatMap((r, gi) => {
         const toneOne = !splitZhuyin(item.groups[gi].zhuyin).tone;
         return r.rows.flatMap((x, si): Unit[] => {
-          const base = { pos: gi * 10 + si, help: reveal };
+          const base = { pos: gi * 10 + si, help, try_n: cur.tries };
           if (x.kind === "tone-ok") return [{ ...base, kind: "tone", expected: 1, actual: 1, ok: true }];
           if (x.kind === "extra" && x.tone && toneOne)
             return [
@@ -274,13 +286,21 @@ export function WritingPractice() {
         mode,
         item: itemKey(item),
         ok,
-        first_try: ok,
+        first_try: firstTry(ok, help, cur.tries),
+        tries: cur.tries + 1,
         ms: since(shownAt.current),
-        help: reveal,
+        help,
         replays: replays.current,
         units,
-        details: { perfect, sheet: true, shapes: clusters.length, focus: focus.active ? focus.label : undefined },
+        details: {
+          attempt_card: cur.cardId,
+          perfect,
+          sheet: true,
+          shapes: clusters.length,
+          focus: focus.active ? focus.label : undefined,
+        },
       });
+      cur.tries += 1;
     },
     [item, T, graded, strokes, clusters, SYMBOLS, withTone, mode, next, focus, review],
   );
@@ -294,6 +314,10 @@ export function WritingPractice() {
     if (!graded) replays.current += 1;
     playAudio(item.audio);
   };
+  const toggleGuide = () => {
+    if (!guide) attempt.current.helped = true;
+    setGuide(!guide);
+  };
   useHotkeys("writing", [
     { keys: ["Enter"], label: graded ? "Next" : "Check", run: () => (graded ? next() : check()), when: !!item },
     { keys: ["Space"], label: "Hear again", run: hear, when: !!item },
@@ -306,7 +330,7 @@ export function WritingPractice() {
       repeat: true,
     },
     { keys: ["Delete"], label: "Clear", run: () => setStrokes([]), when: !graded && strokes.length > 0 },
-    { keys: ["KeyT"], label: guide ? "Hide trace guide" : "Trace guide", run: () => setGuide((v) => !v) },
+    { keys: ["KeyT"], label: guide ? "Hide trace guide" : "Trace guide", run: toggleGuide },
     { keys: ["KeyW"], label: "Watch the strokes again", run: () => setAnim(Date.now()), when: !!graded, bar: false },
     ...cycleKeys("Mode", modes.length ? modes : MODES, mode, switchMode, modes.length > 1),
   ]);
@@ -443,7 +467,7 @@ export function WritingPractice() {
             </button>
           ))}
         <FocusChip focus={focus} />
-        <button className="chip flex items-center gap-1.5" data-active={guide} onClick={() => setGuide(!guide)}>
+        <button className="chip flex items-center gap-1.5" data-active={guide} onClick={toggleGuide}>
           Trace guide <Kbd className="max-md:!hidden">T</Kbd>
         </button>
         <div className="ml-auto text-sm text-muted">

@@ -2,6 +2,7 @@
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type Unit } from "@/lib/api";
+import { firstTry } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, focusSymbols, useFocus } from "@/lib/focus";
 import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
@@ -98,18 +99,13 @@ export function RecognizeQuiz() {
       const c = card.current;
       if (!row || c.done) return;
       c.done = true;
-      const firstTry = ok && !c.revealed && c.tries === 0;
+      const first = firstTry(ok, c.revealed, c.tries);
       // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
-      review().answer(
-        row.sym,
-        learn ? ok && c.tries === 0 : firstTry,
-        !learn,
-        !learn && ok && c.revealed && c.tries === 0,
-      );
+      review().answer(row.sym, learn ? ok && c.tries === 0 : first, !learn, !learn && ok && c.revealed && c.tries < 3);
       setStats((s) => ({
         cards: s.cards + 1,
-        firstTry: s.firstTry + (firstTry ? 1 : 0),
-        streak: firstTry ? s.streak + 1 : 0,
+        firstTry: s.firstTry + (first ? 1 : 0),
+        streak: first ? s.streak + 1 : 0,
         right: s.right + (ok ? 1 : 0),
       }));
       // A skip without any try still says what happened: nothing was typed, and the answer was shown.
@@ -119,8 +115,8 @@ export function RecognizeQuiz() {
       api.event({
         area: "recognize",
         item: row.sym,
-        ok: firstTry,
-        first_try: firstTry,
+        ok: first,
+        first_try: first,
         ms: c.ms,
         tries: c.tries + (ok ? 1 : 0),
         help: c.revealed,

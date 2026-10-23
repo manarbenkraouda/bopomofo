@@ -26,6 +26,8 @@ import {
   type Band,
 } from "@/lib/numbers";
 import { playSfx } from "@/lib/sfx";
+import { FIRST_TRY_ATTEMPTS, firstTry, firstTryResult } from "@/lib/attempts";
+import { recordAttempt } from "@/lib/session";
 import { now, since } from "@/lib/track";
 import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
 import { PHONE, useViewport } from "@/lib/useFit";
@@ -44,8 +46,8 @@ const MODE_LABEL: Record<Mode, string> = { listen: "Listen", speak: "Speak" };
 const PASS = 80;
 // A new number differs from the last RECENT numbers, so a small size (0 to 10) still goes through all its numbers.
 const RECENT = 6;
-// Listen: wrong picks before the answer shows. With 4 choices, a third pick would be a guess between 2.
-const LISTEN_MISSES = 2;
+// Listen: keep the answer hidden throughout the first-try allowance.
+const LISTEN_MISSES = FIRST_TRY_ATTEMPTS;
 
 /** The focus numbers and bands of the open sizes only: a link or a coach step can ask for a size that is still locked. */
 function openFocus(focus: Focus, open: readonly Band[]) {
@@ -232,9 +234,15 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const shownAt = useRef(0);
   const replays = useRef(0);
   const recent = useRef<number[]>([]);
+  const attempt = useRef({ cardId: "", tries: 0, counted: false });
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
+    if (attempt.current.tries > 0 && !attempt.current.counted) {
+      setScore((s) => ({ ...s, n: s.n + 1, streak: 0 }));
+      recordAttempt("numbers", false);
+    }
+    attempt.current = { cardId: crypto.randomUUID(), tries: 0, counted: false };
     const n = pick(focus, recent.current, openRef.current, only);
     recent.current = [...recent.current, n].slice(-RECENT);
     setQ({ n, options: choices(n, openRef.current) });
@@ -262,37 +270,43 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
       if (advance.current) clearTimeout(advance.current);
       setPicked(o);
       const ok = o === q.n;
-      // The first pick is the test and the only one saved: later picks come after a wrong one was ruled out.
-      if (!wrong.length) {
-        const error = errorOf(q.n, o);
-        setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
-        // Save the number picked, so the stats can show which numbers are heard instead (14 for 40, 205 for 250).
-        api.event({
-          area: "numbers",
-          mode: "listen",
-          item: String(q.n),
-          ok,
-          first_try: ok,
-          ms: since(shownAt.current),
-          replays: replays.current,
-          units: [
-            {
-              kind: "number",
-              expected: String(q.n),
-              actual: String(o),
-              ok,
-              ctx: band(q.n),
-              extra: { hanzi: hanzi(q.n), error },
-            },
-          ],
-          details: {
-            options: q.options,
-            picked: o,
-            hanzi: hanzi(q.n),
-            focus: focus.active ? focus.label : undefined,
-          },
-        });
+      const cur = attempt.current;
+      const counted = cur.counted ? null : firstTryResult(ok, false, cur.tries);
+      if (counted !== null) {
+        cur.counted = true;
+        setScore((s) => ({ n: s.n + 1, ok: s.ok + (counted ? 1 : 0), streak: counted ? s.streak + 1 : 0 }));
       }
+      const error = errorOf(q.n, o);
+      // Save the number picked, so the stats can show which numbers are heard instead (14 for 40, 205 for 250).
+      api.event({
+        area: "numbers",
+        mode: "listen",
+        item: String(q.n),
+        ok,
+        first_try: firstTry(ok, false, cur.tries),
+        tries: cur.tries + 1,
+        ms: since(shownAt.current),
+        replays: replays.current,
+        units: [
+          {
+            kind: "number",
+            expected: String(q.n),
+            actual: String(o),
+            ok,
+            try_n: cur.tries,
+            ctx: band(q.n),
+            extra: { hanzi: hanzi(q.n), error },
+          },
+        ],
+        details: {
+          attempt_card: cur.cardId,
+          options: q.options,
+          picked: o,
+          hanzi: hanzi(q.n),
+          focus: focus.active ? focus.label : undefined,
+        },
+      });
+      cur.tries += 1;
       playSfx(ok ? "right" : "wrong");
       if (ok) {
         setDone(true);
@@ -317,6 +331,11 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const showAnswer = () => {
     if (!q || done) return;
     if (advance.current) clearTimeout(advance.current);
+    if (!attempt.current.counted) {
+      attempt.current.counted = true;
+      setScore((s) => ({ ...s, n: s.n + 1, streak: 0 }));
+      recordAttempt("numbers", false);
+    }
     setDone(true);
     playAudio(ttsUrl(hanzi(q.n)));
   };
@@ -466,6 +485,8 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   // misses: recordings in a row without help that did not pass. sound: one of them had a sound heard wrong.
   const blank = {
     n: null as number | null,
+    cardId: "",
+    counted: false,
     helped: false,
     tries: 0,
     misses: 0,
@@ -494,9 +515,14 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
+    const prev = current.current;
+    if (prev.tries > 0 && !prev.counted) {
+      setScore((s) => ({ ...s, n: s.n + 1, streak: 0 }));
+      recordAttempt("numbers", false);
+    }
     const x = pick(focus, recent.current, openRef.current, only);
     recent.current = [...recent.current, x].slice(-RECENT);
-    current.current = { ...blank, n: x, eventIds: [] };
+    current.current = { ...blank, n: x, cardId: crypto.randomUUID(), eventIds: [] };
     setN(x);
     setResult(null);
     setHelped(false);
@@ -526,20 +552,24 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
           help: cur.helped,
           tryN: cur.tries,
           number: asked,
+          cardId: cur.cardId,
         });
-        if (current.current.n !== asked) return;
+        if (current.current.cardId !== cur.cardId) return;
         const ok = r.score >= PASS;
-        // The score counts the first try of each number only, like the stats.
-        if (cur.tries === 0)
+        const counted = cur.counted ? null : firstTryResult(ok, cur.helped, cur.tries);
+        if (counted !== null) {
           setScore((s) => ({
             n: s.n + 1,
-            ok: s.ok + (ok && !cur.helped ? 1 : 0),
-            streak: ok && !cur.helped ? s.streak + 1 : 0,
+            ok: s.ok + (counted ? 1 : 0),
+            streak: counted ? s.streak + 1 : 0,
           }));
+          recordAttempt("numbers", counted);
+        }
         const miss = !ok && !cur.helped;
         const after = {
           ...cur,
           tries: cur.tries + 1,
+          counted: cur.counted || counted !== null,
           misses: miss ? cur.misses + 1 : cur.misses,
           sound: cur.sound || (miss && soundMiss(r)),
           eventIds: r.event_id ? [...cur.eventIds, r.event_id] : cur.eventIds,

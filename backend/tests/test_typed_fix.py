@@ -13,7 +13,7 @@ def _db(pg):
 SYL = {"char": "破", "zhuyin": "ㄆㄛˋ", "initial": "ㄆ", "final": "ㄛ", "tone": 4, "surface_tone": 4}
 
 
-def miss(heard_initial="ㄅ", tone_ok=True, try_n=0, help=False) -> int:
+def miss(heard_initial="ㄅ", tone_ok=True, try_n=0, help=False, card_id="") -> int:
     """One recording of 破 where the model heard another initial."""
     res = {
         "score": 40,
@@ -32,7 +32,7 @@ def miss(heard_initial="ㄅ", tone_ok=True, try_n=0, help=False) -> int:
             }
         ],
     }
-    return stats.log_speaking("破", res, "syllable", help=help, try_n=try_n)
+    return stats.log_speaking("破", res, "syllable", help=help, try_n=try_n, card_id=card_id)
 
 
 def units(eid):
@@ -63,14 +63,14 @@ def test_parse_syllable():
 
 
 def test_match_fixes_the_sounds_and_keeps_the_tones():
-    ids = [miss(try_n=0), miss(try_n=1), miss(tone_ok=False, try_n=2)]
+    ids = [miss(try_n=0, card_id="card"), miss(try_n=1, card_id="card"), miss(tone_ok=False, try_n=2, card_id="card")]
     out = typed_fix.confirm_speaking(ids, "po")
     assert out["match"] and out["fixed"] == 3
     u = units(ids[0])
     assert u["initial"]["ok"] == 1 and u["initial"]["actual"] == "ㄆ" and u["initial"]["source"] == "typed"
     assert '"heard": "ㄅ"' in u["initial"]["extra"] and u["syllable"]["ok"] == 1
     assert event(ids[0])["ok"] == 1 and event(ids[0])["first_try"] == 1 and "typed_fix" in event(ids[0])["details"]
-    assert event(ids[1])["ok"] == 1 and event(ids[1])["first_try"] == 0
+    assert event(ids[1])["ok"] == 1 and event(ids[1])["first_try"] == 1
     # The third recording also had a wrong tone: the tone stays wrong, so the answer stays wrong.
     assert units(ids[2])["tone"]["ok"] == 0 and event(ids[2])["ok"] == 0
 
@@ -149,7 +149,7 @@ def test_reading_typed_units_count_as_pairs():
     ]
 
 
-def number_miss(try_n=0, tone_ok=True) -> int:
+def number_miss(try_n=0, tone_ok=True, card_id="") -> int:
     """One recording of 14 (十四) where the model heard ㄙ for the ㄕ of 十."""
     sy = [
         {
@@ -167,7 +167,7 @@ def number_miss(try_n=0, tone_ok=True) -> int:
             "tone_ok": tone_ok,
         },
     ]
-    return stats.log_number_speech(14, {"score": 50, "syllables": sy}, try_n=try_n)
+    return stats.log_number_speech(14, {"score": 50, "syllables": sy}, try_n=try_n, card_id=card_id)
 
 
 def number_unit(eid):
@@ -191,7 +191,11 @@ def test_parse_syllables_reads_bopomofo_and_pinyin():
 
 
 def test_number_match_fixes_the_sounds_and_the_number():
-    ids = [number_miss(try_n=0), number_miss(try_n=1), number_miss(try_n=2, tone_ok=False)]
+    ids = [
+        number_miss(try_n=0, card_id="card"),
+        number_miss(try_n=1, card_id="card"),
+        number_miss(try_n=2, tone_ok=False, card_id="card"),
+    ]
     out = typed_fix.confirm(ids, "ㄕˊ ㄙˋ")
     assert out["match"] and out["fixed"] == 3
     assert event(ids[0])["ok"] == 1 and event(ids[0])["first_try"] == 1

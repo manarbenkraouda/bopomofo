@@ -8,6 +8,7 @@ import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
 import { ZhuyinText } from "@/components/ZhuyinText";
 import { api, ttsUrl, type Health, type RulePhrase, type Sentence, type SpeechResult } from "@/lib/api";
+import { firstTryResult } from "@/lib/attempts";
 import { playAudio } from "@/lib/audio";
 import { correctedScore, pollDeepCheck } from "@/lib/deepCheck";
 import { FocusChip, matches, useFocus } from "@/lib/focus";
@@ -15,6 +16,7 @@ import { cycleKeys, useHotkeys } from "@/lib/hotkeys";
 import { useLevels } from "@/lib/levels";
 import { useReview } from "@/lib/review";
 import { playSfx } from "@/lib/sfx";
+import { recordAttempt } from "@/lib/session";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
 import { loadData, syllableAudio, type SyllableItem } from "@/lib/zhuyin";
@@ -84,7 +86,16 @@ export function SpeakingPractice() {
   const loadId = useRef(0);
   // The card in progress: the cheat and the number of recordings already checked, for the stats.
   // eventIds: the saved recordings of this card. misses: recordings without the cheat where a sound was heard wrong.
-  const meta = useRef({ card: null as Card | null, cheat: false, tries: 0, eventIds: [] as number[], misses: 0 });
+  const meta = useRef({
+    card: null as Card | null,
+    cardId: "",
+    cheat: false,
+    tries: 0,
+    eventIds: [] as number[],
+    misses: 0,
+    counted: false,
+    reviewed: false,
+  });
   // The answer on screen (its saved event id). A deep check result only changes the card when it is about this answer.
   const shown = useRef<number | null>(null);
   const alive = useRef(true);
@@ -153,7 +164,16 @@ export function SpeakingPractice() {
   };
   const show = useCallback((c: Card | null) => {
     clearRecording();
-    meta.current = { card: c, cheat: false, tries: 0, eventIds: [], misses: 0 };
+    meta.current = {
+      card: c,
+      cardId: crypto.randomUUID(),
+      cheat: false,
+      tries: 0,
+      eventIds: [],
+      misses: 0,
+      counted: false,
+      reviewed: false,
+    };
     setCheated(false);
     setTypedCheck("none");
     setTypedNote("");
@@ -280,7 +300,17 @@ export function SpeakingPractice() {
   const next = () => {
     if (rec !== "idle") return;
     // A card left without a recording comes back a little later; its memory does not change.
-    if (source !== "custom" && card && meta.current.tries === 0) review().skip(card.text);
+    const m = meta.current;
+    if (source !== "custom" && card && !m.reviewed) {
+      if (m.tries === 0) review().skip(card.text);
+      else review().answer(card.text, false);
+      m.reviewed = true;
+    }
+    if (m.tries > 0 && !m.counted) {
+      m.counted = true;
+      setSession((s) => ({ ...s, streak: 0 }));
+      recordAttempt("speaking", false);
+    }
     if (source === "sentence" && sentences.length) {
       const s = nextSentence();
       if (s) show(sentenceCard(s));
@@ -317,13 +347,20 @@ export function SpeakingPractice() {
     if (!m.card) return;
     const c = m.card;
     try {
-      const r = await api.speech(audio, c.text, source, { help: m.cheat, tryN: m.tries });
+      const r = await api.speech(audio, c.text, source, { help: m.cheat, tryN: m.tries, cardId: m.cardId });
       if (meta.current.card !== c) return;
-      // The first recording of a card is the test: a score at the learner's pass score moves it on in the schedule.
-      // With the cheat it counts only when the learner allows help (helpCounts).
-      if (m.tries === 0 && source !== "custom") {
-        const pass = r.score >= review().cfg.passScore;
-        review().answer(c.text, pass && !m.cheat, true, pass && m.cheat);
+      // Settle the review once, after a pass, help, or the third attempt.
+      const pass = r.score >= review().cfg.passScore;
+      const reviewed = firstTryResult(pass, m.cheat, m.tries);
+      if (!m.reviewed && reviewed !== null && source !== "custom") {
+        review().answer(c.text, reviewed, true, pass && m.cheat && m.tries < 3);
+        m.reviewed = true;
+      }
+      const g = grade(r.score);
+      const counted = m.counted ? null : firstTryResult(g === "right", m.cheat, m.tries);
+      if (counted !== null) {
+        m.counted = true;
+        recordAttempt("speaking", counted);
       }
       m.tries += 1;
       if (r.event_id) m.eventIds.push(r.event_id);
@@ -334,10 +371,13 @@ export function SpeakingPractice() {
       setResult(r);
       shown.current = r.event_id ?? null;
       if (r.event_id && r.deep_check === "queued") void pollDeep(r.event_id, c);
-      const g = grade(r.score);
       playSfx(g === "right" ? "right" : g === "close" ? "close" : "wrong");
       setFxKey((k) => k + 1);
-      setSession((s) => ({ n: s.n + 1, sum: s.sum + r.score, streak: g === "right" ? s.streak + 1 : 0 }));
+      setSession((s) => ({
+        n: s.n + 1,
+        sum: s.sum + r.score,
+        streak: counted === null ? s.streak : counted ? s.streak + 1 : 0,
+      }));
       api
         .health()
         .then(setHealth)
@@ -477,6 +517,7 @@ export function SpeakingPractice() {
             : "Read it aloud";
   const tone = result && rec === "idle" ? (fx === "right" ? "ok" : fx === "close" ? "close" : "bad") : null;
   const avg = session.n ? Math.round(session.sum / session.n) : 0;
+  const showRuleAnswer = cheated || (!!result && meta.current.counted);
 
   return (
     <div className="flex flex-1 flex-col gap-4">
@@ -598,12 +639,12 @@ export function SpeakingPractice() {
             )}
             {card.english && <div className="text-muted">{card.english}</div>}
           </div>
-          {/* The rule drill tests the rule: its answer shows after the cheat or the check. Everywhere else, tone changes show before recording. */}
-          {(source !== "rule" || cheated || result) && <ToneChanges items={card.items} />}
-          {card.rule && ruleData && (cheated || result) && (
+          {/* Keep the rule answer hidden during the retries that still earn first-try credit. */}
+          {(source !== "rule" || showRuleAnswer) && <ToneChanges items={card.items} />}
+          {card.rule && ruleData && showRuleAnswer && (
             <div className="text-sm text-muted text-center max-w-xl cjk">{ruleLine(card.rule, ruleData.rules)}</div>
           )}
-          {card.rule && !cheated && !result && (
+          {card.rule && !showRuleAnswer && (
             <div className="text-sm text-muted text-center max-w-xl">
               Say it with the tone rules: the Bopomofo shows the written tone.
             </div>
@@ -764,7 +805,9 @@ export function SpeakingPractice() {
         </div>
       )}
 
-      {result && card && <ResultView key={fxKey} result={result} onHear={hearSyllable} />}
+      {result && card && (source !== "rule" || showRuleAnswer) && (
+        <ResultView key={fxKey} result={result} onHear={hearSyllable} />
+      )}
       {ruleData && (source === "rule" || (card && changed(card.items).length > 0)) && (
         <RulesGuide rules={ruleData.rules} />
       )}
