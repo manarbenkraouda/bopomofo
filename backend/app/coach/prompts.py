@@ -148,12 +148,21 @@ def level_rule(op: dict, task: str = "plan") -> str:
         if op.get("open_level", op["level"]) > op["level"]
         else ""
     )
+    nums = op.get("number_bands") or {}
+    sizes = (
+        " Number sizes open one at a time, smallest first, per mode: only these sizes are open:"
+        + "; ".join(f" {m}: {', '.join(v)}" for m, v in nums.items() if f"numbers/{m}" in op["exercises"])
+        + ". A numbers step uses only open sizes in bands and nums; locked sizes are removed."
+        " overview.level.number_sizes says what opens the next size: train the newest open size until then."
+        if any(f"numbers/{m}" in op["exercises"] for m in nums)
+        else ""
+    )
     return (
         f"\nLevel rule (overview.level): the learner is at level {op['level']} of {levels.MAX_LEVEL} and has unlocked only these exercises: {open_ex}."
         f" Use only these step types: {', '.join(levels.allowed_types(op))}. Any other step type is removed.{syms}{chosen}"
         " A level opens when its items are known: right on the first try, fast, on more than one day."
         " overview.level.next_level lists what is still missing: steps that train those items move the learner up."
-        " overview.level.dropped lists known items that slipped: the app adds a review step for them itself."
+        " overview.level.dropped lists known items that slipped: the app adds a review step for them itself." + sizes
     )
 
 

@@ -135,8 +135,9 @@ def milestone_menu(d: dict) -> list[dict]:
             "last_50_avg": milestone_progress({**c, "window": 50})["value"],
         }
     )
-    # Numbers: one entry for every number, and one per size the learner has practiced.
-    sizes = sorted({b["band"] for b in (d.get("numbers") or {}).get("by_size") or []})
+    # Numbers: one entry for every number, and one per open size the learner has practiced.
+    open_sizes = {b for v in levels.open_number_bands().values() for b in v}
+    sizes = sorted({b["band"] for b in (d.get("numbers") or {}).get("by_size") or []} & open_sizes)
     for exp in ([], *([s] for s in sizes)):
         c = {"area": "numbers", "unit": "number", "expected": exp, "min_acc": 90, "window": 30}
         a, b = milestone_progress(c), milestone_progress({**c, "window": 60})

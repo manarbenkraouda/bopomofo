@@ -186,3 +186,69 @@ def test_numbers_step_counts_only_its_own_numbers(tmpdb):
     assert coach.progress.step_progress(coach.store.step(st["id"])) == {"progress": 1, "tried": 2, "right": 1}
     c = {"area": "numbers", "unit": "number", "expected": ["11-99"], "min_acc": 50, "window": 3}
     assert coach.progress.milestone_progress(c) == {"n": 3, "value": 66.7, "reached": True}
+
+
+@pytest.fixture()
+def fresh(pg, monkeypatch):
+    """A new learner: every level open, but no number size beyond 0-10."""
+    monkeypatch.setattr(coach.settings, "LIVE", False)
+    monkeypatch.setattr(coach.settings, "ALPHABET_GATE", 0)
+    monkeypatch.setattr(coach.settings, "RULES_GATE", False)
+    with db.conn() as c:
+        for n in range(2, levels.MAX_LEVEL + 1):
+            c.execute("INSERT INTO level_unlocks(key, ts) VALUES (?, 1) ON CONFLICT DO NOTHING", (f"level:{n}",))
+
+
+def test_number_sizes_open_one_at_a_time(fresh):
+    assert levels.opened()["number_bands"] == {"listen": ["0-10"], "speak": ["0-10"]}
+    for i in range(14):
+        listen(i % 11, i % 11)
+    st = levels.check()
+    assert st["numbers"]["listen"][0] == {"band": "0-10", "open": True, "known": False, "tests": 14, "acc": 100}
+    assert not st["numbers"]["listen"][1]["open"]
+    listen(7, 7)  # 15 first tries, all right: 0-10 is known
+    st = levels.check()
+    assert levels.opened()["number_bands"] == {"listen": ["0-10", "11-99"], "speak": ["0-10"]}
+    assert [n["title"] for n in st["notices"] if n["key"] == "numbers:listen:11-99"] == ["New numbers: 11 to 99"]
+    view = levels.coach_view(st)["number_sizes"]["listen"]
+    assert view["open"] == ["0-10", "11-99"] and view["next"] == "100-999" and view["newest_tests"] == 0
+
+
+def test_a_known_bigger_size_opens_the_sizes_up_to_the_next_one(fresh):
+    for i in range(15):
+        listen(100 + i, 100 + i if i else 101)  # 14 of 15 right: 93%
+    levels.check()
+    assert levels.opened()["number_bands"]["listen"] == ["0-10", "11-99", "100-999", "1000-9999"]
+
+
+def test_coach_steps_and_milestones_keep_to_the_open_sizes(fresh):
+    op = levels.opened()
+    s = coach.cleaning.clean_step(
+        {"type": "numbers", "mode": "listen", "bands": ["10000+"], "nums": [76729], "target": 12}, set(), op=op
+    )
+    assert s["params"] == {"mode": "listen", "bands": ["0-10"], "nums": []}
+    s = coach.cleaning.clean_step(
+        {"type": "numbers", "mode": "listen", "bands": ["0-10", "11-99"], "nums": [4, 40], "target": 12}, set(), op=op
+    )
+    assert s["params"] == {"mode": "listen", "bands": ["0-10"], "nums": [4]}
+    # A step saved before the ladder, on a locked size only, cannot be measured: refresh closes it.
+    assert not levels.step_allowed("numbers", {"mode": "listen", "bands": ["10000+"], "nums": []}, op)
+    assert levels.step_allowed("numbers", {"mode": "listen", "bands": [], "nums": [7]}, op)
+    m = {"title": "t", "area": "numbers", "unit": "number", "expected": ["10000+"], "min_acc": 90, "window": 20}
+    assert coach.cleaning.clean_milestone(m) is None
+    assert coach.cleaning.clean_milestone({**m, "expected": ["0-10"]})["criterion"]["expected"] == ["0-10"]
+    assert "listen: 0-10" in coach.prompts.level_rule(op)
+
+
+def test_challenges_skip_locked_sizes(fresh):
+    import datetime
+
+    for _ in range(6):
+        listen(76729, 76728)
+    tomorrow = db.local_today() + datetime.timedelta(days=1)
+    assert not [c for c in stats.challenges(tomorrow) if c["id"].startswith("numbers-")]
+    for _ in range(6):
+        listen(7, 1)
+    assert [c["href"] for c in stats.challenges(tomorrow) if c["id"].startswith("numbers-")] == [
+        "/numbers?mode=listen&bands=0-10"
+    ]

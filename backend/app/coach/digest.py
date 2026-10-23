@@ -19,7 +19,12 @@ from .settings import BOPOMOFO, LEARN_REPS, MEASURES, SYMS
 def digest(lv: dict | None = None) -> dict:
     """lv: the level status (levels.check() or levels.status()). Read here when not given."""
     lv = lv or levels.status()
-    op = {"level": lv["level"], "exercises": lv["exercises"], "symbols": lv["symbols"]}
+    op = {
+        "level": lv["level"],
+        "exercises": lv["exercises"],
+        "symbols": lv["symbols"],
+        "number_bands": {m: [r["band"] for r in rows if r["open"]] for m, rows in (lv.get("numbers") or {}).items()},
+    }
     today = db.local_today()
     d7 = (today - timedelta(days=6)).isoformat()
     d14 = (today - timedelta(days=13)).isoformat()

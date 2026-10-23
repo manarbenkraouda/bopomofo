@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from .. import characters, db, levels
-from ..numbers import BANDS, MAX
+from ..numbers import BANDS, MAX, band
 from ..zhuyin import RULES
 from . import validate
 from .settings import DEFAULT_TARGET, MAX_SENTENCES, SYMBOL_TYPES, TYPES
@@ -91,16 +91,22 @@ def clean_step(s: dict, known_texts: set[str], scale: float = 1.0, op: dict | No
                 return None
         elif t == "numbers":
             src = s.get("params") if isinstance(s.get("params"), dict) else s
+            mode = "speak" if src.get("mode") == "speak" else "listen"
+            # Only the open sizes of the ladder (levels.number_bands): a learner who does not know 0-10 gets no 76,729.
+            sizes = levels.open_number_bands(op).get(mode) or [BANDS[0]]
             nums = []
             for x in src.get("nums") or []:
                 v = validate.integer(x, -1, MAX + 1, -1) if not isinstance(x, bool) else -1
-                if 0 <= v <= MAX and v not in nums:
+                if 0 <= v <= MAX and v not in nums and band(v) in sizes:
                     nums.append(v)
+            asked = bool(src.get("bands") or src.get("nums"))
             p = {
-                "mode": "speak" if src.get("mode") == "speak" else "listen",
-                "bands": [b for b in dict.fromkeys(str(x) for x in (src.get("bands") or [])) if b in BANDS],
+                "mode": mode,
+                "bands": [b for b in dict.fromkeys(str(x) for x in (src.get("bands") or [])) if b in sizes],
                 "nums": nums[:12],
             }
+            if asked and not p["bands"] and not p["nums"]:
+                p["bands"] = [sizes[-1]]  # every size asked is locked: train the newest open size, which opens the next
             if not levels.step_allowed(t, p, op):
                 return None
         elif t == "characters":
@@ -151,8 +157,12 @@ def clean_milestone(m: dict) -> dict | None:
         if m["area"] not in ("listening", "speaking"):
             return None
     elif unit == "number":
-        # A number milestone counts the size bands in "expected"; empty = every number.
-        exp = [b for b in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if b in BANDS]
+        # A number milestone counts the size bands in "expected"; empty = every number. Only open sizes can be measured.
+        sizes = {b for v in levels.open_number_bands().values() for b in v}
+        asked = [b for b in dict.fromkeys(str(x) for x in (m.get("expected") or [])) if b in BANDS]
+        exp = [b for b in asked if b in sizes]
+        if asked and not exp:
+            return None
         if m["area"] != "numbers":
             return None
     elif unit == "char":

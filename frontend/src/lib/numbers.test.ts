@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { band, BANDS, choices, errorOf, hanzi, randomIn } from "./numbers";
+import { band, BANDS, choices, errorOf, hanzi, ladderBand, randomIn } from "./numbers";
 
 // The same cases as backend/tests/test_numbers.py: the two copies of the rules must agree.
 const SAID: [number, string][] = [
@@ -55,4 +55,23 @@ test("a random number stays in its band and has four different choices", () => {
       expect(new Set(c).size).toBe(4);
       expect(c).toContain(n);
     }
+});
+
+test("a learner who knows only 0-10 gets only numbers and choices from 0 to 10", () => {
+  for (let i = 0; i < 200; i++) {
+    const n = randomIn(ladderBand(["0-10"]));
+    const c = choices(n, ["0-10"]);
+    expect(c).toHaveLength(4);
+    expect(c.every((x) => x <= 10)).toBe(true);
+  }
+});
+
+test("the ladder asks the newest open size most, and the sizes before it as a review", () => {
+  const seen: Record<string, number> = {};
+  for (let i = 0; i < 2000; i++) {
+    const b = ladderBand(["0-10", "11-99", "100-999"]);
+    seen[b] = (seen[b] ?? 0) + 1;
+  }
+  expect(Object.keys(seen).sort()).toEqual(["0-10", "100-999", "11-99"]);
+  expect(seen["100-999"]).toBeGreaterThan(1000);
 });

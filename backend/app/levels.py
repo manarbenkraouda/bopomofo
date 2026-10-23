@@ -222,6 +222,21 @@ CHAPTER_MODES = ["reading", "recognize"]
 # "two days" rule for the alphabet: accuracy and speed still count.
 PLACEMENT_MODES = {"reading", "recognize", "dictation", "writing/symbol"}
 
+# Numbers come in sizes, smallest first (numbers.BANDS: 0-10, 11-99, the hundreds, the thousands, 萬 and up). Each number
+# exercise climbs its own ladder: 0-10 is always open, and the next size opens when the newest open size is known. A learner
+# who does not know the digits cannot use 76,729: the place words (十 百 千 萬) and 零 only make sense on top of the digits.
+# "Known": at least LADDER[ex][0] first tries of that size, and LADDER[ex][1] percent right in the last tests of the exercise
+# window (20 by ear, 10 said). A size already known from earlier answers opens every size up to the one after it.
+NUMBER_EXERCISES = {"listen": "numbers/listen", "speak": "numbers/speak"}
+LADDER = {"numbers/listen": (15, 90), "numbers/speak": (8, 85)}
+BAND_NAME = {
+    "0-10": "0 to 10",
+    "11-99": "11 to 99",
+    "100-999": "the hundreds",
+    "1000-9999": "the thousands",
+    "10000+": "萬 and up",
+}
+
 # Coach step types and the exercise each one needs. speak_sounds depends on its source.
 STEP_EXERCISE = {
     "read_symbols": "reading",
@@ -309,14 +324,43 @@ def _open_symbols(keys, level: int) -> str:
     return out
 
 
+def _band_known(s: dict | None, ex: str) -> bool:
+    tests, acc = LADDER[ex]
+    return bool(s) and s["tests"] >= tests and (s["acc"] or 0) >= acc
+
+
+def number_bands(keys) -> dict[str, list[str]]:
+    """The open number sizes of each mode (listen, speak), smallest first. The sizes open in order."""
+    out = {}
+    for mode in NUMBER_EXERCISES:
+        bands = [BANDS[0]]
+        for b in BANDS[1:]:
+            if f"numbers:{mode}:{b}" not in keys:
+                break
+            bands.append(b)
+        out[mode] = bands
+    return out
+
+
 def opened(keys: dict | None = None, manual: int | None = None) -> dict:
-    """The earned level, the open level, the open exercises, and the open symbols.
+    """The earned level, the open level, the open exercises, the open symbols, and the open number sizes.
     level: from the saved unlocks only. open_level: the higher of level and the Settings override (manual_level)."""
     keys = _unlock_keys() if keys is None else keys
     level = _level_of(keys)
     top = max(level, manual_level() if manual is None else manual)
     ex = [e for lv in LEVELS[:top] for e in lv["opens"]]
-    return {"level": level, "open_level": top, "exercises": ex, "symbols": _open_symbols(keys, top)}
+    return {
+        "level": level,
+        "open_level": top,
+        "exercises": ex,
+        "symbols": _open_symbols(keys, top),
+        "number_bands": number_bands(keys),
+    }
+
+
+def open_number_bands(op: dict | None = None) -> dict[str, list[str]]:
+    """The open number sizes per mode, from op when it has them (a partial op reads the saved unlocks)."""
+    return (op or {}).get("number_bands") or number_bands(_unlock_keys())
 
 
 def is_open(exercise: str | None, op: dict | None = None) -> bool:
@@ -334,8 +378,17 @@ def allowed_types(op: dict | None = None) -> list[str]:
 
 
 def step_allowed(step_type: str, params: dict | None, op: dict | None = None) -> bool:
-    """Check both the coach step type and its variant against the learner's unlocks."""
-    return is_open(step_exercise(step_type, params), op)
+    """Check both the coach step type and its variant against the learner's unlocks. A numbers step with a focus needs
+    at least one open size in it (a plan from before the number ladder can ask for 10000+)."""
+    if not is_open(step_exercise(step_type, params), op):
+        return False
+    p = params or {}
+    if step_type == "numbers" and (p.get("bands") or p.get("nums")):
+        sizes = open_number_bands(op).get("speak" if p.get("mode") == "speak" else "listen", [])
+        return any(b in sizes for b in p.get("bands") or []) or any(
+            isinstance(n, int) and 0 <= n <= 99_999_999 and number_band(n) in sizes for n in p.get("nums") or []
+        )
+    return True
 
 
 def milestone_exercises(c: dict) -> list[str]:
@@ -730,6 +783,28 @@ def check() -> dict:
                     f"New symbols: {name}",
                     "New symbols: " + " ".join(CHAPTERS[i][2]) + ".",
                 )
+        # Number sizes: open the size after the biggest known one, and every size below it.
+        for mode, ex in NUMBER_EXERCISES.items():
+            st = stars.get(ex, {})
+            known = [i for i, b in enumerate(BANDS) if _band_known(st.get("num:" + b), ex)]
+            top = min(max(known) + 1, len(BANDS) - 1) if known else 0
+            new = [b for b in BANDS[1 : top + 1] if f"numbers:{mode}:{b}" not in keys]
+            for b in new:
+                keys[f"numbers:{mode}:{b}"] = now
+                c.execute(
+                    "INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                    (f"numbers:{mode}:{b}", now),
+                )
+            if new:
+                b = new[-1]
+                before = BANDS[BANDS.index(b) - 1]
+                _notice(
+                    c,
+                    "unlock",
+                    f"numbers:{mode}:{b}",
+                    f"New numbers: {BAND_NAME[b]}",
+                    f"{EXERCISES[ex][0]}: you know {BAND_NAME[before]} well. Now {BAND_NAME[b]} come too.",
+                )
         # Known items: remember them, and notice when one drops or comes back.
         marks = {
             (r["exercise"], r["item"]): r
@@ -814,6 +889,20 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
         }
         for k, t, s in CHAPTERS
     ]
+    # The number ladder of each mode: every size, open or locked, with the tests and accuracy that open the next one.
+    nums = {}
+    for mode, ex in NUMBER_EXERCISES.items():
+        st = stars.get(ex, {})
+        nums[mode] = [
+            {
+                "band": b,
+                "open": b in op["number_bands"][mode],
+                "known": _band_known(st.get("num:" + b), ex),
+                "tests": (st.get("num:" + b) or {}).get("tests", 0),
+                "acc": (st.get("num:" + b) or {}).get("acc"),
+            }
+            for b in BANDS
+        ]
     return {
         "level": lv,
         "title": LEVELS[lv - 1]["title"],
@@ -821,6 +910,7 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
         "open_level": op["open_level"],
         "levels": levels,
         "chapters": chapters,
+        "numbers": nums,
         "exercises": op["exercises"],
         "symbols": op["symbols"],
         "step_types": allowed_types(op),
@@ -838,6 +928,7 @@ def status_from(stars: dict, keys: dict, drops: list[dict]) -> dict:
             "min_acc": {k: v[2].min_acc for k, v in EXERCISES.items() if v[2]},
             "window": {k: v[2].window for k, v in EXERCISES.items() if v[2]},
             "min_tests": {k: v[2].min_tests for k, v in EXERCISES.items() if v[2]},
+            "number_ladder": {ex: {"tests": t, "acc": a} for ex, (t, a) in LADDER.items()},
         },
     }
 
@@ -883,6 +974,24 @@ def mark_seen(ids: list[int]) -> None:
 def coach_view(st: dict) -> dict:
     """What the coach models get: the level, what is open, the next goals, and the known items that dropped."""
     nxt = st["next"]
+    sizes = {}
+    for mode, ex in NUMBER_EXERCISES.items():
+        if ex not in st["exercises"]:
+            continue
+        rows = st["numbers"][mode]
+        opn = [r["band"] for r in rows if r["open"]]
+        cur = rows[len(opn) - 1]
+        t, a = LADDER[ex]
+        sizes[mode] = {
+            "open": opn,
+            "newest": cur["band"],
+            "newest_tests": cur["tests"],
+            "newest_pct": cur["acc"],
+            "next": BANDS[len(opn)] if len(opn) < len(BANDS) else None,
+            "next_opens_when": f"{t} first tries of {cur['band']} and {a}% right in the last {EXERCISES[ex][2].window}"
+            if len(opn) < len(BANDS)
+            else None,
+        }
     return {
         "level": st["level"],
         "of": st["max_level"],
@@ -909,6 +1018,7 @@ def coach_view(st: dict) -> dict:
         if nxt
         else None,
         "dropped": [{"exercise": d["exercise"], "item": _label(d["item"])} for d in st["drops"]],
+        "number_sizes": sizes,
     }
 
 

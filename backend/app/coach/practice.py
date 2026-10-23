@@ -217,7 +217,15 @@ def refresh(check: bool = True) -> dict:
             lv = levels.check()
         except Exception:  # noqa: BLE001
             traceback.print_exc()
-        op = {"exercises": lv["exercises"], "symbols": lv["symbols"]} if lv else None
+        op = (
+            {
+                "exercises": lv["exercises"],
+                "symbols": lv["symbols"],
+                "number_bands": {m: [r["band"] for r in rows if r["open"]] for m, rows in lv["numbers"].items()},
+            }
+            if lv
+            else None
+        )
         plan = store.plan()
         if plan:
             now = time.time()

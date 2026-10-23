@@ -58,6 +58,8 @@ export type Levels = {
   open_level: number;
   levels: LevelInfo[];
   chapters: { key: string; title: string; symbols: string; open: boolean; accurate: number; of: number }[];
+  /** The number ladder of each mode: every size, smallest first. A size opens when the size before it is known. */
+  numbers: Record<"listen" | "speak", NumberRung[]>;
   /** Exercise keys the learner has unlocked, for example "reading" or "listening/tone". */
   exercises: string[];
   symbols: string;
@@ -76,5 +78,15 @@ export type Levels = {
     min_acc: Record<string, number>;
     window: Record<string, number>;
     min_tests: Record<string, number>;
+    /** What makes a number size known (and opens the next one): first tries, and percent right in the last tests. */
+    number_ladder: Record<string, { tests: number; acc: number }>;
   };
+};
+
+export type NumberRung = {
+  band: "0-10" | "11-99" | "100-999" | "1000-9999" | "10000+";
+  open: boolean;
+  known: boolean;
+  tests: number;
+  acc: number | null;
 };

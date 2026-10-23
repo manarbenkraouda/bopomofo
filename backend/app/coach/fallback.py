@@ -95,11 +95,14 @@ def rules_plan(d: dict) -> dict:
         "recognize": ("recognize_symbols", "Recognize "),
         "dictation": ("write_symbols", "Write "),
     }
-    # Numbers: the weakest size band of each mode, from the numbers slice of the digest.
+    # Numbers: the weakest open size of each mode, from the numbers slice of the digest. Locked sizes wait for the ladder.
+    ladder = ((d.get("overview") or {}).get("level") or {}).get("number_sizes") or {}
     for b in sorted((d.get("numbers") or {}).get("by_size") or [], key=lambda x: x["acc"] or 0):
         if len(steps) >= 5 or b["n"] < 5 or (b["acc"] or 0) >= 85 or b["band"] not in BANDS:
             continue
         mode = "speak" if b["mode"] == "speak" else "listen"
+        if b["band"] not in (ladder.get(mode) or {}).get("open", [BANDS[0]]):
+            continue
         if any(s["type"] == "numbers" and s["mode"] == mode for s in steps):
             continue
         steps.append(
@@ -109,6 +112,23 @@ def rules_plan(d: dict) -> dict:
                 "bands": [b["band"]],
                 "title": ("Say" if mode == "speak" else "Hear") + f" numbers {b['band']}",
                 "why": f"Right {b['acc']:.0f}% of the time so far in this size of number.",
+                "target": 12,
+            }
+        )
+    # A mode the learner practices, with no weak size: the newest open size, until it is known and opens the next one.
+    practiced = {b["mode"] for b in (d.get("numbers") or {}).get("by_size") or []}
+    for mode, z in ladder.items():
+        if len(steps) >= 5 or not z.get("next") or mode not in practiced:
+            continue
+        if any(s["type"] == "numbers" and s["mode"] == mode for s in steps):
+            continue
+        steps.append(
+            {
+                "type": "numbers",
+                "mode": mode,
+                "bands": [z["newest"]],
+                "title": ("Say" if mode == "speak" else "Hear") + f" numbers {z['newest']}",
+                "why": f"Know these well and the numbers {z['next']} open.",
                 "target": 12,
             }
         )

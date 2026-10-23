@@ -1,14 +1,30 @@
 "use client";
 // Numbers: hear a number and pick its digits (listen), or see a number and say it out loud (speak).
 // Numbers are not Bopomofo, but a learner needs them every day: prices, times, phone numbers, dates.
+// Each mode climbs a ladder of sizes (levels.number_bands in the backend): 0-10 first, then 11-99, the hundreds, the
+// thousands, and 萬. A size opens when the size before it is known, so the place words come on top of known digits.
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ttsUrl, type Health, type SpeechResult } from "@/lib/api";
+import { api, ttsUrl, type Health, type NumberRung, type SpeechResult } from "@/lib/api";
 import { playAudio } from "@/lib/audio";
 import { FocusChip, useFocus, type Focus } from "@/lib/focus";
 import { ANSWER_KEYS, ANSWER_LETTERS, cycleKeys, useHotkeys, type Hotkey } from "@/lib/hotkeys";
 import { useLevels } from "@/lib/levels";
-import { band, choices, digits, errorOf, hanzi, NUMBER_ZHUYIN, randomBand, randomIn } from "@/lib/numbers";
+import {
+  band,
+  BAND_LABEL,
+  BAND_NAME,
+  BANDS,
+  choices,
+  digits,
+  errorOf,
+  hanzi,
+  ladderBand,
+  NUMBER_ZHUYIN,
+  randomBand,
+  randomIn,
+  type Band,
+} from "@/lib/numbers";
 import { playSfx } from "@/lib/sfx";
 import { now, since } from "@/lib/track";
 import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
@@ -25,18 +41,90 @@ const MODE_LABEL: Record<Mode, string> = { listen: "Listen", speak: "Speak" };
 // The speech check passes a spoken answer from this score, the same as the backend (stats.log_number_speech).
 const PASS = 80;
 
-/** The next number: from the focus numbers first, then from the focus bands, then from any band. Never the same twice in a row. */
-function pick(focus: Focus, last: number | null): number {
+/** The focus numbers and bands of the open sizes only: a link or a coach step can ask for a size that is still locked. */
+function openFocus(focus: Focus, open: readonly Band[]) {
+  const nums = focus.nums.filter((x) => open.includes(band(x)));
+  const bands = focus.bands.filter((b) => open.includes(b));
+  return { nums, bands, empty: focus.nums.length + focus.bands.length > 0 && !nums.length && !bands.length };
+}
+
+/** The next number: the size picked on the ladder, else the focus numbers, then the focus bands, else the ladder (mostly
+ * the newest open size). Never the same twice in a row. */
+function pick(focus: Focus, last: number | null, open: readonly Band[], only: Band | null): number {
+  const f = openFocus(focus, open);
   for (let i = 0; i < 20; i++) {
-    const others = focus.nums.filter((x) => x !== last);
+    const others = f.nums.filter((x) => x !== last);
     // With focus numbers, some questions still come from their bands, so a short list does not loop.
-    const n =
-      others.length && (!focus.bands.length || Math.random() < 0.7)
-        ? others[Math.floor(Math.random() * others.length)]
-        : randomIn(randomBand(focus.bands.length ? focus.bands : [...new Set(focus.nums.map(band))]));
+    const n = only
+      ? randomIn(only)
+      : !f.nums.length && !f.bands.length
+        ? randomIn(ladderBand(open))
+        : others.length && (!f.bands.length || Math.random() < 0.7)
+          ? others[Math.floor(Math.random() * others.length)]
+          : randomIn(randomBand(f.bands.length ? f.bands : [...new Set(f.nums.map(band))]));
     if (n !== last) return n;
   }
-  return randomIn(randomBand());
+  return randomIn(ladderBand(open));
+}
+
+/** The ladder of sizes: known sizes, the newest open size with its progress, and the locked ones. An open size can be
+ * picked to practice it alone (B cycles). */
+function Ladder({
+  rungs,
+  need,
+  only,
+  setOnly,
+}: {
+  rungs: NumberRung[];
+  need: { tests: number; acc: number } | undefined;
+  only: Band | null;
+  setOnly: (b: Band | null) => void;
+}) {
+  const open = rungs.filter((r) => r.open);
+  const newest = open[open.length - 1];
+  const next = rungs[open.length];
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Number sizes">
+        {rungs.map((r) =>
+          r.open ? (
+            <button
+              key={r.band}
+              className="chip"
+              data-active={only === r.band}
+              onClick={() => setOnly(only === r.band ? null : r.band)}
+              title={only === r.band ? "Back to every open size" : "Practice only " + BAND_NAME[r.band]}
+            >
+              {BAND_LABEL[r.band]}
+              {r.known ? (
+                <span className="text-ok"> ✓</span>
+              ) : need && r === newest ? (
+                <span className="text-muted tabular-nums">
+                  {" "}
+                  · {Math.min(r.tests, need.tests)}/{need.tests}
+                  {r.acc !== null && r.tests ? " · " + r.acc + "%" : ""}
+                </span>
+              ) : null}
+            </button>
+          ) : (
+            <span
+              key={r.band}
+              className="chip opacity-50"
+              title={"Opens when you know " + BAND_NAME[open[open.length - 1]?.band ?? "0-10"]}
+            >
+              🔒 {BAND_LABEL[r.band]}
+            </span>
+          ),
+        )}
+      </div>
+      {next && newest && need && (
+        <div className="text-xs text-muted">
+          {BAND_NAME[next.band][0].toUpperCase() + BAND_NAME[next.band].slice(1)} open when you get {need.acc}% right
+          in {BAND_NAME[newest.band]}, over at least {need.tests} first tries.
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** The characters of a number with their written Bopomofo. */
@@ -60,7 +148,7 @@ export function Numbers() {
     if ((MODES as string[]).includes(modeParam ?? "")) setMode(modeParam as Mode);
   }, [modeParam]);
   // Only the modes of the learner's level: a locked mode (also from a link) falls back to the first open one.
-  const { open, known } = useLevels();
+  const { open, known, lv } = useLevels();
   const modes = MODES.filter((m) => open("numbers/" + m));
   const openKey = modes.join(",");
   useEffect(() => {
@@ -75,13 +163,53 @@ export function Numbers() {
         ))
       : null;
   const keys = cycleKeys("Mode", modes.length ? modes : MODES, mode, setMode, modes.length > 1);
-  return mode === "speak" ? <Speak chips={chips} hotkeys={keys} /> : <Listen chips={chips} hotkeys={keys} />;
+  // The open sizes of this mode. Without the level path (it failed to load, or an older backend), every size is open.
+  const rungs = lv?.numbers?.[mode] ?? null;
+  const openBands: Band[] = rungs ? rungs.filter((r) => r.open).map((r) => r.band) : [...BANDS];
+  const [only, setOnly] = useState<Band | null>(null);
+  useEffect(() => setOnly(null), [mode]);
+  const picked = only && openBands.includes(only) ? only : null;
+  const sizeKeys: Hotkey[] = [
+    {
+      keys: ["KeyB"],
+      label: "Size",
+      run: () => {
+        const all = [null, ...openBands];
+        setOnly(all[(all.indexOf(picked) + 1) % all.length]);
+      },
+      when: openBands.length > 1,
+    },
+  ];
+  const ladder = rungs ? (
+    <Ladder rungs={rungs} need={lv?.rules.number_ladder?.["numbers/" + mode]} only={picked} setOnly={setOnly} />
+  ) : null;
+  const props = {
+    chips,
+    ladder,
+    hotkeys: [...keys, ...sizeKeys],
+    open: openBands,
+    only: picked,
+    ready: known,
+  };
+  return mode === "speak" ? <Speak {...props} /> : <Listen {...props} />;
 }
 
 type Q = { n: number; options: number[] };
+type ModeProps = {
+  chips: React.ReactNode;
+  ladder: React.ReactNode;
+  hotkeys: Hotkey[];
+  open: Band[];
+  only: Band | null;
+  ready: boolean;
+};
 
-function Listen({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] }) {
+function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const focus = useFocus();
+  const empty = openFocus(focus, open).empty;
+  // Read at pick time: a size that opens after an answer is used from the next question on.
+  const openRef = useRef(open);
+  openRef.current = open;
   const [q, setQ] = useState<Q | null>(null);
   const [picked, setPicked] = useState<number | null>(null);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
@@ -92,18 +220,18 @@ function Listen({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] 
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
-    const n = pick(focus, last.current);
+    const n = pick(focus, last.current, openRef.current, only);
     last.current = n;
-    setQ({ n, options: choices(n) });
+    setQ({ n, options: choices(n, openRef.current) });
     setPicked(null);
     shownAt.current = now();
     replays.current = 0;
     playAudio(ttsUrl(hanzi(n)));
-  }, [focus]);
+  }, [focus, only]);
 
   useEffect(() => {
-    next();
-  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (ready) next();
+  }, [focus, only, ready]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(
     () => () => {
       if (advance.current) clearTimeout(advance.current);
@@ -177,12 +305,13 @@ function Listen({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] 
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex gap-2 items-center flex-wrap">
         {chips}
-        <FocusChip focus={focus} />
+        <FocusChip focus={focus} empty={empty} />
         <div className="ml-auto text-sm text-muted">
           <b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}% of{" "}
           {score.n}
         </div>
       </div>
+      {ladder}
       {q && (
         <div
           className={
@@ -258,8 +387,11 @@ function Listen({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] 
   );
 }
 
-function Speak({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] }) {
+function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const focus = useFocus();
+  const empty = openFocus(focus, open).empty;
+  const openRef = useRef(open);
+  openRef.current = open;
   const phone = useViewport().w < PHONE;
   const [n, setN] = useState<number | null>(null);
   const [health, setHealth] = useState<Health | null | "down">(null);
@@ -291,7 +423,7 @@ function Speak({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] }
   }, []);
 
   const next = useCallback(() => {
-    const x = pick(focus, last.current);
+    const x = pick(focus, last.current, openRef.current, only);
     last.current = x;
     current.current = { n: x, helped: false, tries: 0 };
     setN(x);
@@ -299,10 +431,10 @@ function Speak({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] }
     setHelped(false);
     setTries(0);
     setError("");
-  }, [focus]);
+  }, [focus, only]);
   useEffect(() => {
-    next();
-  }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (ready) next();
+  }, [focus, only, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const passed = result !== null && result.score >= PASS;
 
@@ -413,12 +545,13 @@ function Speak({ chips, hotkeys }: { chips: React.ReactNode; hotkeys: Hotkey[] }
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex gap-2 items-center flex-wrap">
         {chips}
-        <FocusChip focus={focus} />
+        <FocusChip focus={focus} empty={empty} />
         <div className="ml-auto text-sm text-muted">
           <b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}%
           first try of {score.n}
         </div>
       </div>
+      {ladder}
 
       {health === "down" && (
         <div className="card p-3 text-sm text-bad">Can&apos;t connect right now. Please try again in a moment.</div>

@@ -119,7 +119,7 @@ export const ROUTES: RouteInfo[] = [
     area: "practice",
     desc: "Hear numbers and say them out loud",
     about:
-      "Numbers from 0 to 99,999,999, as they are said in Taiwan (兩百, 一萬零五). Listen: hear a number and pick its digits with 1-4. Speak: see a number in digits, hold R (or the button), say it, and let go. Space plays the number. In Speak, hearing it first counts as help.",
+      "Numbers from 0 to 99,999,999, as they are said in Taiwan (兩百, 一萬零五). The sizes open one at a time: 0-10 first, then 11-99, the hundreds, the thousands, and 萬. The next size opens when you get the newest one right almost every time. Click a size, or press B, to practice only that size. Listen: hear a number and pick its digits with 1-4. Speak: see a number in digits, hold R (or the button), say it, and let go. Space plays the number. In Speak, hearing it first counts as help.",
   },
   {
     href: "/characters",

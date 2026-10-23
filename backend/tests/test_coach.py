@@ -21,6 +21,12 @@ def unlock_all():
             c.execute(
                 "INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING", (f"level:{n}", time.time())
             )
+        for mode in levels.NUMBER_EXERCISES:
+            for b in levels.BANDS[1:]:
+                c.execute(
+                    "INSERT INTO level_unlocks(key, ts) VALUES (?, ?) ON CONFLICT DO NOTHING",
+                    (f"numbers:{mode}:{b}", time.time()),
+                )
 
 
 def answer(area, kind, expected, ok, step=None, try_n=0, item="x", help=False):

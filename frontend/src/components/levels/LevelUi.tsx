@@ -129,11 +129,21 @@ export function UnlockOverlay({
   const chapter = notice.key.startsWith("chapter:")
     ? (lv?.chapters.find((c) => "chapter:" + c.key === notice.key) ?? null)
     : null;
+  // A new number size: "numbers:listen:100-999" opens Hear numbers on that size.
+  const [, numMode, numBand] = notice.key.startsWith("numbers:") ? notice.key.split(":") : [];
   const opens =
     level?.opens ??
     (chapter
       ? [{ key: "reading", label: "Say the new symbols", href: "/reading?syms=" + [...chapter.symbols].join(",") }]
-      : []);
+      : numBand
+        ? [
+            {
+              key: notice.key,
+              label: (numMode === "speak" ? "Say" : "Hear") + " the new numbers",
+              href: "/numbers?mode=" + numMode + "&bands=" + encodeURIComponent(numBand),
+            },
+          ]
+        : []);
   useHotkeys(
     "unlock",
     [

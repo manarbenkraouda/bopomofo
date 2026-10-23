@@ -797,10 +797,15 @@ def recent(limit: int = 80, area: str | None = None) -> list[dict]:
 def weak(items: list[dict], limit: int = 12, op: dict | None = None) -> list[dict]:
     """Training targets: the lowest weak scores with enough answers, in the exercises the level has unlocked."""
     op = op or levels.opened()
+    sizes = levels.open_number_bands(op)
     out = []
     for it in items:
         if it["n"] < 3 or it["kind"] in ("syllable", "order") or it["expected"] in ("∅", "?") or it["post"] >= 92:
             continue
+        if it["kind"] == "number" and (
+            not it["expected"].isdigit() or numbers.band(int(it["expected"])) not in sizes.get("listen", ())
+        ):
+            continue  # the Train link opens Hear numbers: a number of a locked size waits for the ladder
         href = _href(it["area"], it["kind"], it["expected"], [a for a, _ in it["top"][:2]])
         if not href or not levels.is_open(levels.exercise_of(href), op):
             continue
@@ -1001,10 +1006,16 @@ def challenges(today: date | None = None, op: dict | None = None) -> list[dict]:
                 "href": _href(i["area"], "sandhi", i["expected"]),
             }
         )
-    # Numbers: the weakest size band, by ear or said out loud (first tries).
+    # Numbers: the weakest open size band, by ear or said out loud (first tries). Locked sizes wait for the ladder.
+    sizes = levels.open_number_bands(op)
     nb: dict[tuple, list[int]] = defaultdict(lambda: [0, 0])
     for u in past:
-        if u["kind"] == "number" and u["try_n"] == 0 and u["ok"] is not None and u["ctx"] in numbers.BANDS:
+        if (
+            u["kind"] == "number"
+            and u["try_n"] == 0
+            and u["ok"] is not None
+            and u["ctx"] in sizes.get(u["mode"] or "listen", ())
+        ):
             nb[(u["mode"], u["ctx"])][0] += 1
             nb[(u["mode"], u["ctx"])][1] += _good(u)
     nw = sorted(((v[1] / v[0], k, v) for k, v in nb.items() if v[0] >= 5 and v[1] / v[0] < 0.85), key=lambda x: x[0])

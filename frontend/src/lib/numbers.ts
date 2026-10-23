@@ -13,6 +13,14 @@ export const BAND_LABEL: Record<Band, string> = {
   "1000-9999": "1000s",
   "10000+": "萬 and up",
 };
+/** The sizes in a sentence, like levels.BAND_NAME in the backend: "New numbers: the hundreds". */
+export const BAND_NAME: Record<Band, string> = {
+  "0-10": "0 to 10",
+  "11-99": "11 to 99",
+  "100-999": "the hundreds",
+  "1000-9999": "the thousands",
+  "10000+": "萬 and up",
+};
 
 /** The written (dictionary) Bopomofo of each character a number uses. */
 export const NUMBER_ZHUYIN: Record<string, string> = {
@@ -134,6 +142,13 @@ export function randomBand(bands: readonly Band[] = []): Band {
   return pool[pool.length - 1];
 }
 
+/** A random size from the open sizes of the ladder (smallest first): the newest one most of the time, so it gets known and
+ * opens the next size, and the sizes before it as a review. */
+export function ladderBand(open: readonly Band[]): Band {
+  if (open.length <= 1) return open[0] ?? BANDS[0];
+  return Math.random() < 0.6 ? open[open.length - 1] : open[Math.floor(Math.random() * (open.length - 1))];
+}
+
 const shuffle = <T>(a: T[]) =>
   a
     .map((x) => [Math.random(), x] as const)
@@ -167,9 +182,10 @@ export function nearMisses(n: number): number[] {
   return [...new Set(out)].filter((x) => Number.isInteger(x) && x >= 0 && x <= MAX && x !== n);
 }
 
-/** Four unique choices with the answer: the closest near misses first, then random numbers of the same band. */
-export function choices(n: number): number[] {
-  const near = nearMisses(n);
+/** Four unique choices with the answer: the closest near misses first, then random numbers of the same band.
+ * open: the sizes the learner has opened; a wrong choice of a bigger size (7 against 70) waits until that size opens. */
+export function choices(n: number, open: readonly Band[] = BANDS): number[] {
+  const near = nearMisses(n).filter((x) => open.includes(band(x)) || band(x) === band(n));
   // The structural mix-ups (teens, order, place) come first; the one-digit changes fill up.
   const strong = shuffle(near.slice(0, Math.max(0, near.length - 2 * String(n).length)));
   const weak = shuffle(near.slice(strong.length));
