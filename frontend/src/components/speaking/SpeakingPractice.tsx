@@ -90,7 +90,7 @@ export function SpeakingPractice() {
   const alive = useRef(true);
   const firstSentence = useRef(Number(params.get("sentence")) || 0);
   const focus = useFocus();
-  // The card order: a few new cards at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // The card order: all the cards of the source, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   // Coach sentences (?ids=) come in the coach's order, the others in a mixed order.
   const { review, ready: scheduled } = useReview("speaking", source, { order: focus.ids.length ? "pool" : "shuffle" });
 

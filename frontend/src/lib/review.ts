@@ -2,8 +2,10 @@
 // The order of the cards in every practice mode, built for memory (spaced repetition with retrieval practice).
 // Every number below is a learner setting (lib/reviewSettings.ts). The defaults give this order:
 //
-// - A small working set of new items (newAtOnce: 5, about what short-term memory holds). A new item comes in
-//   only when there is room, so the same few items come back often enough to stick.
+// - The full pool of items (newAtOnce: 0 = no limit). While some items are not seen yet, a repeat never follows a
+//   repeat: at least every second card is a new item. Without this, the repeats of a few missed items fill every
+//   card and the learner sees the same 5 or 6 items for the whole session. A learner can set a small working set
+//   instead (for example 5, about what short-term memory holds): then a new item comes in only when there is room.
 // - Inside a session, an item comes back after a gap of other cards. The gap grows after each right answer
 //   (repeatGap: 2, then 5 other cards), and the item leaves the working set after rightToLearn (3) right answers
 //   in a row. A wrong answer brings it back after missGap (1) other card and starts again. When the item is missed
@@ -220,9 +222,10 @@ export class Scheduler {
       this.seen.get(a)!.due - this.seen.get(b)!.due || this.seen.get(a)!.streak - this.seen.get(b)!.streak;
     const late = (id: string) => overdue(this.mem.get(id)!, now, c);
 
-    // 1. A working item whose gap is over.
+    // 1. A working item whose gap is over. With no limit, not two repeats in a row while new items are left (step 3).
+    const newTurn = c.newAtOnce === 0 && this.lastKind === "again";
     const again = working.filter((id) => this.seen.get(id)!.due <= this.card).sort(byDue);
-    if (again.length) return pick(again[0], "again");
+    if (again.length && !newTurn) return pick(again[0], "again");
 
     // 2. A review due from earlier days (most overdue first).
     const reviews = notLast

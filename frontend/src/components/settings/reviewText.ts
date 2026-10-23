@@ -45,7 +45,7 @@ export const REVIEW_TEXT: Record<ReviewKey, ReviewText> = {
     what: "How many new things you learn together before new ones come in. Fewer means each one comes back more often and sticks faster. More means you see more variety, but each one comes back less often.",
     example: (c) =>
       c.newAtOnce === 0
-        ? "Every new item comes in at once. You see each one before any of them comes back."
+        ? "Every item is in play. New items keep coming in between the repeats, so you go through the whole set."
         : c.newAtOnce === 1
           ? "You learn one symbol at a time: it comes back until you know it, then the next one comes in."
           : "You learn " + c.newAtOnce + " symbols together. A new one comes in only when you know one of them.",

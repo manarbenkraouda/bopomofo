@@ -90,7 +90,7 @@ function SyllableQuiz({
   const shownAt = useRef(0);
   const replays = useRef(0);
   const focus = useFocus();
-  // The question order: a few new syllables at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // The question order: all the syllables, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   // Each quiz has its own schedule: hearing the tone and finding the spelling are different skills.
   const { review, ready } = useReview("listening", quiz);
 

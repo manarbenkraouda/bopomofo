@@ -68,7 +68,7 @@ export function ReadingQuiz() {
   const focus = useFocus();
   // Learn mode (?learn=1): every card plays the symbol and shows its name, and the learner repeats it. Each right repetition counts.
   const learn = useSearchParams().get("learn") === "1";
-  // The card order: a few new symbols at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // The card order: all the symbols, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   const { review, ready } = useReview("reading", "", { order: "pool" });
 
   // Play a sound effect with the microphone muted, so the quiz does not grade its own sounds.

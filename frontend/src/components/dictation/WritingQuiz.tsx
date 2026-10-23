@@ -55,7 +55,7 @@ export function WritingQuiz() {
   const focusSyms = focusSymbols(focus).join("");
   // Learn mode (?learn=1): every card shows the strokes, and the learner copies the symbol. Each right copy counts.
   const learn = useSearchParams().get("learn") === "1";
-  // The card order: a few new symbols at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // The card order: all the symbols, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   const { review, ready } = useReview("dictation", "", { order: "pool" });
 
   useEffect(() => {

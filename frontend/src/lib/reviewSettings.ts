@@ -44,9 +44,12 @@ export const WAIT_NO_LIMIT = 3651;
 export const MISS_TO_START = 11;
 export const RUN_NO_LIMIT = 21;
 
-/** The defaults are the order the app used before the settings. They follow memory research (see lib/review.ts). */
+/**
+ * The defaults follow memory research (see lib/review.ts). newAtOnce is 0: every exercise uses its full pool of items
+ * (all the words of the learner's sentences, all the symbols), so the same few items do not take every card.
+ */
 export const DEFAULT_REVIEW: ReviewConfig = {
-  newAtOnce: 5,
+  newAtOnce: 0,
   rightToLearn: 3,
   repeatSpacing: 1,
   missGap: 1,

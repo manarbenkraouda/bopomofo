@@ -157,7 +157,7 @@ export function SymbolChart() {
     : counts.known === 37
       ? "You know all 37 symbols."
       : counts.known + counts.learning === 0
-        ? "Learn the 37 symbols, a few at a time."
+        ? "Learn the 37 symbols."
         : counts.known + " of 37 symbols known. " + counts.learning + " are in progress.";
 
   return (

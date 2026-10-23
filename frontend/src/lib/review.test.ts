@@ -55,17 +55,24 @@ const longestRepeat = (shown: string[]) => {
 // ---------- the defaults keep the order the app had before the settings ----------
 
 test("new items come in only while the working set has room", () => {
-  const s = new Scheduler({ order: "pool", random: calm });
+  const s = new Scheduler({ order: "pool", random: calm, settings: cfg({ newAtOnce: 5 }) });
   const shown = run(s, ids(30), 15);
   // In the first 15 cards, the learner meets only a few items, each several times.
-  expect(new Set(shown).size).toBeLessThanOrEqual(DEFAULT_REVIEW.newAtOnce + 2);
+  expect(new Set(shown).size).toBeLessThanOrEqual(5 + 2);
   expect(shown.filter((x) => x === "s0").length).toBe(3);
   expect(shown.slice(0, 3)).toEqual(["s0", "s1", "s2"]);
 });
 
 test("a right answer brings the item back after 2, then 5 other cards, then it graduates", () => {
-  const s = new Scheduler({ order: "pool", random: calm });
+  const s = new Scheduler({ order: "pool", random: calm, settings: cfg({ newAtOnce: 5 }) });
   expect(positions(run(s, ids(30), 20), "s0")).toEqual([0, 3, 9]);
+});
+
+test("no limit: missed items never block new ones, so the session goes through the whole pool", () => {
+  // Every answer is wrong, as with speaking scores under the pass score.
+  const full = run(new Scheduler({ order: "pool", random: calm }), ids(40), 80, () => false);
+  expect(new Set(full).size).toBe(40);
+  for (let i = 1; i < 80; i++) expect(full[i] === full[i - 1]).toBe(false);
 });
 
 test("a wrong answer brings the item back after 1 other card", () => {

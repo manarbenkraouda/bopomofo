@@ -70,7 +70,7 @@ export function WritingPractice() {
   const replays = useRef(0);
   const focus = useFocus();
   const modeParam = useSearchParams().get("mode");
-  // The card order: a few new items at a time, repeated at growing gaps, and reviews when they are due (lib/review.ts).
+  // The card order: all the items, repeated at growing gaps, and reviews when they are due (lib/review.ts).
   // Each mode has its own schedule. Symbols come in alphabet order, syllables and words in a mixed order.
   const { review, ready } = useReview("writing", mode, { order: mode === "symbol" ? "pool" : "shuffle" });
   const { w: vw, h: vh } = useViewport();
