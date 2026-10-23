@@ -76,7 +76,7 @@ export const api = {
   /** The deep check of one answer, or null while it is still waiting in the queue. */
   deepCheck: (eventId: number) =>
     call<DeepCheck>("/api/speech/deep-check/" + eventId, { cache: "no-store" }).catch(() => null),
-  /** After missed recordings of one single-syllable card: the learner typed the sound they said. A match counts the sound misses as right. */
+  /** After missed recordings of one single-syllable card or one number: the learner typed what they said. A match counts the sound misses as right. */
   confirmSpeech: (event_ids: number[], typed: string) =>
     call<{ match: boolean; fixed: number; notices?: LevelNotice[] }>(
       "/api/speech/confirm",

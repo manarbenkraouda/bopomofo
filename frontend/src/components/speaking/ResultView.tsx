@@ -15,8 +15,18 @@ function Badge({ ok, label }: { ok: boolean | null; label: string }) {
   );
 }
 
-/** What the check heard, syllable by syllable. The pitch chart and the tone guide are folded. */
-export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (char: string) => void }) {
+/** What the check heard, syllable by syllable. The pitch chart and the tone guide are folded.
+ * hide: the expected text is the answer (a number shown in digits), so a miss shows only which syllables and parts were
+ * wrong, and what was heard. */
+export function ResultView({
+  result,
+  onHear,
+  hide = false,
+}: {
+  result: SpeechResult;
+  onHear: (char: string) => void;
+  hide?: boolean;
+}) {
   const sy = result.syllables;
   const tone = sy.filter((s) => s.tone_ok).length;
   const sounds = sy.filter((s) => s.heard && s.initial_ok !== false && s.final_ok !== false).length;
@@ -42,7 +52,7 @@ export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (
             {sounds}/{sy.length}
           </b>
         </div>
-        <div className="text-xs text-muted sm:ml-auto">Tap a syllable to hear it</div>
+        {!hide && <div className="text-xs text-muted sm:ml-auto">Tap a syllable to hear it</div>}
       </div>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-2.5">
         {sy.map((s, i) => {
@@ -50,21 +60,29 @@ export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (
           return (
             <button
               key={i}
-              onClick={() => onHear(s.expected.char)}
+              onClick={() => !hide && onHear(s.expected.char)}
+              disabled={hide}
               className={
-                "text-left rounded-xl border p-3 hover:shadow-sm " +
+                "text-left rounded-xl border p-3 " +
+                (hide ? "" : "hover:shadow-sm ") +
                 (ok ? "border-ok/40 bg-ok/5" : "border-bad/40 bg-bad/5")
               }
             >
               <div className="flex items-center gap-2 cjk">
-                <span className="text-2xl">{s.expected.char}</span>
-                <span className="text-accent">{s.expected.zhuyin}</span>
+                {hide ? (
+                  <span className="text-lg text-muted">Syllable {i + 1}</span>
+                ) : (
+                  <>
+                    <span className="text-2xl">{s.expected.char}</span>
+                    <span className="text-accent">{s.expected.zhuyin}</span>
+                  </>
+                )}
                 <span className="ml-auto text-sm">
                   {ok ? <span className="text-ok">✓</span> : <span className="text-bad">✗</span>}
                 </span>
               </div>
               <div className="text-xs text-muted mt-1 cjk">
-                {s.expected.surface_tone !== s.expected.tone && (
+                {!hide && s.expected.surface_tone !== s.expected.tone && (
                   <>
                     written {s.expected.zhuyin} · say <b className="text-accent">{saidZhuyin(s.expected)}</b>
                     {s.expected.rule ? " (" + RULE_NAME[s.expected.rule] + ")" : ""} ·{" "}
@@ -72,12 +90,12 @@ export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (
                 )}
                 heard <b className="text-ink">{s.heard?.zhuyin ?? "—"}</b>
               </div>
-              {s.rule_error === "literal" && (
+              {!hide && s.rule_error === "literal" && (
                 <div className="mt-2 text-xs font-semibold text-bad">
                   You read the written tone. The {RULE_NAME[s.rule ?? ""] ?? "tone rule"} changes it here.
                 </div>
               )}
-              {s.rule_error === "over" && (
+              {!hide && s.rule_error === "over" && (
                 <div className="mt-2 text-xs font-semibold text-bad">
                   The {RULE_NAME[s.rule ?? ""]} does not apply here: keep the written tone.
                 </div>
@@ -89,7 +107,7 @@ export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (
                   <Badge ok={s.tone_ok} label="tone" />
                 </div>
               )}
-              {s.messages.length > 0 && (
+              {!hide && s.messages.length > 0 && (
                 <ul className="mt-2 text-xs leading-snug list-disc pl-4 cjk">
                   {s.messages.map((m, k) => (
                     <li key={k}>{m}</li>
@@ -116,13 +134,15 @@ export function ResultView({ result, onHear }: { result: SpeechResult; onHear: (
       {result.extra.length > 0 && (
         <div className="text-sm text-muted cjk">Extra sounds heard: {result.extra.map((e) => e.zhuyin).join(" ")}</div>
       )}
-      <details className="text-sm">
-        <summary className="cursor-pointer text-muted">Pitch curve</summary>
-        <div className="mt-2 text-xs text-muted mb-1">
-          Your pitch (black) against the target tone shapes (colored bands), per syllable
-        </div>
-        <PitchChart result={result} />
-      </details>
+      {!hide && (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-muted">Pitch curve</summary>
+          <div className="mt-2 text-xs text-muted mb-1">
+            Your pitch (black) against the target tone shapes (colored bands), per syllable
+          </div>
+          <PitchChart result={result} />
+        </details>
+      )}
       <details className="text-xs text-muted">
         <summary className="cursor-pointer">Tone guide</summary>
         <ul className="mt-2 grid sm:grid-cols-2 gap-1">

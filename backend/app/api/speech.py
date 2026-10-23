@@ -85,15 +85,17 @@ def speech_deep_check(event_id: int):
 
 class ConfirmIn(BaseModel):
     event_ids: list[int] = Field(min_length=1, max_length=20)
-    typed: str = Field(min_length=1, max_length=16)
+    # A number can have 15 syllables (99 999 999).
+    typed: str = Field(min_length=1, max_length=120)
 
 
 @router.post("/speech/confirm")
 def speech_confirm(body: ConfirmIn):
-    """After missed recordings of one single-syllable card, the learner typed the sound they said in Pinyin.
-    A match counts those misses as right (initials and finals only: the tones stay as measured)."""
+    """After missed recordings of one single-syllable card or one number, the learner typed what they said
+    (Pinyin, or Bopomofo for a number). A match counts those misses as right (initials and finals only: the tones
+    stay as measured)."""
     try:
-        res = typed_fix.confirm_speaking(body.event_ids, body.typed)
+        res = typed_fix.confirm(body.event_ids, body.typed)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {**res, "notices": refresh_notices()}

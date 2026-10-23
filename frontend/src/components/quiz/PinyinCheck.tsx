@@ -12,10 +12,16 @@ export function PinyinCheck({
   example,
   check,
   onClose,
+  intro = "The microphone can mix up close sounds, like b and p, especially with a blocked nose. Type the sound you said in Pinyin.",
+  label = "The sound you said, in Pinyin",
+  maxLength = 16,
 }: {
   example: string;
   check: (typed: string) => Promise<string | null>;
   onClose: () => void;
+  intro?: string;
+  label?: string;
+  maxLength?: number;
 }) {
   const [typed, setTyped] = useState("");
   const [error, setError] = useState("");
@@ -53,10 +59,7 @@ export function PinyinCheck({
       }}
     >
       <div className="font-semibold text-ink">Type what you said</div>
-      <p className="text-muted leading-snug">
-        The microphone can mix up close sounds, like b and p, especially with a blocked nose. Type the sound you said in
-        Pinyin.
-      </p>
+      <p className="text-muted leading-snug">{intro}</p>
       <p className="text-muted leading-snug">
         Only you know what you said. Please answer honestly: your stats and plans are built from it, so an honest answer
         helps you most. If you are not sure, skip.
@@ -70,13 +73,13 @@ export function PinyinCheck({
           setError("");
         }}
         placeholder={"For example: " + example}
-        aria-label="The sound you said, in Pinyin"
+        aria-label={label}
         autoCapitalize="off"
         autoCorrect="off"
         autoComplete="off"
         spellCheck={false}
         enterKeyHint="done"
-        maxLength={16}
+        maxLength={maxLength}
       />
       {error && (
         <div className="text-bad" role="alert">

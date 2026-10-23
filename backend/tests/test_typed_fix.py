@@ -147,3 +147,75 @@ def test_reading_typed_units_count_as_pairs():
     assert typed_fix.mic_pairs() == [
         {"area": "reading", "kind": "symbol", "expected": "ㄆ", "heard": "ㄅ", "n": 2, "confirmed": False}
     ]
+
+
+def number_miss(try_n=0, tone_ok=True) -> int:
+    """One recording of 14 (十四) where the model heard ㄙ for the ㄕ of 十."""
+    sy = [
+        {
+            "expected": {"char": "十", "zhuyin": "ㄕˊ", "initial": "ㄕ", "final": "", "tone": 2, "surface_tone": 2},
+            "heard": {"initial": "ㄙ", "final": "", "tone": 2, "zhuyin": "ㄙˊ"},
+            "initial_ok": False,
+            "final_ok": True,
+            "tone_ok": True,
+        },
+        {
+            "expected": {"char": "四", "zhuyin": "ㄙˋ", "initial": "ㄙ", "final": "", "tone": 4, "surface_tone": 4},
+            "heard": {"initial": "ㄙ", "final": "", "tone": 4 if tone_ok else 1, "zhuyin": "ㄙˋ"},
+            "initial_ok": True,
+            "final_ok": True,
+            "tone_ok": tone_ok,
+        },
+    ]
+    return stats.log_number_speech(14, {"score": 50, "syllables": sy}, try_n=try_n)
+
+
+def number_unit(eid):
+    with db.conn() as c:
+        return dict(c.execute("SELECT actual, ok FROM units WHERE event_id=? AND kind='number'", (eid,)).fetchone())
+
+
+def test_parse_syllables_reads_bopomofo_and_pinyin():
+    want = [("ㄕ", "∅"), ("ㄙ", "∅")]
+    for typed in ("ㄕˊ ㄙˋ", "ㄕˊㄙˋ", "ㄕ ㄙ", "shi si", "shi2si4", "Shí sì"):
+        assert typed_fix.parse_syllables(typed) == want, typed
+    assert typed_fix.parse_syllables("ㄌㄧㄤˇㄅㄞˇㄌㄧㄥˊㄨˇ") == [
+        ("ㄌ", "ㄧㄤ"),
+        ("ㄅ", "ㄞ"),
+        ("ㄌ", "ㄧㄥ"),
+        ("∅", "ㄨ"),
+    ]
+    assert typed_fix.parse_syllables("ㄦˋ") == [("∅", "ㄦ")]
+    for bad in ("", "shisi", "xyz si", "ㄕ si"):
+        assert typed_fix.parse_syllables(bad) is None, bad
+
+
+def test_number_match_fixes_the_sounds_and_the_number():
+    ids = [number_miss(try_n=0), number_miss(try_n=1), number_miss(try_n=2, tone_ok=False)]
+    out = typed_fix.confirm(ids, "ㄕˊ ㄙˋ")
+    assert out["match"] and out["fixed"] == 3
+    assert event(ids[0])["ok"] == 1 and event(ids[0])["first_try"] == 1
+    assert number_unit(ids[0]) == {"actual": "14", "ok": 1}
+    # A wrong tone stays wrong: the typed check only corrects the sounds.
+    assert event(ids[2])["ok"] == 0 and number_unit(ids[2])["ok"] == 0
+    assert stats.number_stats()["modes"]["speak"]["acc"] == 100.0
+
+
+def test_number_no_match_saves_what_was_said():
+    ids = [number_miss(try_n=n) for n in range(3)]
+    out = typed_fix.confirm(ids, "si si")
+    assert not out["match"] and out["fixed"] == 0
+    assert all(event(i)["ok"] == 0 for i in ids)
+    with db.conn() as c:
+        typed = [
+            dict(r)
+            for r in c.execute(
+                "SELECT kind, pos, expected, actual, ok FROM units WHERE source='typed' ORDER BY pos, kind"
+            )
+        ]
+    assert typed[:2] == [
+        {"kind": "final", "pos": 0, "expected": "∅", "actual": "∅", "ok": 1},
+        {"kind": "initial", "pos": 0, "expected": "ㄕ", "actual": "ㄙ", "ok": 0},
+    ]
+    with pytest.raises(ValueError):
+        typed_fix.confirm(ids, "shisi")

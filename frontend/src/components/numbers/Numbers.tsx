@@ -31,8 +31,10 @@ import { holdHint, useHoldMic, type Clip } from "@/lib/useHoldMic";
 import { PHONE, useViewport } from "@/lib/useFit";
 import { PlayButton } from "@/components/PlayButton";
 import { Burst, FxFrame, fxClass, StatusPill } from "@/components/quiz/Feedback";
+import { PinyinCheck } from "@/components/quiz/PinyinCheck";
 import { ActionBar } from "@/components/shell/ActionBar";
 import { Kbd } from "@/components/shell/Kbd";
+import { CHECK_AFTER, soundMiss, type Check } from "@/components/speaking/cards";
 import { ResultView } from "@/components/speaking/ResultView";
 
 type Mode = "listen" | "speak";
@@ -40,6 +42,10 @@ const MODES: Mode[] = ["listen", "speak"];
 const MODE_LABEL: Record<Mode, string> = { listen: "Listen", speak: "Speak" };
 // The speech check passes a spoken answer from this score, the same as the backend (stats.log_number_speech).
 const PASS = 80;
+// A new number differs from the last RECENT numbers, so a small size (0 to 10) still goes through all its numbers.
+const RECENT = 6;
+// Listen: wrong picks before the answer shows. With 4 choices, a third pick would be a guess between 2.
+const LISTEN_MISSES = 2;
 
 /** The focus numbers and bands of the open sizes only: a link or a coach step can ask for a size that is still locked. */
 function openFocus(focus: Focus, open: readonly Band[]) {
@@ -49,22 +55,28 @@ function openFocus(focus: Focus, open: readonly Band[]) {
 }
 
 /** The next number: the size picked on the ladder, else the focus numbers, then the focus bands, else the ladder (mostly
- * the newest open size). Never the same twice in a row. */
-function pick(focus: Focus, last: number | null, open: readonly Band[], only: Band | null): number {
+ * the newest open size). Never one of the recent numbers, when another one is possible. */
+function pick(focus: Focus, recent: readonly number[], open: readonly Band[], only: Band | null): number {
   const f = openFocus(focus, open);
-  for (let i = 0; i < 20; i++) {
-    const others = f.nums.filter((x) => x !== last);
-    // With focus numbers, some questions still come from their bands, so a short list does not loop.
+  const fresh = (x: number) => !recent.includes(x);
+  for (let i = 0; i < 40; i++) {
+    const others = f.nums.filter(fresh);
+    // With focus numbers, half of the questions still come from their sizes, so a short list does not loop.
     const n = only
       ? randomIn(only)
       : !f.nums.length && !f.bands.length
         ? randomIn(ladderBand(open))
-        : others.length && (!f.bands.length || Math.random() < 0.7)
+        : others.length && Math.random() < 0.5
           ? others[Math.floor(Math.random() * others.length)]
           : randomIn(randomBand(f.bands.length ? f.bands : [...new Set(f.nums.map(band))]));
+    if (fresh(n)) return n;
+  }
+  const last = recent[recent.length - 1];
+  for (let i = 0; i < 20; i++) {
+    const n = randomIn(only ?? ladderBand(open));
     if (n !== last) return n;
   }
-  return randomIn(ladderBand(open));
+  return randomIn(only ?? ladderBand(open));
 }
 
 /** The ladder of sizes: known sizes, the newest open size with its progress, and the locked ones. An open size can be
@@ -119,8 +131,8 @@ function Ladder({
       </div>
       {next && newest && need && (
         <div className="text-xs text-muted">
-          {BAND_NAME[next.band][0].toUpperCase() + BAND_NAME[next.band].slice(1)} open when you get {need.acc}% right
-          in {BAND_NAME[newest.band]}, over at least {need.tests} first tries.
+          {BAND_NAME[next.band][0].toUpperCase() + BAND_NAME[next.band].slice(1)} open when you get {need.acc}% right in{" "}
+          {BAND_NAME[newest.band]}, over at least {need.tests} first tries.
         </div>
       )}
     </div>
@@ -211,19 +223,24 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const openRef = useRef(open);
   openRef.current = open;
   const [q, setQ] = useState<Q | null>(null);
+  // The last pick (for its animation), the wrong picks of this number, and the end of the question (right, or shown).
   const [picked, setPicked] = useState<number | null>(null);
+  const [wrong, setWrong] = useState<number[]>([]);
+  const [done, setDone] = useState(false);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
   const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownAt = useRef(0);
   const replays = useRef(0);
-  const last = useRef<number | null>(null);
+  const recent = useRef<number[]>([]);
 
   const next = useCallback(() => {
     if (advance.current) clearTimeout(advance.current);
-    const n = pick(focus, last.current, openRef.current, only);
-    last.current = n;
+    const n = pick(focus, recent.current, openRef.current, only);
+    recent.current = [...recent.current, n].slice(-RECENT);
     setQ({ n, options: choices(n, openRef.current) });
     setPicked(null);
+    setWrong([]);
+    setDone(false);
     shownAt.current = now();
     replays.current = 0;
     playAudio(ttsUrl(hanzi(n)));
@@ -241,48 +258,66 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
 
   const choose = useCallback(
     (o: number) => {
-      if (!q || picked !== null) return;
+      if (!q || done || wrong.includes(o)) return;
+      if (advance.current) clearTimeout(advance.current);
       setPicked(o);
       const ok = o === q.n;
-      const error = errorOf(q.n, o);
-      setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
-      // Save the number picked, so the stats can show which numbers are heard instead (14 for 40, 205 for 250).
-      api.event({
-        area: "numbers",
-        mode: "listen",
-        item: String(q.n),
-        ok,
-        first_try: ok,
-        ms: since(shownAt.current),
-        replays: replays.current,
-        units: [
-          {
-            kind: "number",
-            expected: String(q.n),
-            actual: String(o),
-            ok,
-            ctx: band(q.n),
-            extra: { hanzi: hanzi(q.n), error },
+      // The first pick is the test and the only one saved: later picks come after a wrong one was ruled out.
+      if (!wrong.length) {
+        const error = errorOf(q.n, o);
+        setScore((s) => ({ n: s.n + 1, ok: s.ok + (ok ? 1 : 0), streak: ok ? s.streak + 1 : 0 }));
+        // Save the number picked, so the stats can show which numbers are heard instead (14 for 40, 205 for 250).
+        api.event({
+          area: "numbers",
+          mode: "listen",
+          item: String(q.n),
+          ok,
+          first_try: ok,
+          ms: since(shownAt.current),
+          replays: replays.current,
+          units: [
+            {
+              kind: "number",
+              expected: String(q.n),
+              actual: String(o),
+              ok,
+              ctx: band(q.n),
+              extra: { hanzi: hanzi(q.n), error },
+            },
+          ],
+          details: {
+            options: q.options,
+            picked: o,
+            hanzi: hanzi(q.n),
+            focus: focus.active ? focus.label : undefined,
           },
-        ],
-        details: {
-          options: q.options,
-          picked: o,
-          hanzi: hanzi(q.n),
-          focus: focus.active ? focus.label : undefined,
-        },
-      });
+        });
+      }
       playSfx(ok ? "right" : "wrong");
-      // Move on by itself: after 1 s when right, after 2.5 s when wrong (time to read the number and hear it again).
-      advance.current = setTimeout(next, ok ? 1000 : 2500);
+      if (ok) {
+        setDone(true);
+        advance.current = setTimeout(next, 1000);
+        return;
+      }
+      const misses = [...wrong, o];
+      setWrong(misses);
+      // A wrong pick keeps the answer hidden and plays the number again. After LISTEN_MISSES wrong picks, it shows.
+      if (misses.length >= LISTEN_MISSES) setDone(true);
+      else advance.current = setTimeout(() => playAudio(ttsUrl(hanzi(q.n))), 600);
     },
-    [q, picked, next, focus],
+    [q, done, wrong, next, focus],
   );
 
   const replay = () => {
     if (!q) return;
-    if (picked === null) replays.current += 1;
-    else if (advance.current) clearTimeout(advance.current);
+    if (!wrong.length && picked === null) replays.current += 1;
+    if (advance.current) clearTimeout(advance.current);
+    playAudio(ttsUrl(hanzi(q.n)));
+  };
+  const showAnswer = () => {
+    if (!q || done) return;
+    if (advance.current) clearTimeout(advance.current);
+    setDone(true);
     playAudio(ttsUrl(hanzi(q.n)));
   };
 
@@ -291,24 +326,26 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
       keys,
       label: "Answer " + (i + 1),
       run: () => q && choose(q.options[i]),
-      when: !!q && picked === null && i < q.options.length,
+      when: !!q && !done && i < q.options.length,
       bar: false,
     })),
-    { keys: [], label: "Answer", show: ["1-4", "/", "A S D F"], when: !!q && picked === null },
+    { keys: [], label: "Answer", show: ["1-4", "/", "A S D F"], when: !!q && !done },
     { keys: ["Space"], label: "Hear again", run: replay, when: !!q },
-    { keys: ["Enter", "KeyN"], label: "Next", run: next, when: picked !== null },
+    { keys: ["KeyN"], label: "Show the answer", run: showAnswer, when: !!q && !done && wrong.length > 0 },
+    { keys: ["Enter", "KeyN"], label: "Next", run: next, when: done },
     ...hotkeys,
   ]);
 
-  const right = q !== null && picked === q.n;
+  const right = q !== null && done && picked === q.n;
+  const status = done ? (right ? "right" : "wrong") : wrong.length ? "wrong" : "listening";
   return (
     <div className="flex flex-1 flex-col gap-4">
       <div className="chips flex gap-2 items-center flex-wrap">
         {chips}
         <FocusChip focus={focus} empty={empty} />
         <div className="ml-auto text-sm text-muted">
-          <b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}% of{" "}
-          {score.n}
+          <b className="text-ink">{score.streak}</b> streak · {score.n ? Math.round((100 * score.ok) / score.n) : 0}%
+          first try of {score.n}
         </div>
       </div>
       {ladder}
@@ -316,32 +353,41 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
         <div
           className={
             "card stage border-2 p-8 flex flex-1 flex-col items-center justify-center gap-6 md:gap-7 transition-colors duration-300 " +
-            (picked === null ? "border-line" : right ? "border-ok bg-ok/5" : "border-bad/60 bg-bad/5")
+            (status === "listening" ? "border-line" : right ? "border-ok bg-ok/5" : "border-bad/60 bg-bad/5")
           }
         >
           <StatusPill
-            status={picked === null ? "listening" : right ? "right" : "wrong"}
-            label={picked === null ? "Listen, then choose" : right ? "Correct!" : "Not quite"}
+            status={status}
+            label={
+              done
+                ? right
+                  ? "Correct!"
+                  : "Here is the answer"
+                : wrong.length
+                  ? "Not quite, listen again"
+                  : "Listen, then choose"
+            }
           />
           <PlayButton big src={ttsUrl(hanzi(q.n))} title="Play again (Space)" />
           <div className="text-muted">Which number do you hear?</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 w-full max-w-3xl">
             {q.options.map((o, i) => {
-              const isRight = picked !== null && o === q.n;
-              const isWrong = picked === o && o !== q.n;
+              const isRight = done && o === q.n;
+              const isWrong = wrong.includes(o);
               return (
                 <button
                   key={o}
                   onClick={() => choose(o)}
+                  disabled={done || isWrong}
                   className={
                     "tile relative rounded-2xl border-2 px-4 pb-5 pt-9 text-center transition " +
-                    (picked === o ? fxClass(isRight ? "right" : "wrong") : "") +
+                    (picked === o ? fxClass(o === q.n ? "right" : "wrong") : "") +
                     " " +
                     (isRight
                       ? "border-ok bg-ok/10"
                       : isWrong
-                        ? "border-bad bg-bad/10"
-                        : picked !== null
+                        ? "border-bad bg-bad/10 opacity-70"
+                        : done
                           ? "border-line bg-card opacity-60"
                           : "border-line bg-card hover:border-accent hover:-translate-y-0.5")
                   }
@@ -352,33 +398,42 @@ function Listen({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
                     <Kbd>{ANSWER_LETTERS[i]}</Kbd>
                   </span>
                   <div className="text-3xl md:text-4xl font-semibold tabular-nums break-all">{digits(o)}</div>
-                  {picked !== null && (isRight || isWrong) && (
-                    <div className="cjk text-sm text-muted mt-1">{hanzi(o)}</div>
-                  )}
+                  {done && (isRight || isWrong) && <div className="cjk text-sm text-muted mt-1">{hanzi(o)}</div>}
                 </button>
               );
             })}
           </div>
-          {picked !== null && (
+          {done && (
             <div className="max-md:hidden">
               <Reading n={q.n} big />
             </div>
           )}
-          {picked !== null && (
+          {!done && wrong.length > 0 && (
+            <button className="btn text-muted max-md:hidden" onClick={showAnswer}>
+              Show the answer <Kbd>N</Kbd>
+            </button>
+          )}
+          {(done || wrong.length > 0) && (
             <ActionBar
               mobileOnly
               tone={right ? "ok" : "bad"}
-              title={right ? "Correct!" : "Not quite"}
-              detail={<span className="cjk text-2xl">{digits(q.n) + " · " + hanzi(q.n)}</span>}
+              title={done ? (right ? "Correct!" : "Here is the answer") : "Not quite, listen again"}
+              detail={done ? <span className="cjk text-2xl">{digits(q.n) + " · " + hanzi(q.n)}</span> : undefined}
             >
-              <button
-                className={
-                  "btn ab-primary " + (right ? "!bg-ok !border-ok !text-white" : "!bg-bad !border-bad !text-white")
-                }
-                onClick={next}
-              >
-                Continue
-              </button>
+              {done ? (
+                <button
+                  className={
+                    "btn ab-primary " + (right ? "!bg-ok !border-ok !text-white" : "!bg-bad !border-bad !text-white")
+                  }
+                  onClick={next}
+                >
+                  Continue
+                </button>
+              ) : (
+                <button className="btn" onClick={showAnswer}>
+                  Show the answer
+                </button>
+              )}
             </ActionBar>
           )}
         </div>
@@ -399,11 +454,25 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
   const [checking, setChecking] = useState(false);
   const [helped, setHelped] = useState(false);
   const [tries, setTries] = useState(0);
+  // The typed check fixed the sounds and the tones were right: the number counts as said.
+  const [fixed, setFixed] = useState(false);
+  const [typedCheck, setTypedCheck] = useState<Check>("none");
+  const [typedNote, setTypedNote] = useState("");
   const [error, setError] = useState("");
   const [fxKey, setFxKey] = useState(0);
   const [score, setScore] = useState({ n: 0, ok: 0, streak: 0 });
-  const last = useRef<number | null>(null);
-  const current = useRef({ n: null as number | null, helped: false, tries: 0 });
+  const recent = useRef<number[]>([]);
+  const advance = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // misses: recordings in a row without help that did not pass. sound: one of them had a sound heard wrong.
+  const blank = {
+    n: null as number | null,
+    helped: false,
+    tries: 0,
+    misses: 0,
+    sound: false,
+    eventIds: [] as number[],
+  };
+  const current = useRef(blank);
 
   useEffect(() => {
     let stop = false;
@@ -419,57 +488,80 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
     poll();
     return () => {
       stop = true;
+      if (advance.current) clearTimeout(advance.current);
     };
   }, []);
 
   const next = useCallback(() => {
-    const x = pick(focus, last.current, openRef.current, only);
-    last.current = x;
-    current.current = { n: x, helped: false, tries: 0 };
+    if (advance.current) clearTimeout(advance.current);
+    const x = pick(focus, recent.current, openRef.current, only);
+    recent.current = [...recent.current, x].slice(-RECENT);
+    current.current = { ...blank, n: x, eventIds: [] };
     setN(x);
     setResult(null);
     setHelped(false);
     setTries(0);
+    setFixed(false);
+    setTypedCheck("none");
+    setTypedNote("");
     setError("");
-  }, [focus, only]);
+  }, [focus, only]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (ready) next();
   }, [focus, only, ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const passed = result !== null && result.score >= PASS;
+  const passed = fixed || (result !== null && result.score >= PASS);
+  // The answer (the characters and their Bopomofo) shows only after a pass or help. A miss shows what went wrong.
+  const shown = passed || helped;
 
-  const onClip = useCallback(async (c: Clip) => {
-    const cur = current.current;
-    if (cur.n === null) return;
-    const asked = cur.n;
-    setChecking(true);
-    setError("");
-    try {
-      const r = await api.speech(c.wav, hanzi(asked), "numbers", {
-        help: cur.helped,
-        tryN: cur.tries,
-        number: asked,
-      });
-      if (current.current.n !== asked) return;
-      const ok = r.score >= PASS;
-      // The score counts the first try of each number only, like the stats.
-      if (cur.tries === 0)
-        setScore((s) => ({
-          n: s.n + 1,
-          ok: s.ok + (ok && !cur.helped ? 1 : 0),
-          streak: ok && !cur.helped ? s.streak + 1 : 0,
-        }));
-      current.current = { ...cur, tries: cur.tries + 1 };
-      setTries(cur.tries + 1);
-      setResult(r);
-      setFxKey((k) => k + 1);
-      playSfx(ok ? "right" : r.score >= 60 ? "close" : "wrong");
-    } catch (e) {
-      setError("The check failed: " + (e as Error).message);
-    } finally {
-      setChecking(false);
-    }
-  }, []);
+  const onClip = useCallback(
+    async (c: Clip) => {
+      const cur = current.current;
+      if (cur.n === null) return;
+      const asked = cur.n;
+      setChecking(true);
+      setError("");
+      try {
+        const r = await api.speech(c.wav, hanzi(asked), "numbers", {
+          help: cur.helped,
+          tryN: cur.tries,
+          number: asked,
+        });
+        if (current.current.n !== asked) return;
+        const ok = r.score >= PASS;
+        // The score counts the first try of each number only, like the stats.
+        if (cur.tries === 0)
+          setScore((s) => ({
+            n: s.n + 1,
+            ok: s.ok + (ok && !cur.helped ? 1 : 0),
+            streak: ok && !cur.helped ? s.streak + 1 : 0,
+          }));
+        const miss = !ok && !cur.helped;
+        const after = {
+          ...cur,
+          tries: cur.tries + 1,
+          misses: miss ? cur.misses + 1 : cur.misses,
+          sound: cur.sound || (miss && soundMiss(r)),
+          eventIds: r.event_id ? [...cur.eventIds, r.event_id] : cur.eventIds,
+        };
+        current.current = after;
+        setTries(after.tries);
+        setResult(r);
+        setFxKey((k) => k + 1);
+        playSfx(ok ? "right" : r.score >= 60 ? "close" : "wrong");
+        // After 3 misses in a row with a sound heard wrong, ask once what the learner said: the model can mix up close sounds.
+        if (after.misses >= CHECK_AFTER && after.sound && !after.helped)
+          setTypedCheck((s) => (s === "none" ? "open" : s));
+        // A pass moves on by itself, like the other exercises. The result stays readable for a moment.
+        if (ok) advance.current = setTimeout(next, 1800);
+      } catch (e) {
+        setError("The check failed: " + (e as Error).message);
+      } finally {
+        setChecking(false);
+      }
+    },
+    [next],
+  );
 
   const modelReady = health !== null && health !== "down" && health.speech_model === "ready";
   const hold = useHoldMic({
@@ -478,11 +570,12 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
     onClip: (c) => void onClip(c),
     onDiscard: (why) => setError(holdHint(why, "R", phone)),
   });
-  const canHold = modelReady && !checking && n !== null;
+  const canHold = modelReady && !checking && n !== null && !passed && typedCheck !== "open";
 
   // Hearing the number before the first pass counts as help, like "Hear the answer" in Reading.
   const cheat = () => {
     if (n === null) return;
+    if (advance.current) clearTimeout(advance.current);
     if (!passed) {
       current.current = { ...current.current, helped: true };
       setHelped(true);
@@ -490,6 +583,40 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
     playAudio(ttsUrl(hanzi(n)));
   };
   const hear = (char: string) => playAudio(ttsUrl(char));
+
+  /** The learner typed what they said. Same sounds: the sound misses count as right (the tones stay as checked).
+   * Other sounds: a real mix-up, and the answer shows. */
+  const checkTyped = async (typed: string): Promise<string | null> => {
+    const cur = current.current;
+    if (cur.n === null || !cur.eventIds.length) return null;
+    const asked = cur.n;
+    const r = await api.confirmSpeech(cur.eventIds, typed);
+    if (current.current.n !== asked) return null;
+    setTypedCheck("done");
+    if (!r.match) {
+      setTypedNote("You typed " + typed + ". This number is said " + hanzi(asked) + ". Listen, then try again.");
+      cheat();
+      return null;
+    }
+    const fixedSyl = (x: SpeechResult) => ({
+      ...x,
+      syllables: x.syllables.map((s) => ({ ...s, initial_ok: true, final_ok: true })),
+    });
+    const tonesOk = !!result && result.syllables.every((s) => s.heard && s.tone_ok);
+    setResult((x) => x && fixedSyl(x));
+    if (tonesOk) {
+      setFixed(true);
+      setTypedNote("Thanks! The microphone heard the sounds wrong, so this number counts as said right.");
+      playSfx("right");
+      setFxKey((k) => k + 1);
+      advance.current = setTimeout(next, 2200);
+    } else {
+      setTypedNote(
+        "Thanks! The sounds were right: the microphone heard them wrong. A tone still needs work: try again.",
+      );
+    }
+    return null;
+  };
 
   useHotkeys("numbers-speak", [
     {
@@ -499,9 +626,9 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
       up: () => void hold.release(),
       when: canHold || hold.holding,
     },
-    { keys: ["Space"], label: helped || passed ? "Hear it again" : "Hear the answer", run: cheat, when: n !== null },
+    { keys: ["Space"], label: shown ? "Hear it again" : "Hear the answer", run: cheat, when: n !== null },
     { keys: ["Enter"], label: "Next", run: next, when: passed && !checking },
-    { keys: ["KeyN"], label: "Skip", run: next, when: !checking && !hold.holding },
+    { keys: ["KeyN"], label: "Skip", run: next, when: !passed && !checking && !hold.holding },
     ...hotkeys,
   ]);
 
@@ -509,15 +636,15 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
     ? "hearing"
     : checking
       ? "checking"
-      : result
-        ? passed
-          ? "right"
-          : result.score >= 60
+      : passed
+        ? "right"
+        : result
+          ? result.score >= 60
             ? "close"
             : "wrong"
-        : modelReady
-          ? "listening"
-          : "idle";
+          : modelReady
+            ? "listening"
+            : "idle";
   const border =
     status === "right"
       ? "border-ok bg-ok/5"
@@ -585,13 +712,35 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
             </div>
           </FxFrame>
           <div className="min-h-16 flex flex-col items-center justify-center text-center gap-1">
-            {helped || result ? <Reading n={n} big /> : <div className="text-muted">Say this number in Mandarin.</div>}
+            {shown ? (
+              <Reading n={n} big />
+            ) : (
+              <div className="text-muted">
+                {result ? "Try again, or hear the answer." : "Say this number in Mandarin."}
+              </div>
+            )}
             {helped && !passed && <div className="text-xs text-muted">Heard first: this one counts as help.</div>}
           </div>
 
+          {typedNote && (
+            <div className="text-sm text-center max-w-md cjk text-muted" role="status">
+              {typedNote}
+            </div>
+          )}
+          {typedCheck === "open" && !checking && !hold.holding && (
+            <PinyinCheck
+              example="ㄕˊ ㄙˋ or shi si"
+              intro="The microphone can mix up close sounds, like s and sh, especially with a blocked nose. Type the sounds you said in Bopomofo or Pinyin, one syllable per character, with a space between them."
+              label="The sounds you said, in Bopomofo or Pinyin"
+              maxLength={120}
+              check={checkTyped}
+              onClose={() => setTypedCheck("closed")}
+            />
+          )}
+
           {result && (
             <div className="w-full max-w-2xl">
-              <ResultView result={result} onHear={hear} />
+              <ResultView result={result} onHear={hear} hide={!shown} />
             </div>
           )}
 
@@ -634,8 +783,17 @@ function Speak({ chips, ladder, hotkeys, open, only, ready }: ModeProps) {
               </button>
             )}
             <button className="btn" onClick={cheat}>
-              {helped || passed ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd>
+              {shown ? "Hear it again" : "Hear the answer"} <Kbd>Space</Kbd>
             </button>
+            {typedCheck === "closed" && !shown && (
+              <button
+                className="btn"
+                onClick={() => setTypedCheck("open")}
+                title="The microphone can mix up close sounds"
+              >
+                Type what you said
+              </button>
+            )}
             {!passed && (
               <button className="btn text-muted" onClick={next} disabled={checking} title="Another number">
                 {tries ? "Next number" : "Skip"} <Kbd>N</Kbd>

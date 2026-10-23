@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import json
 import re
-import time
 import unicodedata
+import uuid
 from collections import defaultdict
 
 from pypinyin.style.bopomofo import BopomofoConverter
@@ -47,6 +47,7 @@ FINALS = set("ㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ") | {
 }
 _PINYIN = re.compile(r"[a-zāáǎàēéěèīíǐìōóǒòūúǔùüǖǘǚǜ]+[1-5]?")
 _BOPO = re.compile(r"[\u3105-\u3129]+")
+_TONE_MARKS = "ˊˇˋ˙"
 _conv = BopomofoConverter()
 
 
@@ -64,6 +65,38 @@ def parse_syllable(text: str) -> tuple[str, str] | None:
     if (not initial and not final) or (final and final not in FINALS):
         return None
     return initial or "∅", final or "∅"
+
+
+def _bopomofo_syllables(text: str) -> list[tuple[str, str]] | None:
+    """Typed Bopomofo split into syllables: a tone mark or a space ends a syllable, and an initial starts a new one."""
+    out: list[tuple[str, str]] = []
+    for chunk in re.split(r"[\s,，、'’\-" + _TONE_MARKS + r"]+", text):
+        i = 0
+        while i < len(chunk):
+            initial = chunk[i] if chunk[i] in INITIALS else ""
+            i += len(initial)
+            # The longest final that fits: ㄧㄥ before ㄧ.
+            final = next((chunk[i : i + k] for k in (2, 1) if chunk[i : i + k] in FINALS), "")
+            i += len(final)
+            if not initial and not final:
+                return None
+            out.append((initial or "∅", final or "∅"))
+    return out or None
+
+
+def parse_syllables(text: str) -> list[tuple[str, str]] | None:
+    """The initial and final of each syllable of a typed answer, in Bopomofo ("ㄕˊ ㄙˋ", "ㄕˊㄙˋ") or in Pinyin with a
+    space or a tone number between the syllables ("shi si", "shi2si4"). None if a part is not a syllable."""
+    t = unicodedata.normalize("NFC", text or "").strip().lower()
+    if not t:
+        return None
+    if _BOPO.search(t):
+        if re.search(r"[a-zü]", t):
+            return None
+        return _bopomofo_syllables(t)
+    parts = [p for p in re.split(r"[\s,，、'’\-]+|(?<=[1-5])", t) if p]
+    said = [parse_syllable(p) for p in parts]
+    return None if not said or any(s is None for s in said) else said  # type: ignore[return-value]
 
 
 def _extra(raw) -> dict:
@@ -99,10 +132,12 @@ def recount(c, event_ids) -> int:
                 "SELECT id, kind, pos, ok, try_n, help FROM units WHERE event_id=? ORDER BY try_n, pos, id", (eid,)
             )
         ]
-        if e["area"] == "speaking":
+        if e["area"] in ("speaking", "numbers"):
             by_pos: dict[int, list[dict]] = defaultdict(list)
-            for u in us:
-                if u["try_n"] == min(x["try_n"] for x in us):  # the recording itself, not a typed check added later
+            # The recording itself, not a typed check added later. A number has one more unit for the whole number.
+            rec = [u for u in us if u["kind"] != "number"]
+            for u in rec:
+                if u["try_n"] == min(x["try_n"] for x in rec):
                     by_pos[u["pos"]].append(u)
             whole = bool(by_pos)
             for parts in by_pos.values():
@@ -112,6 +147,10 @@ def recount(c, event_ids) -> int:
                     if u["kind"] == "syllable" and good and not u["ok"]:
                         c.execute("UPDATE units SET ok=1, actual=expected WHERE id=?", (u["id"],))
                 whole = whole and good
+            if whole:
+                for u in us:
+                    if u["kind"] == "number" and not u["ok"]:
+                        c.execute("UPDATE units SET ok=1, actual=expected WHERE id=?", (u["id"],))
             first = whole and not e["help"] and (e["tries"] or 1) == 1
         else:
             sym = [u for u in us if u["kind"] == "symbol"]
@@ -136,6 +175,82 @@ def _rebuild_levels(c) -> None:
         levels.rebuild(c)
 
 
+def confirm(event_ids: list[int], typed: str) -> dict:
+    """The typed check after missed recordings: a spoken number, or one single-syllable speaking card."""
+    ids = sorted(set(event_ids))
+    with db.conn() as c:
+        areas = {r["area"] for r in c.execute("SELECT area FROM events WHERE id IN " + _in(ids), tuple(ids))}
+    return confirm_number(ids, typed) if areas == {"numbers"} else confirm_speaking(ids, typed)
+
+
+def confirm_number(event_ids: list[int], typed: str) -> dict:
+    """The learner typed what they said after missed recordings of one number, one syllable per character.
+    When every initial and final is the expected one, the misses of those sounds count as right. The tones stay as
+    measured, so a number with a wrong tone stays wrong."""
+    said = parse_syllables(typed)
+    if not said:
+        raise ValueError("Type the sounds you said in Bopomofo or Pinyin, with a space between the syllables.")
+    ids = sorted(set(event_ids))
+    with db.conn() as c:
+        evs = c.execute("SELECT id, area, mode, item FROM events WHERE id IN " + _in(ids), tuple(ids)).fetchall()
+        if (
+            len(evs) != len(ids)
+            or any(e["area"] != "numbers" or e["mode"] != "speak" for e in evs)
+            or len({e["item"] for e in evs}) != 1
+        ):
+            raise ValueError("These recordings are not from one spoken number.")
+        units = [
+            dict(r)
+            for r in c.execute(
+                "SELECT id, event_id, kind, expected, actual, ok, pos, try_n, source, extra FROM units"
+                " WHERE event_id IN " + _in(ids) + " AND kind IN ('initial','final') ORDER BY id",
+                tuple(ids),
+            )
+        ]
+        units = [u for u in units if u["source"] != "typed"]
+        exp: dict[int, dict[str, str]] = defaultdict(dict)
+        for u in units:
+            exp[u["pos"]].setdefault(u["kind"], u["expected"])
+        if not exp or any(len(k) != 2 for k in exp.values()):
+            raise ValueError("This number has no sounds to check.")
+        expected = [(exp[i]["initial"], exp[i]["final"]) for i in sorted(exp)]
+        match = said == expected
+        # A random id: the Windows clock moves in 15.6 ms steps, so two fast checks could share a time id.
+        cid = f"n{uuid.uuid4().hex}"
+        fixed = 0
+        if match:
+            for u in units:
+                if u["ok"] == 0:
+                    _fix_unit(c, u, "typed", {"heard": u["actual"], "typed": typed, "confirm": cid})
+                    fixed += 1
+            recount(c, ids)
+        elif len(said) == len(expected):
+            # Same length: save what was said, sound by sound, so the stats show a real mix-up.
+            last = max(ids)
+            n = c.execute("SELECT MAX(try_n) FROM units WHERE event_id=?", (last,)).fetchone()[0] or 0
+            db.add_units(
+                c,
+                last,
+                [
+                    {
+                        "kind": k,
+                        "pos": i,
+                        "expected": e[j],
+                        "actual": s[j],
+                        "ok": s[j] == e[j],
+                        "try_n": n + 1,
+                        "source": "typed",
+                        "extra": {"typed": typed, "confirm": cid},
+                    }
+                    for i, (s, e) in enumerate(zip(said, expected, strict=True))
+                    for j, k in enumerate(("initial", "final"))
+                ],
+            )
+        _rebuild_levels(c)
+        pairs = _apply_pairs(c) if match else []
+    return {"match": match, "fixed": fixed, "pairs_confirmed": pairs}
+
+
 def confirm_speaking(event_ids: list[int], typed: str) -> dict:
     """The learner typed what they said after missed recordings of one single-syllable card."""
     said = parse_syllable(typed)
@@ -158,7 +273,7 @@ def confirm_speaking(event_ids: list[int], typed: str) -> dict:
         if "initial" not in exp or "final" not in exp:
             raise ValueError("This card has no sounds to check.")
         match = (exp["initial"], exp["final"]) == said
-        cid = f"s{time.time_ns()}"
+        cid = f"s{uuid.uuid4().hex}"
         fixed = 0
         if match:
             for u in units:
