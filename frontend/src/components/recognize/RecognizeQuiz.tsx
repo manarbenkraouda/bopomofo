@@ -100,7 +100,12 @@ export function RecognizeQuiz() {
       c.done = true;
       const firstTry = ok && !c.revealed && c.tries === 0;
       // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
-      review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
+      review().answer(
+        row.sym,
+        learn ? ok && c.tries === 0 : firstTry,
+        !learn,
+        !learn && ok && c.revealed && c.tries === 0,
+      );
       setStats((s) => ({
         cards: s.cards + 1,
         firstTry: s.firstTry + (firstTry ? 1 : 0),

@@ -153,7 +153,8 @@ export function ReadingQuiz() {
       const c = card.current;
       const firstTry = ok && !c.revealed && (c.tries === 0 || typedFix);
       // In learn mode the answer is shown: a right repetition moves the symbol on, but it is not a test.
-      review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn);
+      const helped = !learn && ok && c.revealed && (c.tries === 0 || typedFix);
+      review().answer(row.sym, learn ? ok && c.tries === 0 : firstTry, !learn, helped);
       setStats((s) => ({
         cards: s.cards + 1,
         firstTry: s.firstTry + (firstTry ? 1 : 0),

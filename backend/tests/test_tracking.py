@@ -202,16 +202,30 @@ def test_memory_keeps_tests_only(tmpdb):
         ),
         ({"area": "listening", "mode": "tone", "item": "ㄇㄚˇ", "ok": True, "first_try": True}, t + 40),
         ({"area": "listening", "mode": "zhuyin", "item": "ㄇㄚˇ", "ok": False, "first_try": False}, t + 50),
-        ({"area": "speaking", "mode": "sentence", "item": "你好", "ok": False, "first_try": False, "tries": 1}, t + 60),
+        (
+            {
+                "area": "speaking",
+                "mode": "sentence",
+                "item": "你好",
+                "ok": False,
+                "first_try": False,
+                "tries": 1,
+                "score": 71,
+            },
+            t + 60,
+        ),
         ({"area": "speaking", "mode": "sentence", "item": "你好", "ok": True, "first_try": False, "tries": 2}, t + 70),
     ]
     for e, ts in ev:
         db.add_event(e, ts=ts)
-    assert [g for _, g in db.memory("reading")["ㄅ"]] == [1, 0, 0]
+    assert [g for _, g, *_ in db.memory("reading")["ㄅ"]] == [1, 0, 0]
+    # The help flag and the raw first-try result, so the learner's settings can count a right answer with help.
+    assert [[h, r] for _, _, h, r, _ in db.memory("reading")["ㄅ"]] == [[0, 1], [0, 0], [1, 1]]
     assert "ㄆ" not in db.memory("reading")
-    assert [g for _, g in db.memory("listening", "tone")["ㄇㄚˇ"]] == [1]
-    assert [g for _, g in db.memory("listening", "zhuyin")["ㄇㄚˇ"]] == [0]
-    assert [g for _, g in db.memory("speaking", "sentence")["你好"]] == [0]
+    assert [g for _, g, *_ in db.memory("listening", "tone")["ㄇㄚˇ"]] == [1]
+    assert [g for _, g, *_ in db.memory("listening", "zhuyin")["ㄇㄚˇ"]] == [0]
+    # Speaking sends the score, so the learner's pass score decides.
+    assert [[g, s] for _, g, _, _, s in db.memory("speaking", "sentence")["你好"]] == [[0, 71]]
     for i in range(30):
         db.add_event({"area": "recognize", "item": "ㄈ", "ok": True, "first_try": True}, ts=t + 100 + i)
     assert len(db.memory("recognize")["ㄈ"]) == db.MEMORY_KEEP

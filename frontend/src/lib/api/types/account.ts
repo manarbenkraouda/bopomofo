@@ -1,4 +1,5 @@
 import { type TextItem } from "./content";
+import { type SavedReview } from "../../reviewSettings";
 
 export type Profile = Record<string, string>;
 
@@ -23,6 +24,8 @@ export type Me = {
   placement: "none" | "due" | "done";
   /** Exercises are open up to this level, chosen in Settings. 1 follows the progress only. */
   open_level: number;
+  /** The learner's settings for the card order (lib/reviewSettings.ts). */
+  review?: SavedReview;
 };
 
 export type Onboarding = {

@@ -21,7 +21,7 @@ def test_review_memory_is_per_user(client):
     ev = {"area": "listening", "mode": "tone", "item": "ㄇㄚˇ", "ok": True, "first_try": True, "units": []}
     assert client.post("/api/progress/event", json=ev, headers=A).status_code == 200
     a = client.get("/api/progress/memory", params={"area": "listening", "mode": "tone"}, headers=A).json()
-    assert [g for _, g in a["items"]["ㄇㄚˇ"]] == [1] and a["now"] >= a["items"]["ㄇㄚˇ"][0][0]
+    assert [g for _, g, *_ in a["items"]["ㄇㄚˇ"]] == [1] and a["now"] >= a["items"]["ㄇㄚˇ"][0][0]
     assert (
         client.get("/api/progress/memory", params={"area": "listening", "mode": "zhuyin"}, headers=A).json()["items"]
         == {}

@@ -319,8 +319,12 @@ export function SpeakingPractice() {
     try {
       const r = await api.speech(audio, c.text, source, { help: m.cheat, tryN: m.tries });
       if (meta.current.card !== c) return;
-      // The first recording of a card is the test: right without the cheat moves it on in the schedule.
-      if (m.tries === 0 && source !== "custom") review().answer(c.text, r.score >= RIGHT && !m.cheat);
+      // The first recording of a card is the test: a score at the learner's pass score moves it on in the schedule.
+      // With the cheat it counts only when the learner allows help (helpCounts).
+      if (m.tries === 0 && source !== "custom") {
+        const pass = r.score >= review().cfg.passScore;
+        review().answer(c.text, pass && !m.cheat, true, pass && m.cheat);
+      }
       m.tries += 1;
       if (r.event_id) m.eventIds.push(r.event_id);
       // One-syllable cards: after 3 sound misses without the cheat, ask once what the learner said.

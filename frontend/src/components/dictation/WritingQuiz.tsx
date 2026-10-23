@@ -100,7 +100,12 @@ export function WritingQuiz() {
       const c = card.current;
       const firstTry = passed && !c.cheated && c.tries === 0;
       // In learn mode the strokes are shown: a right copy moves the symbol on, but it is not a test.
-      review().answer(row.sym, learn ? passed && c.tries === 0 : firstTry, !learn);
+      review().answer(
+        row.sym,
+        learn ? passed && c.tries === 0 : firstTry,
+        !learn,
+        !learn && passed && c.cheated && c.tries === 0,
+      );
       setStats((s) => ({
         cards: s.cards + 1,
         firstTry: s.firstTry + (firstTry ? 1 : 0),

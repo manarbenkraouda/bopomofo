@@ -660,11 +660,13 @@ MEMORY_KEEP = 20
 
 
 def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
-    """The recent tests of each item of one practice mode, oldest first: [time, 1 if right on the first try without help].
+    """The recent tests of each item of one practice mode, oldest first: [time, 1 if right on the first try without help,
+    1 if a hint or the cheat was used, 1 if right on the first try with or without help, the speaking score or None].
     The practice picks use them to schedule reviews (frontend/src/lib/review.ts). Only tests count: learn-mode answers
-    (the answer is shown on purpose) are left out, and in speaking only the first recording of a card counts."""
+    (the answer is shown on purpose) are left out, and in speaking only the first recording of a card counts.
+    The help flag and the score let the learner's settings decide what counts as right (helpCounts, passScore)."""
     sql = (
-        "SELECT item, ts, COALESCE(first_try, ok) AS good, help FROM events WHERE area = ?"
+        "SELECT item, ts, COALESCE(first_try, ok) AS good, help, score FROM events WHERE area = ?"
         " AND (area <> 'speaking' OR tries IS NULL OR tries <= 1)"
         " AND (details IS NULL OR details::jsonb ->> 'learn' IS NULL)"
     )
@@ -676,8 +678,10 @@ def memory(area: str, mode: str | None = None) -> dict[str, list[list]]:
         rows = c.execute(sql + " ORDER BY ts, id", tuple(args)).fetchall()
     out: dict[str, list[list]] = defaultdict(list)
     for r in rows:
+        good, helped = int(bool(r["good"])), int(bool(r["help"]))
+        score = round(r["score"], 1) if area == "speaking" and r["score"] is not None else None
         # Round down, so a test is never later than the "now" the caller reads after it.
-        out[r["item"]].append([math.floor(r["ts"] * 10) / 10, int(bool(r["good"]) and not r["help"])])
+        out[r["item"]].append([math.floor(r["ts"] * 10) / 10, int(good and not helped), helped, good, score])
     return {k: v[-MEMORY_KEEP:] for k, v in out.items()}
 
 

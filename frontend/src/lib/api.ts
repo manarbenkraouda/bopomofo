@@ -24,6 +24,8 @@ import {
 } from "./api/types/content";
 import { type LevelNotice, type Levels } from "./api/types/levels";
 import { type Challenge, type PracticeEvent, type Stats, type Summary } from "./api/types/stats";
+import { type PastTest } from "./review";
+import { type SavedReview } from "./reviewSettings";
 import { markActive, recordAttempt } from "./session";
 
 const json = (body: unknown): RequestInit => ({
@@ -38,7 +40,7 @@ export const api = {
   saveProfile: (p: Profile) => call<Profile>("/api/profile", { ...json(p), method: "PUT" }),
   me: () => call<Me>("/api/me"),
   onboard: (o: Onboarding) => call<Me>("/api/onboarding", json(o)),
-  saveSettings: (s: { timezone?: string; goal_min?: number; open_level?: number }) =>
+  saveSettings: (s: { timezone?: string; goal_min?: number; open_level?: number; review?: SavedReview }) =>
     call<Me>("/api/settings", { ...json(s), method: "PUT" }),
   health: () => call<Health>("/api/health"),
   analyzeText: (text: string) => call<{ text: string; items: TextItem[] }>("/api/text/analyze", json({ text })),
@@ -111,9 +113,9 @@ export const api = {
       ok: false,
     })),
   summary: () => call<Summary>("/api/progress/summary"),
-  /** Past tests per item of one practice mode: [time in seconds, 1 if right on the first try without help], oldest first. */
+  /** Past tests per item of one practice mode, oldest first (see PastTest in lib/review.ts). */
   memory: (area: string, mode = "") =>
-    call<{ now: number; items: Record<string, [number, number][]> }>(
+    call<{ now: number; items: Record<string, PastTest[]> }>(
       "/api/progress/memory?area=" + area + (mode ? "&mode=" + mode : ""),
       { cache: "no-store" },
     ),

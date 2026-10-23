@@ -82,6 +82,8 @@ class SettingsIn(BaseModel):
     goal_min: int | None = Field(default=None, ge=5, le=120)
     # Open the exercises up to this level without the level goals. 1 follows the progress only. Earned levels stay open.
     open_level: int | None = Field(default=None, ge=1, le=levels.MAX_LEVEL)
+    # The card order settings (learner.REVIEW_RANGES). Unknown keys are dropped and values are pulled into range.
+    review: dict | None = None
 
 
 @router.put("/settings")
@@ -95,6 +97,8 @@ def settings_put(body: SettingsIn):
         changes["goal_min"] = body.goal_min
     if body.open_level is not None:
         changes["open_level"] = body.open_level
+    if body.review is not None:
+        changes["review"] = learner.clean_review(body.review)
     if changes:
         db.save_settings(changes)
     return learner.state()
